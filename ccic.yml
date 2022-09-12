@@ -1,0 +1,12 @@
+name: ccic
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.8
+  - satpy
+  - xarray
+  - cartopy
+  - pyhdf
+  - scipy
+prefix: /home/simonpf/miniconda3/envs/ccic
