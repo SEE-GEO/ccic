@@ -1,5 +1,6 @@
 name: ccic
 channels:
+  - pytorch
   - conda-forge
   - defaults
 dependencies:
@@ -9,4 +10,9 @@ dependencies:
   - cartopy
   - pyhdf
   - scipy
+  - torchvision
+  - torchaudio
+  - pytorch
+  - cudatoolkit=11.6
+  - pytorch-lightning
 prefix: /home/simonpf/miniconda3/envs/ccic
