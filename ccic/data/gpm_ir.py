@@ -9,11 +9,21 @@ from pansat.products.satellite.gpm import gpm_mergeir
 from pansat.time import to_datetime
 from pyresample import create_area_def
 import numpy as np
+import torch
 import xarray as xr
 
 from ccic.data import cloudsat
 
 PROVIDER = Disc2Provider(gpm_mergeir)
+
+GPM_IR_GRID = create_area_def(
+    "gpmir_area",
+    {"proj": 'longlat', 'datum': 'WGS84'},
+    area_extent=[-180.0, -60.0, 180.0, 60.0],
+    resolution=(0.036378335, 0.03638569),
+    units='degrees',
+    description='GPMIR grid'
+)
 
 
 class GPMIR:
@@ -56,6 +66,32 @@ class GPMIR:
     def to_xarray_dataset(self):
         """Load data into ``xarray.Dataset``"""
         return xr.load_dataset(self.filename)
+
+
+    def get_retrieval_input(self):
+        """
+        Load and normalize retrieval input from file.
+        """
+        from ccic.data.training_data import NORMALIZER
+
+        input_data = xr.load_dataset(self.filename)
+        m = input_data.lat.size
+        n = input_data.lon.size
+        tbs = input_data.Tb.data
+
+        xs = []
+        for i in range(2):
+            x_i = np.nan * np.ones((3, m, n))
+            x_i[-1] = tbs[i]
+            x_i = NORMALIZER(x_i)
+            xs.append(x_i)
+        x = np.stack(xs)
+
+        return torch.tensor(x).to(torch.float32)
+
+
+
+
 
     def get_matches(self,
                     cloudsat_data,
