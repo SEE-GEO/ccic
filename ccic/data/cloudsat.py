@@ -2,7 +2,8 @@
 ccic.data.cloudsat
 ==================
 
-This module provides classes to read the CloudSat 2C-Ice files.
+This module provides functionality to read and resample  CloudSat 2C-Ice
+files.
 """
 import dask.array as da
 import numpy as np
@@ -15,7 +16,29 @@ from scipy.signal import convolve
 PROVIDER = CloudSatDPCProvider(l2c_ice)
 
 
+def get_sample_indices(resampler, data):
+    """
+    Return indices for random bucket resampling.
+    """
+    indices = resampler.idxs.compute().ravel()
+    data = data.ravel()
+    shuffle = np.random.permute(indices.size)
+    indices = indices[shuffle]
+    data = data[shuffle]
+
+    unique_inds, unique_inds_data = np.unique(indices, return_indices=True)
+    data_unique = data[unique_inds_data]
+
+    result = np.zeros((resample.target_area.size), dtype=np.float32)
+    valid = unique_inds >= 0
+
+    return unique_inds[valid], unique_inds_data[valid]
+
+
 class CloudSat2CIce:
+    """
+    Interface class to read CloudSat 2C-Ice files.
+    """
 
     @staticmethod
     def get_available_files(date):
@@ -39,11 +62,14 @@ class CloudSat2CIce:
         Load data from file into an ``xarray.Dataset``.
         """
         data = l2c_ice.open(self.filename)
-        time = (np.datetime64("1993-01-01T00:00:00", "s") +
-                data.attrs["start_time"][0, 0].astype("timedelta64[s]") +
-                data.time_since_start.data.astype("timedelta64[s]"))
+        time = (
+            np.datetime64("1993-01-01T00:00:00", "s")
+            + data.attrs["start_time"][0, 0].astype("timedelta64[s]")
+            + data.time_since_start.data.astype("timedelta64[s]")
+        )
         data["time"] = (("rays"), time)
         return data
+
 
 def resample_data(target_dataset, target_grid, cloudsat_data):
     """
@@ -60,14 +86,16 @@ def resample_data(target_dataset, target_grid, cloudsat_data):
     """
     source_lons = da.from_array(cloudsat_data.longitude.data)
     source_lats = da.from_array(cloudsat_data.latitude.data)
-    resampler = BucketResampler(target_grid,
-                                source_lons=source_lons,
-                                source_lats=source_lats)
+    resampler = BucketResampler(
+        target_grid, source_lons=source_lons, source_lats=source_lats
+    )
 
     iwp_r = resampler.get_average(cloudsat_data.iwp.data).compute()[::-1]
 
     t_time = cloudsat_data.time.data.dtype
-    time_r = resampler.get_average(cloudsat_data.time.data.astype(np.int64)).compute()[::-1]
+    time_r = resampler.get_average(cloudsat_data.time.data.astype(np.int64)).compute()[
+        ::-1
+    ]
     time_r = time_r.astype(np.int64).astype(t_time)
 
     surface = np.maximum(cloudsat_data.surface_elevation, 0.0)
