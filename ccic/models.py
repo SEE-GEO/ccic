@@ -1,13 +1,11 @@
 """
-cimr.models
+ccic.models
 ===========
 
-Machine learning models for CIMR.
+Machine learning models for CCIC.
 """
 import torch
 from torch import nn
-
-from cimr.utils import MISSING, MASK
 
 
 class SymmetricPadding(nn.Module):
@@ -31,36 +29,44 @@ class SymmetricPadding(nn.Module):
 
 class SeparableConv(nn.Sequential):
     """
-    Depth-wise separable convolution using with kernel size 3x3.
+    Depth-wise separable convolution.
     """
 
     def __init__(self, channels_in, channels_out, size=7):
         super().__init__(
-            nn.Conv2d(
-                channels_in,
-                channels_in,
-                kernel_size=7,
-                groups=channels_in
-            ),
+            nn.Conv2d(channels_in, channels_in, kernel_size=7, groups=channels_in),
             nn.BatchNorm2d(channels_in),
             nn.Conv2d(channels_in, channels_out, kernel_size=1),
         )
 
+
 class ConvNextBlock(nn.Module):
-    def __init__(self, n_channels, n_channels_out=None, size=7, activation=nn.GELU):
+    """
+    Conv block based on "A ConvNet for the 2020s".
+    """
+
+    def __init__(self, n_channels_in, n_channels_out=None, size=7, activation=nn.GELU):
+        """
+        Args:
+            n_channels_in: Number of channels of the input tensors.
+            n_channels_out: Number of channels for the output. Set to
+                ``n_channels_in`` if not provided.
+            size: Size of the convolution kernel.
+            activation: The activation function to use.
+        """
         super().__init__()
 
         if n_channels_out is None:
-            n_channels_out = n_channels
+            n_channels_out = n_channels_in
         self.body = nn.Sequential(
             SymmetricPadding(3),
-            SeparableConv(n_channels, 2 * n_channels_out, size=size),
+            SeparableConv(n_channels_in, 2 * n_channels_out, size=size),
             activation(),
             nn.Conv2d(2 * n_channels_out, n_channels_out, kernel_size=1),
         )
 
-        if n_channels != n_channels_out:
-            self.projection = nn.Conv2d(n_channels, n_channels_out, kernel_size=1)
+        if n_channels_in != n_channels_out:
+            self.projection = nn.Conv2d(n_channels_in, n_channels_out, kernel_size=1)
         else:
             self.projection = nn.Identity()
 
@@ -71,24 +77,28 @@ class ConvNextBlock(nn.Module):
 
 class DownsamplingBlock(nn.Sequential):
     """
-    Xception downsampling block.
+    Downsampling block  based on "A ConvNet for the 2020s".
     """
 
     def __init__(self, channels_in, channels_out, bn_first=True):
         if bn_first:
             blocks = [
                 nn.BatchNorm2d(channels_in),
-                nn.Conv2d(channels_in, channels_out, kernel_size=2, stride=2)
+                nn.Conv2d(channels_in, channels_out, kernel_size=2, stride=2),
             ]
         else:
             blocks = [
                 nn.Conv2d(channels_in, channels_out, kernel_size=2, stride=2),
-                nn.BatchNorm2d(channels_out)
+                nn.BatchNorm2d(channels_out),
             ]
         super().__init__(*blocks)
 
 
 class DownsamplingStage(nn.Sequential):
+    """
+    Downsampling stage  based on "A ConvNet for the 2020s".
+    """
+
     def __init__(self, channels_in, channels_out, n_blocks, size=7):
         blocks = [DownsamplingBlock(channels_in, channels_out)]
         for i in range(n_blocks):
@@ -98,20 +108,22 @@ class DownsamplingStage(nn.Sequential):
 
 class UpsamplingStage(nn.Module):
     """
-    Xception upsampling block.
+    Upsampling stage with bilinear interpolation, a single ConvNext
+    block and skip connections.
     """
+
     def __init__(self, channels_in, channels_skip, channels_out, size=7):
         """
         Args:
             n_channels: The number of incoming and outgoing channels.
         """
         super().__init__()
-        self.upsample = nn.Upsample(mode="bilinear",
-                                    scale_factor=2,
-                                    align_corners=False)
+        self.upsample = nn.Upsample(
+            mode="bilinear", scale_factor=2, align_corners=False
+        )
         self.block = nn.Sequential(
             nn.Conv2d(channels_in + channels_skip, channels_out, kernel_size=1),
-            ConvNextBlock(channels_out, size=size)
+            ConvNextBlock(channels_out, size=size),
         )
 
     def forward(self, x, x_skip):
@@ -128,16 +140,10 @@ class UpsamplingStage(nn.Module):
 
 class EncoderDecoder(nn.Module):
     """
-    The CIMR Seviri baseline model, which only uses SEVIRI observations
-    for the retrieval.
+    The CCIC retrieval model.
     """
-    def __init__(
-            self,
-            n_stages,
-            features,
-            n_quantiles,
-            n_blocks=2
-    ):
+
+    def __init__(self, n_stages, features, n_quantiles, n_blocks=2):
         """
         Args:
             n_stages: The number of stages in the encode
@@ -162,7 +168,7 @@ class EncoderDecoder(nn.Module):
             ch_out = ch_out * 2
         self.down_stages = nn.ModuleList(stages)
 
-        stages =[]
+        stages = []
         ch_out = ch_in // 2
         for i in range(n_stages):
             ch_skip = ch_out if i < n_stages - 1 else n_channels_in
@@ -172,7 +178,6 @@ class EncoderDecoder(nn.Module):
         self.up_stages = nn.ModuleList(stages)
 
         self.up = UpsamplingStage(features, 0, features)
-
 
         self.head_iwp = nn.Sequential(
             nn.Conv2d(features, features, kernel_size=1),
@@ -198,7 +203,6 @@ class EncoderDecoder(nn.Module):
             nn.Conv2d(features, 20 * n_quantiles, kernel_size=1),
         )
 
-
     def forward(self, x):
         """Propagate input though model."""
         skips = []
@@ -217,5 +221,5 @@ class EncoderDecoder(nn.Module):
 
         return {
             "iwp": self.head_iwp(y),
-            "iwc": self.head_iwc(y).reshape(tuple(profile_shape))
+            "iwc": self.head_iwc(y).reshape(tuple(profile_shape)),
         }
