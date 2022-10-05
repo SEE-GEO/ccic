@@ -19,6 +19,7 @@ def ccic():
     any of the available sub-commands.
     """
     from ccic.bin import train
+    from ccic.bin import process
 
     warnings.filterwarnings("ignore", category=RuntimeWarning)
 
@@ -28,6 +29,7 @@ def ccic():
 
     subparsers = parser.add_subparsers(help="Sub-commands")
     train.add_parser(subparsers)
+    process.add_parser(subparsers)
 
     if len(sys.argv) == 1:
         parser.print_help(sys.stderr)

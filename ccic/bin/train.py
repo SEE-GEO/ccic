@@ -53,7 +53,7 @@ def add_parser(subparsers):
         metavar="path",
         type=str,
         help="Folder containing the validation data.",
-        default=None
+        default=None,
     )
     parser.add_argument(
         "--n_stages",
@@ -104,7 +104,20 @@ def add_parser(subparsers):
         default="gpu",
         help="The accelerator to use for training.",
     )
-
+    parser.add_argument(
+        "--precision",
+        metavar="bytes",
+        type=int,
+        default=32,
+        help="Floating point precision to use.",
+    )
+    parser.add_argument(
+        "--name",
+        metavar="name",
+        type=str,
+        default=None,
+        help="Name to use for logging.",
+    )
     parser.set_defaults(func=run)
 
 
@@ -133,37 +146,33 @@ def run(args):
 
     training_data = Path(args.training_data)
     if not training_data.exists():
-        LOGGER.error(
-            "Provided training data path '%s' doesn't exist."
-        )
+        LOGGER.error("Provided training data path '%s' doesn't exist.")
         sys.exit()
 
     training_data = CCICDataset(training_data)
     training_loader = DataLoader(
         training_data,
-        batch_size=2,
+        batch_size=args.batch_size,
         num_workers=8,
         worker_init_fn=training_data.seed,
         shuffle=True,
-        pin_memory=True
+        pin_memory=True,
     )
 
     validation_data = args.validation_data
     if validation_data is not None:
-        validation_data = Path(validation_daata)
+        validation_data = Path(validation_data)
         if not validation_data.exists():
-            LOGGER.error(
-                "Provided validation data path '%s' doesn't exist."
-            )
+            LOGGER.error("Provided validation data path '%s' doesn't exist.")
             sys.exit()
         validation_data = CCICDataset(validation_data)
         validation_loader = DataLoader(
             validation_data,
-            batch_size=args.batch_size,
+            batch_size=4 * args.batch_size,
             num_workers=8,
             worker_init_fn=validation_data.seed,
-            shuffle=True,
-            pin_memory=True
+            shuffle=False,
+            pin_memory=True,
         )
 
     #
@@ -178,7 +187,7 @@ def run(args):
 
     transformations = {
         "iwc": transformations.LogLinear(),
-        "iwp": transformations.LogLinear()
+        "iwp": transformations.LogLinear(),
     }
 
     if model_path.exists() and not model_path.is_dir():
@@ -186,35 +195,25 @@ def run(args):
         model = qrnn.model
     else:
         if model_path.is_dir():
-            model_path / f"ccic_{n_stages}_{n_blocks}_{n_features}.pckl"
+            model_path = model_path / f"ccic_{n_stages}_{n_blocks}_{n_features}.pckl"
 
-        model = EncoderDecoder(
-            n_stages,
-            n_features,
-            n_quantiles=64,
-            n_blocks=n_blocks
-        )
+        model = EncoderDecoder(n_stages, n_features, n_quantiles=64, n_blocks=n_blocks)
         quantiles = np.linspace(0, 1, 66)[1:-1]
-        qrnn = QRNN(
-            model=model,
-            quantiles=quantiles
-        )
+        qrnn = QRNN(model=model, quantiles=quantiles, transformation=transformations)
 
     #
     # Run training
     #
 
     metrics = [
-        metrics.MeanSquaredError(),
+        metrics.Bias(),
         metrics.Correlation(),
         metrics.CRPS(),
-        metrics.Bias(),
-        metrics.ScatterPlot(),
-        metrics.Correlation(),
-        metrics.ScatterPlot(),
-        metrics.CalibrationPlot()
+        metrics.MeanSquaredError(),
+        metrics.ScatterPlot(log_scale=True),
+        metrics.CalibrationPlot(),
     ]
-    lm = qrnn.lightning(mask=-100, metrics=metrics)
+    lm = qrnn.lightning(mask=-100, metrics=metrics, name=args.name)
     optimizer = AdamW(model.parameters(), lr=args.lr)
     scheduler = CosineAnnealingLR(optimizer, T_max=args.n_epochs)
     lm.optimizer = optimizer
@@ -223,12 +222,13 @@ def run(args):
     trainer = pl.Trainer(
         max_epochs=args.n_epochs,
         accelerator=args.accelerator,
-        precision=16,
-        limit_val_batches=10,
-        limit_train_batches=10,
+        precision=args.precision,
         logger=lm.tensorboard,
-        callbacks=[LearningRateMonitor()]
+        callbacks=[LearningRateMonitor()],
+        gradient_clip_val=1.0,
     )
-    trainer.fit(model=lm, train_dataloaders=training_loader, val_dataloaders=training_loader)
+    trainer.fit(
+        model=lm, train_dataloaders=training_loader, val_dataloaders=validation_loader
+    )
 
     qrnn.save(model_path)
