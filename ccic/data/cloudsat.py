@@ -16,22 +16,34 @@ from scipy.signal import convolve
 PROVIDER = CloudSatDPCProvider(l2c_ice)
 
 
-def get_sample_indices(resampler, data):
+def get_sample_indices(resampler):
     """
-    Return indices for random bucket resampling.
+    Return target and source indices for random-sample resampling.
+
+    Args:
+        resampler: A bucket resampler object with precomputed
+            indices.
+
+    Return:
+        A tuple ``(target_inds, source_inds)`` containing the flattened
+        indices of the random samples w.r.t. output and input grids,
+        respectively.
     """
+    # The indices of all samples w.r.t to the target grid.
     indices = resampler.idxs.compute().ravel()
-    data = data.ravel()
-    shuffle = np.random.permute(indices.size)
+
+    # Emulate sampling by shuffling indices and selecting each
+    # first unique index.
+    shuffle = np.random.permutation(indices.size)
     indices = indices[shuffle]
-    data = data[shuffle]
+    unique_inds, unique_inds_data = np.unique(indices, return_index=True)
 
-    unique_inds, unique_inds_data = np.unique(indices, return_indices=True)
-    data_unique = data[unique_inds_data]
+    # Translate indices of first unique indices back to un-shuffled
+    # data.
+    indices_r = np.argsort(shuffle)
+    unique_inds_data = shuffle[unique_inds_data]
 
-    result = np.zeros((resample.target_area.size), dtype=np.float32)
     valid = unique_inds >= 0
-
     return unique_inds[valid], unique_inds_data[valid]
 
 
