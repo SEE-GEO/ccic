@@ -8,12 +8,35 @@ import numpy as np
 from pyresample.bucket import BucketResampler
 
 from ccic.data.gpm_ir import GPMIR, GPM_IR_GRID
-from ccic.data.cloudsat import CloudSat2CIce, get_sample_indices
+from ccic.data.cloudsat import (
+    CloudSat2CIce,
+    get_sample_indices,
+    subsample_iwc_and_height
+)
 
 TEST_DATA = Path("/home/simonpf/data_3/ccic/test")
 
-def test_random_resampling():
 
+def test_subsample_iwc_and_height():
+    cs_file = "2008032025505_09375_CS_2C-ICE_GRANULE_P1_R05_E02_F00.hdf"
+    cs_data = CloudSat2CIce(TEST_DATA / cs_file).to_xarray_dataset()
+
+    iwc = cs_data.iwc.data
+    height = cs_data.height
+    iwc_s, height_s = subsample_iwc_and_height(iwc, height)
+
+    # IWP in kg/m^2
+    iwp = np.trapz(iwc, x=height, axis=-1) * 1e-3
+    iwp_s = np.trapz(iwc_s, x=height_s, axis=-1) * 1e-3
+
+    # Ensure that subsampling has negligible effect for columns
+    # with non-negligible IWP.
+    notable_iwp = iwp > 1e-4
+    assert np.all(np.isclose(iwp[notable_iwp], iwp_s[notable_iwp], rtol=1e-3))
+
+
+
+def test_random_resampling():
     gpm_file = "merg_2008020110_4km-pixel.nc4"
     gpm_data = GPMIR(TEST_DATA / gpm_file).to_xarray_dataset()
     cs_file = "2008032025505_09375_CS_2C-ICE_GRANULE_P1_R05_E02_F00.hdf"

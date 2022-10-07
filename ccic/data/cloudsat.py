@@ -47,6 +47,35 @@ def get_sample_indices(resampler):
     return unique_inds[valid], unique_inds_data[valid]
 
 
+def subsample_iwc_and_height(iwc, height):
+    """
+    Smoothes and subsamples IWC and height fields to an approximate
+    resolution of 1km.
+
+    Args:
+        iwc: The ice water content field from a CloudSat2CIce file.
+        height: The corresponding height field.
+
+    Return:
+        A tuple ``(iwc, height)`` containing the subsampled IWC and
+        height fields.
+    """
+    k = np.linspace(-4 * 240, 4 * 240, 9)
+    k = np.exp(np.log(0.5) * (k / 500) ** 2).reshape(1, -1)
+    k /= k.sum()
+    iwc = convolve(iwc, k, mode="valid", method="direct")[:, ::4]
+    height = convolve(height, k, mode="valid", method="direct")[:, ::4]
+    return iwc, height
+
+
+
+def remap_iwc(
+        iwc,
+        altitude,
+        surface_altitude
+):
+    pass
+
 class CloudSat2CIce:
     """
     Interface class to read CloudSat 2C-Ice files.
@@ -101,41 +130,40 @@ def resample_data(target_dataset, target_grid, cloudsat_data):
     resampler = BucketResampler(
         target_grid, source_lons=source_lons, source_lats=source_lats
     )
+    # Indices of random samples.
+    indices_target, indices_source = get_sample_indices()
 
+    # Resample IWP.
     iwp_r = resampler.get_average(cloudsat_data.iwp.data).compute()[::-1]
+    iwp_r_rand = np.zeros_like(iwp_r)
+    iwp_r_range.ravel()[indices_target] = cloudsat_data.iwp.data[indices_sources]
 
+    # Resample CloudSat time.
     t_time = cloudsat_data.time.data.dtype
     time_r = resampler.get_average(cloudsat_data.time.data.astype(np.int64)).compute()[
         ::-1
     ]
     time_r = time_r.astype(np.int64).astype(t_time)
 
+    # Smooth, resample and remap IWC to fixed altitude relative
+    # to surface.
+    iwc = cloudsat_data.iwc.data
+    height = cloudsat_data.height.data
+    iwc, height = subsample_iwc_and_height(iwc, height)
+
     surface = np.maximum(cloudsat_data.surface_elevation, 0.0)
     surface_r = resampler.get_average(surface).compute()[::-1]
 
-    iwc = cloudsat_data.iwc.data.T
-    height = cloudsat_data.height.data.T
-
-    k = np.linspace(-4 * 240, 4 * 240, 9)
-    k = np.exp(np.log(0.5) * (k / 500) ** 2).reshape(-1, 1)
-    k /= k.sum()
-    iwc = convolve(iwc, k, mode="valid", method="direct")[::4]
-    height = convolve(height, k, mode="valid", method="direct")[::4]
-
     iwc_r_n = np.zeros(iwc.shape[:1] + iwp_r.shape, dtype=np.float32)
     height_r_n = np.zeros(iwc.shape[:1] + iwp_r.shape, dtype=np.float32)
-
     for i in range(iwc_r_n.shape[0]):
         iwc_r_n[i] = resampler.get_average(iwc[i]).compute()[::-1]
         height_r_n[i] = resampler.get_average(height[i]).compute()[::-1]
-
     z = (np.arange(0, 20) + 0.5) * 1e3
     iwc_r = np.zeros(iwp_r.shape + (20,), dtype=np.float32) * np.nan
-
     indices = np.where(np.isfinite(iwp_r))
     sort = np.argsort(time_r[indices[0], indices[1]])
     indices = (indices[0][sort], indices[1][sort])
-
     for ind_i, ind_j in zip(*indices):
         z_n = height_r_n[..., ind_i, ind_j][::-1]
         s = surface_r[..., ind_i, ind_j]
