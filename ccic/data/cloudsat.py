@@ -37,10 +37,6 @@ def get_sample_indices(resampler):
     shuffle = np.random.permutation(indices.size)
     indices = indices[shuffle]
     unique_inds, unique_inds_data = np.unique(indices, return_index=True)
-
-    # Translate indices of first unique indices back to un-shuffled
-    # data.
-    indices_r = np.argsort(shuffle)
     unique_inds_data = shuffle[unique_inds_data]
 
     valid = unique_inds >= 0
@@ -68,13 +64,34 @@ def subsample_iwc_and_height(iwc, height):
     return iwc, height
 
 
-
 def remap_iwc(
         iwc,
         altitude,
-        surface_altitude
+        surface_altitude,
+        target_altitudes,
 ):
-    pass
+    """
+    Remap IWC to new altitude grid relative to surface.
+
+    Args:
+        iwc: 2D array containing IWC with altitude levels along last
+            dimension.
+        altitude: The altitudes corresponding to ``iwc``
+        surface_altitude: The surface altitude for each IWC profile.
+        target_altitude: 1D array specifying the altitudes to remap the
+            IWC data to.
+
+    Return:
+        2D array containing the remapped IWC.
+    """
+    iwc_r = np.zeros(iwc.shape[:-1] + (target_altitudes.size,), dtype=iwc.dtype)
+
+    for index in range(iwc.shape[0]):
+        z_new = target_altitudes
+        z_old = altitude[index] - surface_altitude[index]
+        iwc_r[index] = np.interp(z_new, z_old, iwc[index])
+
+    return iwc_r
 
 class CloudSat2CIce:
     """
@@ -96,6 +113,13 @@ class CloudSat2CIce:
 
     @staticmethod
     def download(filename, destination):
+        """
+        Download file.
+
+        Args:
+            filename: The filename of the 2CIce file to download.
+            destination: Path to store the result.
+        """
         PROVIDER.download_file(filename, destination)
 
     def to_xarray_dataset(self):
@@ -125,52 +149,44 @@ def resample_data(target_dataset, target_grid, cloudsat_data):
         target_grid: pyresample area definition defining the grid of the
             target dataset.
     """
-    source_lons = da.from_array(cloudsat_data.longitude.data)
-    source_lats = da.from_array(cloudsat_data.latitude.data)
     resampler = BucketResampler(
-        target_grid, source_lons=source_lons, source_lats=source_lats
+        target_grid,
+        source_lons=da.from_array(cloudsat_data.longitude.data),
+        source_lats=da.from_array(cloudsat_data.latitude.data)
     )
     # Indices of random samples.
-    indices_target, indices_source = get_sample_indices()
+    indices_target, indices_source = get_sample_indices(resampler)
 
     # Resample IWP.
     iwp_r = resampler.get_average(cloudsat_data.iwp.data).compute()[::-1]
     iwp_r_rand = np.zeros_like(iwp_r)
-    iwp_r_range.ravel()[indices_target] = cloudsat_data.iwp.data[indices_sources]
+    iwp_r_rand.ravel()[indices_target] = cloudsat_data.iwp.data[indices_source]
 
     # Resample CloudSat time.
-    t_time = cloudsat_data.time.data.dtype
     time_r = resampler.get_average(cloudsat_data.time.data.astype(np.int64)).compute()[
         ::-1
     ]
-    time_r = time_r.astype(np.int64).astype(t_time)
+    time_r = time_r.astype(np.int64).astype(cloudsat_data.time.data.dtype)
 
     # Smooth, resample and remap IWC to fixed altitude relative
     # to surface.
     iwc = cloudsat_data.iwc.data
     height = cloudsat_data.height.data
     iwc, height = subsample_iwc_and_height(iwc, height)
+    surface_altitude = np.maximum(cloudsat_data.surface_elevation.data, 0.0)
 
-    surface = np.maximum(cloudsat_data.surface_elevation, 0.0)
-    surface_r = resampler.get_average(surface).compute()[::-1]
+    # Pick random samples from iwc, height and surface altitude.
+    iwc = iwc[indices_source]
+    height = height[indices_source]
+    surface_altitude = surface_altitude[indices_source]
+    altitude_levels = (np.arange(0, 20) + 0.5) * 1e3
+    iwc = remap_iwc(iwc, height, surface_altitude, altitude_levels)
 
-    iwc_r_n = np.zeros(iwc.shape[:1] + iwp_r.shape, dtype=np.float32)
-    height_r_n = np.zeros(iwc.shape[:1] + iwp_r.shape, dtype=np.float32)
-    for i in range(iwc_r_n.shape[0]):
-        iwc_r_n[i] = resampler.get_average(iwc[i]).compute()[::-1]
-        height_r_n[i] = resampler.get_average(height[i]).compute()[::-1]
-    z = (np.arange(0, 20) + 0.5) * 1e3
     iwc_r = np.zeros(iwp_r.shape + (20,), dtype=np.float32) * np.nan
-    indices = np.where(np.isfinite(iwp_r))
-    sort = np.argsort(time_r[indices[0], indices[1]])
-    indices = (indices[0][sort], indices[1][sort])
-    for ind_i, ind_j in zip(*indices):
-        z_n = height_r_n[..., ind_i, ind_j][::-1]
-        s = surface_r[..., ind_i, ind_j]
-        iwc_n = iwc_r_n[..., ind_i, ind_j][::-1]
-        iwc_r[ind_i, ind_j] = np.interp(z, z_n - s, iwc_n)
+    iwc_r.reshape(-1, 20)[indices_target] = iwc
 
-    target_dataset["levels"] = (("levels",), z)
+    target_dataset["levels"] = (("levels",), altitude_levels)
     target_dataset["iwc"] = (("latitude", "longitude", "levels"), iwc_r)
     target_dataset["iwp"] = (("latitude", "longitude"), iwp_r)
+    target_dataset["iwp_rand"] = (("latitude", "longitude"), iwp_r_rand)
     target_dataset["time_cloudsat"] = (("latitude", "longitude"), time_r)
