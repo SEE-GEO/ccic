@@ -120,7 +120,9 @@ class GPMIR:
             data_t = cloudsat.resample_data(
                 data_t,
                 GPMIR_GRID,
-                cloudsat_files
+                cloudsat_files,
+                start_time,
+                end_time
             )
             # No matches found
             if data_t is None:

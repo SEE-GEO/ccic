@@ -4,7 +4,7 @@ Tests for the ccic.data.gpm_ir module.
 from pathlib import Path
 
 from ccic.data.cloudsat import CloudSat2CIce, CloudSat2BCLDCLASS
-from ccic.data.gpm_ir import GPMIR
+from ccic.data.gpmir import GPMIR
 
 TEST_DATA = Path("/home/simonpf/data_3/ccic/test")
 CS_2CICE_FILE = "2008032011612_09374_CS_2C-ICE_GRANULE_P1_R05_E02_F00.hdf"
