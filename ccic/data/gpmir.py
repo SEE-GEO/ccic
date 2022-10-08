@@ -1,6 +1,6 @@
 """
-ccic.data.gpm_ir
-================
+ccic.data.gpmir
+===============
 
 This module provides classes to read the GPM merged IR observations.
 """
@@ -15,8 +15,7 @@ import xarray as xr
 from ccic.data import cloudsat
 
 PROVIDER = Disc2Provider(gpm_mergeir)
-
-GPM_IR_GRID = create_area_def(
+GPMIR_GRID = create_area_def(
     "gpmir_area",
     {"proj": 'longlat', 'datum': 'WGS84'},
     area_extent=[-180.0, -60.0, 180.0, 60.0],
@@ -53,8 +52,6 @@ class GPMIR:
 
     def __init__(self, filename):
         """
-        Create local file.
-
         Args:
             filename: The local filename of the file.
         """
@@ -66,7 +63,6 @@ class GPMIR:
     def to_xarray_dataset(self):
         """Load data into ``xarray.Dataset``"""
         return xr.load_dataset(self.filename)
-
 
     def get_retrieval_input(self):
         """
@@ -89,20 +85,16 @@ class GPMIR:
 
         return torch.tensor(x).to(torch.float32)
 
-
-
-
-
     def get_matches(self,
-                    cloudsat_data,
+                    cloudsat_files,
                     size=128,
                     timedelta=15*60):
         """
         Extract matches of given cloudsat data with observations.
 
         Args:
-            cloudsat_data: ``xarray.Dataset`` containing the CloudSat data
-                to match.
+            cloudsat_files: List of paths to CloudSat product files
+                with which to match the data.
             size: The size of the windows to extract.
             timedelta: The time range for which to extract matches.
 
@@ -125,31 +117,16 @@ class GPMIR:
             start_time = data_t.time - np.array(timedelta, dtype="timedelta64[s]")
             end_time = data_t.time + np.array(timedelta, dtype="timedelta64[s]")
 
-            # Determine rays within timedelta
-            indices = (cloudsat_data.time >= start_time) * (cloudsat_data.time <= end_time)
-            if indices.sum() == 0:
+            data_t = cloudsat.resample_data(
+                data_t,
+                GPMIR_GRID,
+                cloudsat_files
+            )
+            # No matches found
+            if data_t is None:
                 continue
 
-            cloudsat_data = cloudsat_data[{"rays": indices}]
-
-            #
-            # Resampling
-            #
-
-            target_grid = create_area_def(
-                "gpmir_area",
-                {"proj": 'longlat', 'datum': 'WGS84'},
-                area_extent=[-180.0, -60.0, 180.0, 60.0],
-                resolution=(0.036378335, 0.03638569),
-                units='degrees',
-                description='GPMIR grid'
-            )
-            cloudsat.resample_data(data_t, target_grid, cloudsat_data)
-
-            #
-            # Scene extraction
-            #
-
+            # Extract single scenes.
             indices = np.where(np.isfinite(data_t.iwp.data))
             sort = np.argsort(data_t.time_cloudsat.data[indices[0], indices[1]])
             indices = (indices[0][sort], indices[1][sort])
