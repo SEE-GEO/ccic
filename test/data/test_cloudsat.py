@@ -10,23 +10,33 @@ from pyresample.bucket import BucketResampler
 from ccic.data.gpm_ir import GPMIR, GPM_IR_GRID
 from ccic.data.cloudsat import (
     CloudSat2CIce,
+    CloudSat2BCLDCLASS,
     get_sample_indices,
     remap_iwc,
     subsample_iwc_and_height,
-    resample_data
+    resample_data,
+    remap_cloud_classes
 )
 
 TEST_DATA = Path("/home/simonpf/data_3/ccic/test")
-CS_FILE = "2008032011612_09374_CS_2C-ICE_GRANULE_P1_R05_E02_F00.hdf"
+CS_2CICE_FILE = "2008032011612_09374_CS_2C-ICE_GRANULE_P1_R05_E02_F00.hdf"
+CS_2BCLDCLASS_FILE = "2008032011612_09374_CS_2B-CLDCLASS_GRANULE_P1_R05_E02_F00.hdf"
 GPMIR_FILE = "merg_2008020101_4km-pixel.nc4"
+
+
+def test_available_files():
+    available_files = CloudSat2CIce.get_available_files("2008-02-01T00:00:00")
+    assert len(available_files) > 10
+    available_files = CloudSat2BCLDCLASS.get_available_files("2008-02-01T00:00:00")
+    assert len(available_files) > 10
 
 
 def test_subsample_iwc_and_height():
     """
-    Test downsampling of IWC profiles by ensuring that the total IWP is
-    conserved.
+    Test downsampling of cloud labels by ensuring that all returned labels
+    are valid.
     """
-    cs_data = CloudSat2CIce(TEST_DATA / CS_FILE).to_xarray_dataset()
+    cs_data = CloudSat2CIce(TEST_DATA / CS_2CICE_FILE).to_xarray_dataset()
 
     iwc = cs_data.iwc.data
     height = cs_data.height
@@ -42,12 +52,35 @@ def test_subsample_iwc_and_height():
     assert np.all(np.isclose(iwp[notable_iwp], iwp_s[notable_iwp], rtol=1e-3))
 
 
+def test_remap_cloud_classes():
+    """
+    Test downsampling of IWC profiles by ensuring that the total IWP is
+    conserved.
+    """
+    cs_data = CloudSat2BCLDCLASS(
+        TEST_DATA / CS_2BCLDCLASS_FILE
+    ).to_xarray_dataset()
+
+    labels = cs_data.cloud_class.data
+    height = cs_data.height
+    surface_altitude = cs_data.surface_elevation.data
+    target_altitudes = (np.arange(20) + 0.5) * 1e3
+
+    labels = remap_cloud_classes(
+        labels,
+        height,
+        surface_altitude,
+        target_altitudes
+    )
+    assert ((labels <= 8) * (labels >= 0)).all()
+
+
 def test_remap_iwc():
     """
     Test remapping of IWC by ensuring that total IWP is conserved.
 
     """
-    cs_data = CloudSat2CIce(TEST_DATA / CS_FILE).to_xarray_dataset()
+    cs_data = CloudSat2CIce(TEST_DATA / CS_2CICE_FILE).to_xarray_dataset()
 
     iwc = cs_data.iwc.data
     height = cs_data.height.data
@@ -73,7 +106,7 @@ def test_random_resampling():
     as the grid resolution.
     """
     gpm_data = GPMIR(TEST_DATA / GPMIR_FILE).to_xarray_dataset()
-    cs_data = CloudSat2CIce(TEST_DATA / CS_FILE).to_xarray_dataset()
+    cs_data = CloudSat2CIce(TEST_DATA / CS_2CICE_FILE).to_xarray_dataset()
     target_grid = GPM_IR_GRID
 
     # Setup resampler
@@ -101,19 +134,39 @@ def test_resampling_gpmir():
     """
     gpm_data = GPMIR(TEST_DATA / GPMIR_FILE).to_xarray_dataset()
     gpm_data = gpm_data[{"time": 0}]
-    cs_data = CloudSat2CIce(TEST_DATA / CS_FILE).to_xarray_dataset()
+    cs_2cice_data = CloudSat2CIce(
+        TEST_DATA / CS_2CICE_FILE
+    ).to_xarray_dataset()
 
-    data_resampled = resample_data(gpm_data, GPM_IR_GRID, cs_data)
+    data_resampled = resample_data(
+        gpm_data,
+        GPM_IR_GRID,
+        TEST_DATA / CS_2CICE_FILE,
+        TEST_DATA / CS_2BCLDCLASS_FILE
+    )
 
+    # Make sure collocations are found.
     iwp_r = gpm_data.iwp.data
     valid = np.isfinite(iwp_r)
     assert np.any(valid)
 
-    iwp = cs_data.iwp.data
-    assert (iwp_r[valid] < iwp.max()).all()
+    # Make sure average and random resampling map to the same
+    # locations.
+    iwp_rand_r = gpm_data.iwp.data
+    valid_rand = np.isfinite(iwp_rand_r)
+    assert (valid == valid_rand).all()
 
-    iwc = cs_data.iwc.data
+    iwp = cs_2cice_data.iwp.data
+    assert (iwp_r[valid] < iwp.max()).all()
+    iwc = cs_2cice_data.iwc.data
     iwc_r = gpm_data.iwc.data
     valid = np.isfinite(iwc_r)
     assert (iwc_r[valid] < iwc.max()).all()
+
+    # Make sure that no cloud classes are consistent with
+    # cloud mask.
+    cm_r = gpm_data.cloud_mask.data
+    clear = cm_r == 0
+    cloud_classes = gpm_data.cloud_class.data
+    assert cloud_classes[clear].max() == 0
 

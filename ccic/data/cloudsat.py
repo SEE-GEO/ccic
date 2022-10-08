@@ -8,12 +8,16 @@ files.
 import dask.array as da
 import numpy as np
 from pansat.download.providers.cloudsat_dpc import CloudSatDPCProvider
-from pansat.products.satellite.cloud_sat import l2c_ice
+from pansat.products.satellite.cloud_sat import l2c_ice, l2b_cldclass
 from pansat.time import to_datetime
 from pyresample.bucket import BucketResampler
 from scipy.signal import convolve
+from scipy.interpolate import interp1d
 
-PROVIDER = CloudSatDPCProvider(l2c_ice)
+
+PROVIDER_2CICE = CloudSatDPCProvider(l2c_ice)
+PROVIDER_2BCLDCLASS = CloudSatDPCProvider(l2b_cldclass)
+ALTITUDE_LEVELS = (np.arange(0, 20) + 0.5) * 1e3
 
 
 def get_sample_indices(resampler):
@@ -65,10 +69,10 @@ def subsample_iwc_and_height(iwc, height):
 
 
 def remap_iwc(
-        iwc,
-        altitude,
-        surface_altitude,
-        target_altitudes,
+    iwc,
+    altitude,
+    surface_altitude,
+    target_altitudes,
 ):
     """
     Remap IWC to new altitude grid relative to surface.
@@ -93,26 +97,68 @@ def remap_iwc(
 
     return iwc_r
 
-class CloudSat2CIce:
+
+def remap_cloud_classes(
+    labels,
+    altitude,
+    surface_altitude,
+    target_altitudes,
+):
     """
-    Interface class to read CloudSat 2C-Ice files.
+    Remap cloud class fields to new altitude grid relative to surface.
+
+
+    Args:
+        labels: 2D array containing cloud-class labels with altitude levels
+            along last dimension.
+        altitude: The altitudes corresponding to ``iwc``
+        surface_altitude: The surface altitude for each IWC profile.
+        target_altitude: 1D array specifying the altitudes to remap the
+            IWC data to.
+
+    Return:
+        2D array containing the cloud labels.
+    """
+    n_levels = labels.shape[-1]
+    indices = np.arange(0, n_levels, 4)
+    indices += np.random.randint(0, 3, size=indices.size)
+    indices = np.minimum(indices, n_levels - 1)
+
+    labels = labels[..., indices]
+    altitude = altitude[..., indices]
+
+    labels_r = np.zeros(
+        labels.shape[:-1] + (target_altitudes.size,), dtype=labels.dtype
+    )
+
+    for index in range(labels.shape[0]):
+        z_new = target_altitudes
+        z_old = altitude[index] - surface_altitude[index]
+        interpolator = interp1d(z_old, labels[index], kind="nearest")
+        labels_r[index] = interpolator(z_new)
+
+    return labels_r
+
+
+class CloudsatFile:
+    product = None
+    provider = None
+    """
+    Generic interface class to read CloudSat files.
     """
 
-    @staticmethod
-    def get_available_files(date):
+    @classmethod
+    def get_available_files(cls, date):
         """
         Return list of times at which this data is available.
         """
         date = to_datetime(date)
         day = int(date.strftime("%j"))
-        files = PROVIDER.get_files_by_day(date.year, day)
+        files = cls.provider.get_files_by_day(date.year, day)
         return files
 
-    def __init__(self, filename):
-        self.filename = filename
-
-    @staticmethod
-    def download(filename, destination):
+    @classmethod
+    def download(cls, filename, destination):
         """
         Download file.
 
@@ -120,73 +166,217 @@ class CloudSat2CIce:
             filename: The filename of the 2CIce file to download.
             destination: Path to store the result.
         """
-        PROVIDER.download_file(filename, destination)
+        cls.provider.download_file(filename, destination)
 
-    def to_xarray_dataset(self):
+    def __init__(self, filename):
+        """
+        Args:
+            filename: Path to the 2C-Ice file to open.
+        """
+        self.filename = filename
+
+    def to_xarray_dataset(self, start_time=None, end_time=None):
         """
         Load data from file into an ``xarray.Dataset``.
+
+        Args:
+            start_time: Optional start time to limit the source profiles that
+                are loaded.
+            end_time: Optional end time to limit the source profiles that
+                are loaded.
         """
-        data = l2c_ice.open(self.filename)
+        data = self.product.open(self.filename)
         time = (
             np.datetime64("1993-01-01T00:00:00", "s")
             + data.attrs["start_time"][0, 0].astype("timedelta64[s]")
             + data.time_since_start.data.astype("timedelta64[s]")
         )
         data["time"] = (("rays"), time)
+
+        time_mask = np.ones(data.time.size, dtype=np.bool)
+        if start_time is not None:
+            time_mask *= data.time >= start_time
+        if end_time is not None:
+            time_mask *= data.time < end_time
+        data = data[{"rays": time_mask}]
+
         return data
 
 
-def resample_data(target_dataset, target_grid, cloudsat_data):
+class CloudSat2CIce(CloudsatFile):
+    """
+    Interface class to read CloudSat 2C-Ice files.
+    """
+
+    provider = PROVIDER_2CICE
+    product = l2c_ice
+
+    def add_retrieval_targets(
+        self,
+        target_dataset,
+        resampler,
+        target_indices,
+        source_indices,
+        start_time=None,
+        end_time=None,
+    ):
+        """
+        Add retrieval targets from the CloudSat2CIce file (source) to
+        a target dataset (target).
+
+        Args:
+            target_dataset: The ``xarray.Dataset`` to add the resampled
+                retrieval targets to.
+            resampler: The ``pyresample.BucketResampler`` to use for
+                resampling.
+            target_indices: Indices of the flattened target grids for
+                probabilistic resampling of profiles.
+            source_indices: Corresponding indices of the 2CIce data for
+                the probabilistic resampling of profiles.
+            start_time: Optional start time to limit the source profiles that
+                are resampled.
+            end_time: Optional end time to limit the source profiles that
+                are resampled.
+        """
+        data = self.to_xarray_dataset(start_time=start_time, end_time=end_time)
+
+        # Resample IWP.
+        iwp_r = resampler.get_average(data.iwp.data).compute()[::-1]
+        iwp_r_rand = np.zeros_like(iwp_r)
+        iwp_r_rand.ravel()[target_indices] = data.iwp.data[source_indices]
+
+        # Resample CloudSat time.
+        time_r = resampler.get_average(data.time.data.astype(np.int64)).compute()[::-1]
+        time_r = time_r.astype(np.int64).astype(data.time.data.dtype)
+
+        # Smooth, resample and remap IWC to fixed altitude relative
+        # to surface.
+        iwc = data.iwc.data
+        height = data.height.data
+        iwc, height = subsample_iwc_and_height(iwc, height)
+        surface_altitude = np.maximum(data.surface_elevation.data, 0.0)
+
+        # Pick random samples from iwc, height and surface altitude.
+        iwc = iwc[source_indices]
+        height = height[source_indices]
+        surface_altitude = surface_altitude[source_indices]
+        iwc = remap_iwc(iwc, height, surface_altitude, ALTITUDE_LEVELS)
+
+        iwc_r = np.zeros(iwp_r.shape + (20,), dtype=np.float32) * np.nan
+        iwc_r.reshape(-1, 20)[target_indices] = iwc
+
+        target_dataset["levels"] = (("levels",), ALTITUDE_LEVELS)
+        target_dataset["iwc"] = (("latitude", "longitude", "levels"), iwc_r)
+        target_dataset["iwp"] = (("latitude", "longitude"), iwp_r)
+        target_dataset["iwp_rand"] = (("latitude", "longitude"), iwp_r_rand)
+        target_dataset["time_cloudsat"] = (("latitude", "longitude"), time_r)
+
+
+class CloudSat2BCLDCLASS(CloudsatFile):
+    """
+    Interface class to read CloudSat 2B-CLDCLASS files.
+    """
+
+    provider = PROVIDER_2BCLDCLASS
+    product = l2b_cldclass
+
+    def add_retrieval_targets(
+        self,
+        target_dataset,
+        resampler,
+        target_indices,
+        source_indices,
+        start_time=None,
+        end_time=None,
+    ):
+        """
+        Add retrieval targets from the CloudSat2BCldClass file (source) to
+        a target dataset (target).
+
+        Args:
+            target_dataset: The ``xarray.Dataset`` to add the resampled
+                retrieval targets to.
+            resampler: The ``pyresample.BucketResampler`` to use for
+                resampling.
+            target_indices: Indices of the flattened target grids for
+                probabilistic resampling of profiles.
+            source_indices: Corresponding indices of the 2CIce data for
+                the probabilistic resampling of profiles.
+            start_time: Optional start time to limit the source profiles that
+                are resampled.
+            end_time: Optional end time to limit the source profiles that
+                are resampled.
+        """
+        data = self.to_xarray_dataset(start_time=start_time, end_time=end_time)
+        output_shape = resampler.target_area.shape
+        labels = data.cloud_class.data
+        cloud_mask = labels.max(axis=-1) > 0
+        height = data.height.data
+        surface_altitude = data.surface_elevation.data
+        labels = remap_cloud_classes(labels, height, surface_altitude, ALTITUDE_LEVELS)
+
+        cloud_mask_r = np.zeros(output_shape, dtype=np.uint8)
+        cloud_mask_r.ravel()[target_indices] = cloud_mask[source_indices]
+        labels_r = np.zeros(output_shape + (20,), dtype=np.uint8)
+        labels_r.reshape(-1, 20)[target_indices] = labels[source_indices]
+
+        target_dataset["levels"] = (("levels",), ALTITUDE_LEVELS)
+        target_dataset["cloud_mask"] = (("latitude", "longitude"), cloud_mask_r)
+        target_dataset["cloud_class"] = (("latitude", "longitude", "levels"), labels_r)
+
+
+def resample_data(
+    target_dataset,
+    target_grid,
+    cloudsat_2cice_file,
+    cloudsat_2bcldclass_file=None,
+    start_time=None,
+    end_time=None,
+):
     """
     Resample cloudsat data and include in dataset.
 
-    This function adds IWC and IWP variables in-place to the provided
-    dataset.
+    This function adds retrieval target variables from CloudSat
+    2CIce and 2BCLDCLASS files to a target dataset.
 
     Args:
-        target_dataset: The ``xarray.Dataset`` to which to add resampled
-            IWC and IWP.
+        target_dataset: The ``xarray.Dataset`` to which the retrieval
+            targets will be added.
         target_grid: pyresample area definition defining the grid of the
             target dataset.
+        cloudsat_2cice_file: Path to the CloudSat 2CIce file from which to
+            read the 2CIce data..
+        cloudsat_2bcldclass_file: Path to the CloudSat 2BCLDCLASS file from
+            which to read the 2CIce data.
     """
+    cloudsat_data = CloudSat2CIce(cloudsat_2cice_file).to_xarray_dataset(
+        start_time=start_time, end_time=end_time
+    )
     resampler = BucketResampler(
         target_grid,
         source_lons=da.from_array(cloudsat_data.longitude.data),
-        source_lats=da.from_array(cloudsat_data.latitude.data)
+        source_lats=da.from_array(cloudsat_data.latitude.data),
     )
     # Indices of random samples.
-    indices_target, indices_source = get_sample_indices(resampler)
+    target_indices, source_indices = get_sample_indices(resampler)
 
-    # Resample IWP.
-    iwp_r = resampler.get_average(cloudsat_data.iwp.data).compute()[::-1]
-    iwp_r_rand = np.zeros_like(iwp_r)
-    iwp_r_rand.ravel()[indices_target] = cloudsat_data.iwp.data[indices_source]
+    cs_2cice = CloudSat2CIce(cloudsat_2cice_file)
+    cs_2cice.add_retrieval_targets(
+        target_dataset,
+        resampler,
+        target_indices,
+        source_indices,
+        start_time=start_time,
+        end_time=end_time,
+    )
 
-    # Resample CloudSat time.
-    time_r = resampler.get_average(cloudsat_data.time.data.astype(np.int64)).compute()[
-        ::-1
-    ]
-    time_r = time_r.astype(np.int64).astype(cloudsat_data.time.data.dtype)
-
-    # Smooth, resample and remap IWC to fixed altitude relative
-    # to surface.
-    iwc = cloudsat_data.iwc.data
-    height = cloudsat_data.height.data
-    iwc, height = subsample_iwc_and_height(iwc, height)
-    surface_altitude = np.maximum(cloudsat_data.surface_elevation.data, 0.0)
-
-    # Pick random samples from iwc, height and surface altitude.
-    iwc = iwc[indices_source]
-    height = height[indices_source]
-    surface_altitude = surface_altitude[indices_source]
-    altitude_levels = (np.arange(0, 20) + 0.5) * 1e3
-    iwc = remap_iwc(iwc, height, surface_altitude, altitude_levels)
-
-    iwc_r = np.zeros(iwp_r.shape + (20,), dtype=np.float32) * np.nan
-    iwc_r.reshape(-1, 20)[indices_target] = iwc
-
-    target_dataset["levels"] = (("levels",), altitude_levels)
-    target_dataset["iwc"] = (("latitude", "longitude", "levels"), iwc_r)
-    target_dataset["iwp"] = (("latitude", "longitude"), iwp_r)
-    target_dataset["iwp_rand"] = (("latitude", "longitude"), iwp_r_rand)
-    target_dataset["time_cloudsat"] = (("latitude", "longitude"), time_r)
+    if cloudsat_2bcldclass_file is not None:
+        cs_2bcldclass = CloudSat2BCLDCLASS(cloudsat_2bcldclass_file)
+        cs_2bcldclass.add_retrieval_targets(
+            target_dataset,
+            resampler,
+            target_indices,
+            source_indices,
+            start_time=start_time,
+            end_time=end_time,
+        )
