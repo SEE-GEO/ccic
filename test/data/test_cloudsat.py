@@ -1,10 +1,12 @@
 """
 Tests for the ccic.data.cloudsat module.
 """
+import os
 from pathlib import Path
 
 import dask.array as da
 import numpy as np
+import pytest
 from pyresample.bucket import BucketResampler
 
 from ccic.data.gpmir import GPMIR, GPMIR_GRID
@@ -20,7 +22,12 @@ from ccic.data.cloudsat import (
 )
 
 
-TEST_DATA = Path("/home/simonpf/data_3/ccic/test")
+TEST_DATA = os.environ.get("CCIC_TEST_DATA", None)
+if TEST_DATA is not None:
+    TEST_DATA = Path(TEST_DATA)
+NEEDS_TEST_DATA = pytest.mark.skipif(
+    TEST_DATA is None, reason="Needs 'CCIC_TEST_DATA'."
+)
 CS_2CICE_FILE = "2008032011612_09374_CS_2C-ICE_GRANULE_P1_R05_E02_F00.hdf"
 CS_2BCLDCLASS_FILE = "2008032011612_09374_CS_2B-CLDCLASS_GRANULE_P1_R05_E02_F00.hdf"
 GPMIR_FILE = "merg_2008020101_4km-pixel.nc4"
@@ -39,6 +46,7 @@ def test_available_granules():
     available_granules = get_available_granules("2008-02-01T00:00:00")
     assert len(available_granules) == len(available_files)
 
+@NEEDS_TEST_DATA
 def test_subsample_iwc_and_height():
     """
     Test downsampling of cloud labels by ensuring that all returned labels
@@ -60,6 +68,7 @@ def test_subsample_iwc_and_height():
     assert np.all(np.isclose(iwp[notable_iwp], iwp_s[notable_iwp], rtol=1e-3))
 
 
+@NEEDS_TEST_DATA
 def test_remap_cloud_classes():
     """
     Test downsampling of IWC profiles by ensuring that the total IWP is
@@ -83,6 +92,7 @@ def test_remap_cloud_classes():
     assert ((labels <= 8) * (labels >= 0)).all()
 
 
+@NEEDS_TEST_DATA
 def test_remap_iwc():
     """
     Test remapping of IWC by ensuring that total IWP is conserved.
@@ -107,6 +117,7 @@ def test_remap_iwc():
     assert np.all(np.isclose(iwp[notable_iwp], iwp_s[notable_iwp], rtol=1e-3))
 
 
+@NEEDS_TEST_DATA
 def test_random_resampling():
     """
     Test random resampling of profiles by ensuring that the error
@@ -115,7 +126,7 @@ def test_random_resampling():
     """
     gpm_data = GPMIR(TEST_DATA / GPMIR_FILE).to_xarray_dataset()
     cs_data = CloudSat2CIce(TEST_DATA / CS_2CICE_FILE).to_xarray_dataset()
-    target_grid = GPM_IR_GRID
+    target_grid = GPMIR_GRID
 
     # Setup resampler
     source_lons = da.from_array(cs_data.longitude.data)
@@ -125,7 +136,7 @@ def test_random_resampling():
     )
 
     target_inds, source_inds = get_sample_indices(resampler)
-    target_lons, target_lats = GPM_IR_GRID.get_lonlats()
+    target_lons, target_lats = GPMIR_GRID.get_lonlats()
 
     lons_gpm = target_lons.ravel()[target_inds]
     lons_cs = cs_data.longitude.data[source_inds]
@@ -136,6 +147,7 @@ def test_random_resampling():
     assert np.all(np.abs(lats_gpm - lats_cs) < 0.05)
 
 
+@NEEDS_TEST_DATA
 def test_resampling_gpmir():
     """
     Test resampling of cloudsat data to GPM IR data.
@@ -153,7 +165,7 @@ def test_resampling_gpmir():
 
     data_resampled = resample_data(
         gpm_data,
-        GPM_IR_GRID,
+        GPMIR_GRID,
         cloudsat_files
     )
 

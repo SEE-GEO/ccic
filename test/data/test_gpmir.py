@@ -1,12 +1,20 @@
 """
 Tests for the ccic.data.gpm_ir module.
 """
+import os
 from pathlib import Path
+
+import pytest
 
 from ccic.data.cloudsat import CloudSat2CIce, CloudSat2BCLDCLASS
 from ccic.data.gpmir import GPMIR
 
-TEST_DATA = Path("/home/simonpf/data_3/ccic/test")
+TEST_DATA = os.environ.get("CCIC_TEST_DATA", None)
+if TEST_DATA is not None:
+    TEST_DATA = Path(TEST_DATA)
+NEEDS_TEST_DATA = pytest.mark.skipif(
+    TEST_DATA is None, reason="Needs 'CCIC_TEST_DATA'."
+)
 CS_2CICE_FILE = "2008032011612_09374_CS_2C-ICE_GRANULE_P1_R05_E02_F00.hdf"
 CS_2BCLDCLASS_FILE = "2008032011612_09374_CS_2B-CLDCLASS_GRANULE_P1_R05_E02_F00.hdf"
 GPMIR_FILE = "merg_2008020101_4km-pixel.nc4"
@@ -20,6 +28,7 @@ def test_get_available_files():
     assert len(times) == 24
 
 
+@NEEDS_TEST_DATA
 def test_matches():
     """
     Make sure that matches are found for files that overlap in time.
