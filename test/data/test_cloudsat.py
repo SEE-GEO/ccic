@@ -7,7 +7,7 @@ import dask.array as da
 import numpy as np
 from pyresample.bucket import BucketResampler
 
-from ccic.data.gpm_ir import GPMIR, GPM_IR_GRID
+from ccic.data.gpmir import GPMIR, GPMIR_GRID
 from ccic.data.cloudsat import (
     CloudSat2CIce,
     CloudSat2BCLDCLASS,
@@ -15,8 +15,10 @@ from ccic.data.cloudsat import (
     remap_iwc,
     subsample_iwc_and_height,
     resample_data,
-    remap_cloud_classes
+    remap_cloud_classes,
+    get_available_granules
 )
+
 
 TEST_DATA = Path("/home/simonpf/data_3/ccic/test")
 CS_2CICE_FILE = "2008032011612_09374_CS_2C-ICE_GRANULE_P1_R05_E02_F00.hdf"
@@ -30,6 +32,12 @@ def test_available_files():
     available_files = CloudSat2BCLDCLASS.get_available_files("2008-02-01T00:00:00")
     assert len(available_files) > 10
 
+
+def test_available_granules():
+    available_files = CloudSat2CIce.get_available_files("2008-02-01T00:00:00")
+    available_files = CloudSat2BCLDCLASS.get_available_files("2008-02-01T00:00:00")
+    available_granules = get_available_granules("2008-02-01T00:00:00")
+    assert len(available_granules) == len(available_files)
 
 def test_subsample_iwc_and_height():
     """
@@ -138,11 +146,15 @@ def test_resampling_gpmir():
         TEST_DATA / CS_2CICE_FILE
     ).to_xarray_dataset()
 
+    cloudsat_files = [
+        CloudSat2CIce(TEST_DATA / CS_2CICE_FILE),
+        CloudSat2BCLDCLASS(TEST_DATA / CS_2BCLDCLASS_FILE),
+    ]
+
     data_resampled = resample_data(
         gpm_data,
         GPM_IR_GRID,
-        TEST_DATA / CS_2CICE_FILE,
-        TEST_DATA / CS_2BCLDCLASS_FILE
+        cloudsat_files
     )
 
     # Make sure collocations are found.
@@ -169,4 +181,3 @@ def test_resampling_gpmir():
     clear = cm_r == 0
     cloud_classes = gpm_data.cloud_class.data
     assert cloud_classes[clear].max() == 0
-

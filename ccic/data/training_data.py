@@ -85,6 +85,7 @@ class CCICDataset:
             n = j_end - j_start
 
             x = np.nan * np.ones((3, m, n), dtype="float32")
+
             if "vis" in data:
                 x[0] = data.vis.data
             if "ir_wv" in data:
@@ -116,7 +117,7 @@ class CCICDataset:
                 iwp = np.flip(iwp, 1)
                 iwc = np.flip(iwc, 2)
 
-            x = torch.tensor(NORMALIZER(x))
+            x = torch.tensor(NORMALIZER(x, rng=self.rng))
             y = {}
             y["iwp"] = torch.tensor(iwp.copy())
             y["iwc"] = torch.tensor(iwc.copy())

@@ -32,4 +32,7 @@ def test_matches():
     scenes = gpmir.get_matches(cloudsat_files)
     assert len(scenes) > 0
 
+    assert "iwp" in scenes[0].variables
+    assert "cloud_mask" in scenes[0].variables
+
 

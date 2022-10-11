@@ -9,7 +9,7 @@ import dask.array as da
 import numpy as np
 from pansat.download.providers.cloudsat_dpc import CloudSatDPCProvider
 from pansat.products.satellite.cloud_sat import l2c_ice, l2b_cldclass
-from pansat.time import to_datetime
+from pansat.time import to_datetime, to_datetime64
 from pyresample.bucket import BucketResampler
 from scipy.signal import convolve
 from scipy.interpolate import interp1d
@@ -168,12 +168,34 @@ class CloudsatFile:
         """
         cls.provider.download_file(filename, destination)
 
+
+    @staticmethod
+    def download_files(date, destination):
+        """
+        Download all files for a given day and return a dictionary
+        mapping start time to CloudSat files.
+        """
+        destination = Path(destination)
+        available_files = cls.get_available_files(date)
+        files = []
+        for filename in available_files:
+            cls.download(filename, destination / filename)
+            files.append(cls(destination_filename))
+        return {start_time: f for f in files}
+
+
     def __init__(self, filename):
         """
         Args:
-            filename: Path to the 2C-Ice file to open.
+            filename: Path to the CloudSat product file.
         """
         self.filename = filename
+        self.start_time = to_datetime64(
+            self.product.filename_to_date(self.filename)
+        )
+
+    def __repr__(self):
+        return f"{type(self).__name__}({self.filename})"
 
     def to_xarray_dataset(self, start_time=None, end_time=None):
         """
@@ -193,7 +215,7 @@ class CloudsatFile:
         )
         data["time"] = (("rays"), time)
 
-        time_mask = np.ones(data.time.size, dtype=np.bool)
+        time_mask = np.ones(data.time.size, dtype=bool)
         if start_time is not None:
             time_mask *= data.time >= start_time
         if end_time is not None:
@@ -207,7 +229,6 @@ class CloudSat2CIce(CloudsatFile):
     """
     Interface class to read CloudSat 2C-Ice files.
     """
-
     provider = PROVIDER_2CICE
     product = l2c_ice
 
@@ -325,11 +346,35 @@ class CloudSat2BCLDCLASS(CloudsatFile):
         target_dataset["cloud_class"] = (("latitude", "longitude", "levels"), labels_r)
 
 
+def get_available_granules(date):
+    """
+    Collects the names of available CloudSat files for a given day
+    and groups them by the granule number.
+
+    Returns:
+        A list of CloudSat file objects.
+
+    NOTE: The files are not downloaded so the filename attribute of
+         the returned objects points to non-existing files.
+    """
+    cloudsat_files = []
+    cloudsat_classes = [CloudSat2CIce, CloudSat2BCLDCLASS]
+    for cls in cloudsat_classes:
+        cloudsat_files += [
+            cls(filename) for filename in cls.get_available_files(date)
+        ]
+    granules = {}
+    for cs_file in cloudsat_files:
+        filename = cs_file.filename
+        granule = int(filename.split("_")[1])
+        granules.setdefault(granule, []).append(cs_file)
+    return granules
+
+
 def resample_data(
     target_dataset,
     target_grid,
-    cloudsat_2cice_file,
-    cloudsat_2bcldclass_file=None,
+    cloudsat_files,
     start_time=None,
     end_time=None,
 ):
@@ -344,14 +389,21 @@ def resample_data(
             targets will be added.
         target_grid: pyresample area definition defining the grid of the
             target dataset.
-        cloudsat_2cice_file: Path to the CloudSat 2CIce file from which to
-            read the 2CIce data..
+        cloudsat_files: List of CloudSat files from which to add retrieval
+            targets to the target dataset.
         cloudsat_2bcldclass_file: Path to the CloudSat 2BCLDCLASS file from
             which to read the 2CIce data.
+
+    Return:
+        The target_dataset or ``None`` if no matches can be found within
+        the given time constraints.
     """
-    cloudsat_data = CloudSat2CIce(cloudsat_2cice_file).to_xarray_dataset(
+    cloudsat_data = cloudsat_files[0].to_xarray_dataset(
         start_time=start_time, end_time=end_time
     )
+    if cloudsat_data.rays.size == 0:
+        return None
+
     resampler = BucketResampler(
         target_grid,
         source_lons=da.from_array(cloudsat_data.longitude.data),
@@ -360,19 +412,8 @@ def resample_data(
     # Indices of random samples.
     target_indices, source_indices = get_sample_indices(resampler)
 
-    cs_2cice = CloudSat2CIce(cloudsat_2cice_file)
-    cs_2cice.add_retrieval_targets(
-        target_dataset,
-        resampler,
-        target_indices,
-        source_indices,
-        start_time=start_time,
-        end_time=end_time,
-    )
-
-    if cloudsat_2bcldclass_file is not None:
-        cs_2bcldclass = CloudSat2BCLDCLASS(cloudsat_2bcldclass_file)
-        cs_2bcldclass.add_retrieval_targets(
+    for cloudsat_file in cloudsat_files:
+        cloudsat_file.add_retrieval_targets(
             target_dataset,
             resampler,
             target_indices,
@@ -380,3 +421,4 @@ def resample_data(
             start_time=start_time,
             end_time=end_time,
         )
+    return target_dataset

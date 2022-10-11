@@ -15,9 +15,21 @@ import xarray as xr
 from ccic.data import cloudsat
 
 PROVIDER = NOAANCEIProvider(gridsat_b1)
+GRIDSAT_GRID = create_area_def(
+    'gridsat_area',
+    {'proj': 'longlat', 'datum': 'WGS84'},
+    area_extent=[-180.035, -70.035, 179.975, 69.965],
+    resolution=0.07,
+    units='degrees',
+    description='GridSat-B1 grid.'
+)
 
 
 class GridSatB1:
+    """
+    Interface to download an read GridSat B1 files.
+    """
+    provider = PROVIDER
 
     @staticmethod
     def get_available_files(date):
@@ -38,11 +50,25 @@ class GridSatB1:
     def download(filename, destination):
         PROVIDER.download_file(filename, destination)
 
+    @staticmethod
+    def download_files(date, destination):
+        """
+        Download all files for a given day and return a dictionary
+        mapping start time to CloudSat files.
+        """
+        destination = Path(destination)
+        available_files = cls.get_available_files(date)
+        files = []
+        for filename in available_files:
+            cls.download(filename, destination / filename)
+            files.append(cls(destination_filename))
+        return {start_time: f for f in files}
+
     def __init__(self, filename):
         self.filename = filename
         with xr.open_dataset(self.filename) as data:
-            self.start_time = data.time[0].data - np.timedelta64(15 * 60, "s")
-            self.end_time = data.time[0].data + np.timedelta64(15 * 60, "s")
+            self.start_time = data.time[0].data
+            self.end_time = data.time[0].data
 
     def get_matches(self,
                     cloudsat_data,
@@ -73,26 +99,15 @@ class GridSatB1:
         start_time = data.time - np.array(timedelta, dtype="timedelta64[s]")
         end_time = data.time + np.array(timedelta, dtype="timedelta64[s]")
 
-        # Determine rays within timedelta
-        indices = (cloudsat_data.time >= start_time) * (cloudsat_data.time <= end_time)
-        if indices.sum() == 0:
-            return []
-
-        cloudsat_data = cloudsat_data[{"rays": indices}]
-
-        #
-        # Resampling
-        #
-
-        target_grid = create_area_def(
-            'gridsat_area',
-            {'proj': 'longlat', 'datum': 'WGS84'},
-            area_extent=[-180.035, -70.035, 179.975, 69.965],
-            resolution=0.07,
-            units='degrees',
-            description='GridSat-B1 grid.'
+        data = cloudsat.resample_data(
+            data,
+            GRIDSAT_GRID,
+            cloudsat_data,
+            start_time=start_time,
+            end_time=end_time
         )
-        cloudsat.resample_data(data, target_grid, cloudsat_data)
+        if data is None:
+            return []
 
         #
         # Scene extraction

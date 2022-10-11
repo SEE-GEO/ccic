@@ -21,7 +21,7 @@ LOGGER = logging.getLogger(__name__)
 
 def add_parser(subparsers):
     """
-    Add parser for 'train' command to top-level parser. This function
+    Add parser for 'process' command to top-level parser. This function
     is called from the top-level parser defined in 'ccic.bin'.
 
     Args:

@@ -4,6 +4,8 @@ ccic.data.gpmir
 
 This module provides classes to read the GPM merged IR observations.
 """
+from pathlib import Path
+
 from pansat.download.providers.ges_disc import Disc2Provider
 from pansat.products.satellite.gpm import gpm_mergeir
 from pansat.time import to_datetime
@@ -29,6 +31,8 @@ class GPMIR:
     """
     Interface class to access GPM IR data.
     """
+    provider = PROVIDER
+
     @staticmethod
     def get_available_files(date):
         """
@@ -50,6 +54,20 @@ class GPMIR:
         """
         PROVIDER.download_file(filename, destination)
 
+    @staticmethod
+    def download_files(date, destination):
+        """
+        Download all files for a given day and return a dictionary
+        mapping start time to CloudSat files.
+        """
+        destination = Path(destination)
+        available_files = cls.get_available_files(date)
+        files = []
+        for filename in available_files:
+            cls.download(filename, destination / filename)
+            files.append(cls(destination_filename))
+        return {start_time: f for f in files}
+
     def __init__(self, filename):
         """
         Args:
@@ -57,8 +75,8 @@ class GPMIR:
         """
         self.filename = filename
         with xr.open_dataset(self.filename) as data:
-            self.start_time = data.time[0].data - np.timedelta64(15 * 60, "s")
-            self.end_time = data.time[-1].data + np.timedelta64(15 * 60, "s")
+            self.start_time = data.time[0].data
+            self.end_time = data.time[-1].data
 
     def to_xarray_dataset(self):
         """Load data into ``xarray.Dataset``"""
@@ -88,7 +106,7 @@ class GPMIR:
     def get_matches(self,
                     cloudsat_files,
                     size=128,
-                    timedelta=15*60):
+                    timedelta=15):
         """
         Extract matches of given cloudsat data with observations.
 
@@ -113,10 +131,12 @@ class GPMIR:
 
         for i in range(2):
             data_t = data[{"time": i}].copy()
-
-            start_time = data_t.time - np.array(timedelta, dtype="timedelta64[s]")
-            end_time = data_t.time + np.array(timedelta, dtype="timedelta64[s]")
-
+            start_time = (
+                data_t.time - np.array(60 * timedelta, dtype="timedelta64[s]")
+            )
+            end_time = (
+                data_t.time + np.array(60 * timedelta, dtype="timedelta64[s]")
+            )
             data_t = cloudsat.resample_data(
                 data_t,
                 GPMIR_GRID,
