@@ -1,10 +1,12 @@
 from concurrent.futures import ThreadPoolExecutor
+from copy import copy
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from threading import Lock
 
 import numpy as np
 from pansat.time import to_datetime
+import xarray as xr
 
 from ccic.data.cloudsat import CloudSat2CIce, CloudSat2BCLDCLASS
 from ccic.data.gpmir import GPMIR
@@ -101,7 +103,7 @@ def process_cloudsat_files(
 def write_scenes(
         scenes,
         destination,
-        valid_inputs=0.2
+        valid_input=0.2
 ):
     """
     Write extracted match-up scenes to training files.
@@ -109,13 +111,15 @@ def write_scenes(
     Args:
        scenes: A list of xarray.Datasets each containing a single
            matchup file.
-       valid_inputs: A minimum fraction of valid inputs in the IR
+       valid_input: A minimum fraction of valid input in the IR
            window channel for a sample to be saved.
     """
+    destination = Path(destination)
+
     for scene in scenes:
 
         # Check if scene has sufficient valid inputs.
-        if np.isfinite(scene.ir_win.data).mean() < valid_inputs:
+        if np.isfinite(scene.ir_win.data).mean() < valid_input:
             continue
 
         # Calculate median time of cloudsat overpass.
@@ -125,13 +129,47 @@ def write_scenes(
         time = np.median(times.astype("int64")).astype(dtype)
         time_s = xr.DataArray(time).dt.strftime("%Y%m%d_%H%M%S").data.item()
 
+        # Use sparse storage for CloudSat output data.
+        profile_row_inds, profile_column_inds = np.where(np.isfinite(scene.iwp.data))
+        time_cloudsat = scene.time_cloudsat.data.astype("datetime64[s]")
+        scene["profile_row_inds"] = (("profiles"), profile_row_inds)
+        scene["profile_column_inds"] = (("profiles"), profile_column_inds)
+        dims = ["profiles", "levels"]
+        vars = [
+            "time_cloudsat",
+            "latitude_cloudsat",
+            "longitude_cloudsat",
+            "iwp",
+            "iwp_rand",
+            "iwc",
+            "cloud_mask",
+            "cloud_class",
+        ]
+        for var in vars:
+            data = scene[var].data
+            scene[var] = (dims[:data.ndim - 1], data[valid])
+
         comp = {
             "dtype": "int16",
-            "scale_factor": 0.01,
+            "scale_factor": 0.1,
             "zlib": True,
             "_FillValue": -99
         }
-        encoding = {var: comp for var in scene.variables.keys()}
+        encoding = {var: copy(comp) for var in scene.variables.keys()}
+        encoding["profile_row_inds"] = {"dtype": "int16", "zlib": True}
+        encoding["profile_column_inds"] = {"dtype": "int16", "zlib": True}
+        encoding["longitude"] = {"dtype": "float32", "zlib": True}
+        encoding["levels"]["scale_factor"] = 10
+        encoding["latitude"] = {"dtype": "float32", "zlib": True}
+        encoding["latitude_cloudsat"] = {"dtype": "float32", "zlib": True}
+        encoding["longitude_cloudsat"] = {"dtype": "float32", "zlib": True}
         encoding["iwc"] = {"dtype": "float32", "zlib": True}
         encoding["iwp"] = {"dtype": "float32", "zlib": True}
-        scene.to_netcdf(destination / f"cloudsat_match_{time_s}.nc", encoding=encoding)
+        encoding["iwp_rand"] = {"dtype": "float32", "zlib": True}
+        encoding["cloud_class"] = {"dtype": "int8", "zlib": True}
+        encoding["cloud_mask"] = {"dtype": "int8", "zlib": True}
+        encoding["time_cloudsat"] = {"dtype": "int64", "zlib": True}
+
+        source = scene.attrs["input_source"].lower()
+        output = f"cloudsat_match_{source}_{time_s}.nc"
+        scene.to_netcdf(destination / output, encoding=encoding)

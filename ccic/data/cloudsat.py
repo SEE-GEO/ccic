@@ -60,7 +60,7 @@ def subsample_iwc_and_height(iwc, height):
         A tuple ``(iwc, height)`` containing the subsampled IWC and
         height fields.
     """
-    k = np.linspace(-4 * 240, 4 * 240, 9)
+    k = np.linspace(-5 * 240, 5 * 240, 11)
     k = np.exp(np.log(0.5) * (k / 500) ** 2).reshape(1, -1)
     k /= k.sum()
     iwc = convolve(iwc, k, mode="valid", method="direct")[:, ::4]
@@ -111,8 +111,8 @@ def remap_cloud_classes(
     Args:
         labels: 2D array containing cloud-class labels with altitude levels
             along last dimension.
-        altitude: The altitudes corresponding to ``iwc``
-        surface_altitude: The surface altitude for each IWC profile.
+        altitude: The altitudes corresponding to ``classes``
+        surface_altitude: The surface altitude for each profile.
         target_altitude: 1D array specifying the altitudes to remap the
             IWC data to.
 
@@ -125,16 +125,24 @@ def remap_cloud_classes(
     indices = np.minimum(indices, n_levels - 1)
 
     labels = labels[..., indices]
-    altitude = altitude[..., indices]
+    altitude = altitude[..., indices].astype(np.float32)
+    surface_altitude = np.maximum(surface_altitude, 0).astype(np.float32)
 
     labels_r = np.zeros(
         labels.shape[:-1] + (target_altitudes.size,), dtype=labels.dtype
     )
 
     for index in range(labels.shape[0]):
+        z_old = altitude[index]
         z_new = target_altitudes
-        z_old = altitude[index] - surface_altitude[index]
-        interpolator = interp1d(z_old, labels[index], kind="nearest")
+        z_old = z_old - surface_altitude[index]
+        interpolator = interp1d(
+            z_old,
+            labels[index],
+            kind="nearest",
+            bounds_error=False,
+            fill_value=-99
+        )
         labels_r[index] = interpolator(z_new)
 
     return labels_r
@@ -224,6 +232,39 @@ class CloudsatFile:
 
         return data
 
+    def add_latitude_and_longitude(
+        self,
+        target_dataset,
+        resampler,
+        target_indices,
+        source_indices,
+        start_time=None,
+        end_time=None,
+    ):
+        """
+        Adds latitude and longitude from CloudSat data.
+
+        Args:
+            target_dataset: The ``xarray.Dataset`` to add the resampled
+                retrieval targets to.
+            resampler: The ``pyresample.BucketResampler`` to use for
+                resampling.
+            target_indices: Indices of the flattened target grids for
+                probabilistic resampling of profiles.
+            source_indices: Corresponding indices of the 2CIce data for
+                the probabilistic resampling of profiles.
+            start_time: Optional start time to limit the source profiles that
+                are resampled.
+            end_time: Optional end time to limit the source profiles that
+                are resampled.
+        """
+        data = self.to_xarray_dataset(start_time=start_time, end_time=end_time)
+        latitude_r = resampler.get_average(data.latitude.data).compute()
+        longitude_r = resampler.get_average(data.longitude.data).compute()
+
+        target_dataset["latitude_cloudsat"] = (("latitude", "longitude"), latitude_r)
+        target_dataset["longitude_cloudsat"] = (("latitude", "longitude"), longitude_r)
+
 
 class CloudSat2CIce(CloudsatFile):
     """
@@ -262,18 +303,19 @@ class CloudSat2CIce(CloudsatFile):
         data = self.to_xarray_dataset(start_time=start_time, end_time=end_time)
 
         # Resample IWP.
-        iwp_r = resampler.get_average(data.iwp.data).compute()[::-1]
+        iwp_r = resampler.get_average(data.iwp.data).compute()
         iwp_r_rand = np.zeros_like(iwp_r)
         iwp_r_rand.ravel()[target_indices] = data.iwp.data[source_indices]
 
         # Resample CloudSat time.
-        time_r = resampler.get_average(data.time.data.astype(np.int64)).compute()[::-1]
+        time_r = resampler.get_average(data.time.data.astype(np.int64)).compute()
         time_r = time_r.astype(np.int64).astype(data.time.data.dtype)
 
         # Smooth, resample and remap IWC to fixed altitude relative
         # to surface.
-        iwc = data.iwc.data
-        height = data.height.data
+        # NOTE: Height dimension is flipped in CloudSat data.
+        iwc = data.iwc.data[..., ::-1]
+        height = data.height.data[..., ::-1]
         iwc, height = subsample_iwc_and_height(iwc, height)
         surface_altitude = np.maximum(data.surface_elevation.data, 0.0)
 
@@ -330,9 +372,14 @@ class CloudSat2BCLDCLASS(CloudsatFile):
         """
         data = self.to_xarray_dataset(start_time=start_time, end_time=end_time)
         output_shape = resampler.target_area.shape
-        labels = data.cloud_class.data
+        labels = data.cloud_class.data[..., ::-1]
+        valid = data.cloud_class_flag.data[..., ::-1]
+        labels[~valid] = -1
+
         cloud_mask = labels.max(axis=-1) > 0
-        height = data.height.data
+        cloud_mask[np.any(~valid, -1)] = -1
+
+        height = data.height.data[..., ::-1]
         surface_altitude = data.surface_elevation.data
         labels = remap_cloud_classes(labels, height, surface_altitude, ALTITUDE_LEVELS)
 
@@ -404,6 +451,7 @@ def resample_data(
     if cloudsat_data.rays.size == 0:
         return None
 
+
     resampler = BucketResampler(
         target_grid,
         source_lons=da.from_array(cloudsat_data.longitude.data),
@@ -421,4 +469,12 @@ def resample_data(
             start_time=start_time,
             end_time=end_time,
         )
+    cloudsat_files[0].add_latitude_and_longitude(
+        target_dataset,
+        resampler,
+        target_indices,
+        source_indices,
+        start_time=start_time,
+        end_time=end_time
+    )
     return target_dataset

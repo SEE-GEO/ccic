@@ -4,6 +4,7 @@ Tests for the ccic.data.gpm_ir module.
 import os
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from ccic.data.cloudsat import CloudSat2CIce, CloudSat2BCLDCLASS
@@ -29,6 +30,16 @@ def test_get_available_files():
 
 
 @NEEDS_TEST_DATA
+def test_to_xarray_dataset():
+    """
+    Assert that data is loaded with decreasing latitudes.
+    """
+    gpmir = GPMIR(TEST_DATA / GPMIR_FILE)
+    data = gpmir.to_xarray_dataset()
+    assert (np.diff(data.lat.data) < 0.0).all()
+
+
+@NEEDS_TEST_DATA
 def test_matches():
     """
     Make sure that matches are found for files that overlap in time.
@@ -38,10 +49,26 @@ def test_matches():
         CloudSat2CIce(TEST_DATA / CS_2CICE_FILE),
         CloudSat2BCLDCLASS(TEST_DATA / CS_2BCLDCLASS_FILE),
     ]
-    scenes = gpmir.get_matches(cloudsat_files)
+
+    size = 256
+    scenes = gpmir.get_matches(cloudsat_files, size=size)
     assert len(scenes) > 0
+    for scene in scenes:
+        assert scene.iwp.shape == (size, size)
 
     assert "iwp" in scenes[0].variables
     assert "cloud_mask" in scenes[0].variables
 
+    # Make sure observations and output are co-located.
+    for scene in scenes:
+        lats_cs = scene.latitude_cloudsat.data
+        lons_cs = scene.longitude_cloudsat.data
+
+        rows, cols = np.where(np.isfinite(lats_cs))
+        assert np.all(np.isclose(
+            lats_cs[rows, cols], scene.latitude.data[rows], atol=0.1
+        ))
+        assert np.all(np.isclose(
+            lons_cs[rows, cols], scene.longitude.data[cols], atol=0.1
+        ))
 

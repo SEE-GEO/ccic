@@ -5,6 +5,8 @@ ccic.data.gridsat
 This module provides classes to represent and handle the NOAA
 GridSat-B1 files.
 """
+from pathlib import Path
+
 import numpy as np
 from pansat.download.providers.noaa_ncei import NOAANCEIProvider
 from pansat.products.satellite.gridsat import gridsat_b1
@@ -16,12 +18,12 @@ from ccic.data import cloudsat
 
 PROVIDER = NOAANCEIProvider(gridsat_b1)
 GRIDSAT_GRID = create_area_def(
-    'gridsat_area',
-    {'proj': 'longlat', 'datum': 'WGS84'},
+    "gridsat_area",
+    {"proj": "longlat", "datum": "WGS84"},
     area_extent=[-180.035, -70.035, 179.975, 69.965],
     resolution=0.07,
-    units='degrees',
-    description='GridSat-B1 grid.'
+    units="degrees",
+    description="GridSat-B1 grid.",
 )
 
 
@@ -29,10 +31,11 @@ class GridSatB1:
     """
     Interface to download an read GridSat B1 files.
     """
+
     provider = PROVIDER
 
-    @staticmethod
-    def get_available_files(date):
+    @classmethod
+    def get_available_files(cls, date):
         """
         Return list of available files for a given day.
 
@@ -46,12 +49,12 @@ class GridSatB1:
         files = PROVIDER.get_files_by_day(date.year, day)
         return files
 
-    @staticmethod
-    def download(filename, destination):
+    @classmethod
+    def download(cls, filename, destination):
         PROVIDER.download_file(filename, destination)
 
-    @staticmethod
-    def download_files(date, destination):
+    @classmethod
+    def download_files(cls, date, destination):
         """
         Download all files for a given day and return a dictionary
         mapping start time to CloudSat files.
@@ -60,9 +63,10 @@ class GridSatB1:
         available_files = cls.get_available_files(date)
         files = []
         for filename in available_files:
-            cls.download(filename, destination / filename)
-            files.append(cls(destination_filename))
-        return {start_time: f for f in files}
+            output_file = destination / filename
+            cls.download(filename, output_file)
+            files.append(cls(output_file))
+        return files
 
     def __init__(self, filename):
         self.filename = filename
@@ -70,10 +74,7 @@ class GridSatB1:
             self.start_time = data.time[0].data
             self.end_time = data.time[0].data
 
-    def get_matches(self,
-                    cloudsat_data,
-                    size=128,
-                    timedelta=15*60):
+    def get_matches(self, cloudsat_data, size=128, timedelta=15 * 60):
         """
         Extract matches of given cloudsat data with observations.
 
@@ -86,13 +87,13 @@ class GridSatB1:
         Return:
             List of ``xarray.Dataset`` object with the extracted matches.
         """
-        data = xr.load_dataset(self.filename)[{"time": 0}]
+        data = self.to_xarray_dataset()[{"time": 0}]
         new_names = {
             "vschn": "vis",
             "irwvp": "ir_wv",
-            "irwin_cdr": "ir_window",
+            "irwin_cdr": "ir_win",
             "lat": "latitude",
-            "lon": "longitude"
+            "lon": "longitude",
         }
         data = data[["vschn", "irwvp", "irwin_cdr"]].rename(new_names)
 
@@ -100,11 +101,7 @@ class GridSatB1:
         end_time = data.time + np.array(timedelta, dtype="timedelta64[s]")
 
         data = cloudsat.resample_data(
-            data,
-            GRIDSAT_GRID,
-            cloudsat_data,
-            start_time=start_time,
-            end_time=end_time
+            data, GRIDSAT_GRID, cloudsat_data, start_time=start_time, end_time=end_time
         )
         if data is None:
             return []
@@ -145,4 +142,6 @@ class GridSatB1:
 
     def to_xarray_dataset(self):
         """Return data in file as ``xarray.Dataset``"""
-        return xr.load_dataset(self.filename)
+        data = xr.load_dataset(self.filename)
+        # Flip latitudes to be consistent with pyresample.
+        return data.isel(lat=slice(None, None, -1))

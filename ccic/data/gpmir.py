@@ -19,11 +19,11 @@ from ccic.data import cloudsat
 PROVIDER = Disc2Provider(gpm_mergeir)
 GPMIR_GRID = create_area_def(
     "gpmir_area",
-    {"proj": 'longlat', 'datum': 'WGS84'},
+    {"proj": "longlat", "datum": "WGS84"},
     area_extent=[-180.0, -60.0, 180.0, 60.0],
     resolution=(0.036378335, 0.03638569),
-    units='degrees',
-    description='GPMIR grid'
+    units="degrees",
+    description="GPMIR grid",
 )
 
 
@@ -31,10 +31,11 @@ class GPMIR:
     """
     Interface class to access GPM IR data.
     """
+
     provider = PROVIDER
 
-    @staticmethod
-    def get_available_files(date):
+    @classmethod
+    def get_available_files(cls, date):
         """
         Return list of times at which this data is available.
         """
@@ -43,8 +44,8 @@ class GPMIR:
         files = PROVIDER.get_files_by_day(date.year, day)
         return files
 
-    @staticmethod
-    def download(filename, destination):
+    @classmethod
+    def download(cls, filename, destination):
         """
         Download file to given destination.
 
@@ -54,8 +55,8 @@ class GPMIR:
         """
         PROVIDER.download_file(filename, destination)
 
-    @staticmethod
-    def download_files(date, destination):
+    @classmethod
+    def download_files(cls, date, destination):
         """
         Download all files for a given day and return a dictionary
         mapping start time to CloudSat files.
@@ -64,9 +65,10 @@ class GPMIR:
         available_files = cls.get_available_files(date)
         files = []
         for filename in available_files:
-            cls.download(filename, destination / filename)
-            files.append(cls(destination_filename))
-        return {start_time: f for f in files}
+            output_file = destination / filename
+            cls.download(filename, output_file)
+            files.append(cls(output_file))
+        return files
 
     def __init__(self, filename):
         """
@@ -80,7 +82,9 @@ class GPMIR:
 
     def to_xarray_dataset(self):
         """Load data into ``xarray.Dataset``"""
-        return xr.load_dataset(self.filename)
+        data = xr.load_dataset(self.filename)
+        # Flip latitudes to be consistent with pyresample.
+        return data.isel(lat=slice(None, None, -1))
 
     def get_retrieval_input(self):
         """
@@ -103,10 +107,7 @@ class GPMIR:
 
         return torch.tensor(x).to(torch.float32)
 
-    def get_matches(self,
-                    cloudsat_files,
-                    size=128,
-                    timedelta=15):
+    def get_matches(self, cloudsat_files, size=128, timedelta=15):
         """
         Extract matches of given cloudsat data with observations.
 
@@ -119,30 +120,18 @@ class GPMIR:
         Return:
             List of ``xarray.Dataset`` object with the extracted matches.
         """
-        data = xr.load_dataset(self.filename)
-        new_names = {
-            "Tb": "ir_window",
-            "lat": "latitude",
-            "lon": "longitude"
-        }
+        data = self.to_xarray_dataset()
+        new_names = {"Tb": "ir_win", "lat": "latitude", "lon": "longitude"}
         data = data[["Tb", "time"]].rename(new_names)
 
         scenes = []
 
         for i in range(2):
             data_t = data[{"time": i}].copy()
-            start_time = (
-                data_t.time - np.array(60 * timedelta, dtype="timedelta64[s]")
-            )
-            end_time = (
-                data_t.time + np.array(60 * timedelta, dtype="timedelta64[s]")
-            )
+            start_time = data_t.time - np.array(60 * timedelta, dtype="timedelta64[s]")
+            end_time = data_t.time + np.array(60 * timedelta, dtype="timedelta64[s]")
             data_t = cloudsat.resample_data(
-                data_t,
-                GPMIR_GRID,
-                cloudsat_files,
-                start_time,
-                end_time
+                data_t, GPMIR_GRID, cloudsat_files, start_time, end_time
             )
             # No matches found
             if data_t is None:
@@ -171,5 +160,8 @@ class GPMIR:
                 }
                 scene = data_t[coords]
                 if (scene.latitude.size == size) and (scene.longitude.size == size):
+                    scene.attrs = {}
+                    scene.attrs["input_source"] = "GPMIR"
                     scenes.append(scene.copy())
+
         return scenes
