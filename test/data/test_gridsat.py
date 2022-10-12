@@ -50,6 +50,7 @@ def test_matches():
         CloudSat2BCLDCLASS(TEST_DATA / CS_2BCLDCLASS_FILE),
     ]
     scenes = gridsat.get_matches(cloudsat_files)
+    print(len(scenes))
     assert len(scenes) > 0
 
     assert "iwp" in scenes[0].variables

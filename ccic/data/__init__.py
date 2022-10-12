@@ -68,7 +68,7 @@ def process_cloudsat_files(
     data = cloudsat_files[0].result().to_xarray_dataset()
     d_t = np.array(timedelta * 60, dtype="timedelta64[s]")
     start_time = data.time.data[0] - d_t
-    end_time = data.time.data[1]  + d_t
+    end_time = data.time.data[-1]  + d_t
 
     scenes = []
 
@@ -90,7 +90,7 @@ def process_cloudsat_files(
         to_datetime(end_time),
         start_inclusive=True
     )
-    for filename in gpmir_files:
+    for filename in gridsat_files:
         gs_file = cache.get(GridSatB1, filename).result()
         scenes += gs_file.get_matches(
             cloudsat_files,

@@ -74,7 +74,7 @@ class GridSatB1:
             self.start_time = data.time[0].data
             self.end_time = data.time[0].data
 
-    def get_matches(self, cloudsat_data, size=128, timedelta=15 * 60):
+    def get_matches(self, cloudsat_data, size=128, timedelta=15):
         """
         Extract matches of given cloudsat data with observations.
 
@@ -82,7 +82,7 @@ class GridSatB1:
             cloudsat_data: ``xarray.Dataset`` containing the CloudSat data
                 to match.
             size: The size of the windows to extract.
-            timedelta: The time range for which to extract matches.
+            timedelta: The maximum time different for collocations.
 
         Return:
             List of ``xarray.Dataset`` object with the extracted matches.
@@ -97,8 +97,8 @@ class GridSatB1:
         }
         data = data[["vschn", "irwvp", "irwin_cdr"]].rename(new_names)
 
-        start_time = data.time - np.array(timedelta, dtype="timedelta64[s]")
-        end_time = data.time + np.array(timedelta, dtype="timedelta64[s]")
+        start_time = data.time - np.array(60 * timedelta, dtype="timedelta64[s]")
+        end_time = data.time + np.array(60 * timedelta, dtype="timedelta64[s]")
 
         data = cloudsat.resample_data(
             data, GRIDSAT_GRID, cloudsat_data, start_time=start_time, end_time=end_time
@@ -135,7 +135,7 @@ class GridSatB1:
             scene = data[coords]
             if (scene.latitude.size == size) and (scene.longitude.size == size):
                 scene.attrs = {}
-                scene.attrs["source"] = "GridSat"
+                scene.attrs["input_source"] = "GridSat"
                 scenes.append(scene)
 
         return scenes
