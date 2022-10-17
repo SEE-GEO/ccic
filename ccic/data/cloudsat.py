@@ -63,8 +63,8 @@ def subsample_iwc_and_height(iwc, height):
     k = np.linspace(-5 * 240, 5 * 240, 11)
     k = np.exp(np.log(0.5) * (k / 500) ** 2).reshape(1, -1)
     k /= k.sum()
-    iwc = convolve(iwc, k, mode="valid", method="direct")[:, ::4]
-    height = convolve(height, k, mode="valid", method="direct")[:, ::4]
+    iwc = convolve(iwc, k, mode="valid", method="direct")
+    height = convolve(height, k, mode="valid", method="direct")
     return iwc, height
 
 
@@ -89,11 +89,15 @@ def remap_iwc(
         2D array containing the remapped IWC.
     """
     iwc_r = np.zeros(iwc.shape[:-1] + (target_altitudes.size,), dtype=iwc.dtype)
+    iwp = np.trapz(iwc, x=altitude, axis=-1)
 
     for index in range(iwc.shape[0]):
         z_new = target_altitudes
         z_old = altitude[index] - surface_altitude[index]
         iwc_r[index] = np.interp(z_new, z_old, iwc[index])
+        if iwp[index] > 1e-4:
+            iwp_r = np.trapz(iwc_r[index], x=target_altitudes)
+            iwc_r[index] *= iwp[index] / iwp_r
 
     return iwc_r
 
@@ -308,8 +312,12 @@ class CloudSat2CIce(CloudsatFile):
         iwp_r_rand.ravel()[target_indices] = data.iwp.data[source_indices]
 
         # Resample CloudSat time.
-        time_r = resampler.get_average(data.time.data.astype(np.int64)).compute()
-        time_r = time_r.astype(np.int64).astype(data.time.data.dtype)
+        time_r = np.zeros(
+            iwp_r.shape,
+            dtype="datetime64[s]"
+        )
+        time_r[:] = np.datetime64("nat", "s")
+        time_r.ravel()[target_indices] = data.time.data[source_indices]
 
         # Smooth, resample and remap IWC to fixed altitude relative
         # to surface.

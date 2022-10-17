@@ -64,9 +64,10 @@ def test_subsample_iwc_and_height():
     if np.any(iwp > 1e-4):
         assert np.any(iwp_s > 1e-4)
 
-    # Subsampling seems to incur an error of at least 4 %.
     notable_iwp = iwp > 1e-3
-    assert np.all(np.isclose(iwp[notable_iwp], iwp_s[notable_iwp], rtol=4e-2))
+    iwp = iwp[notable_iwp]
+    iwp_s = iwp_s[notable_iwp]
+    assert np.all(np.isclose(iwp, iwp_s, rtol=1e-2))
 
 
 @NEEDS_TEST_DATA
@@ -97,7 +98,6 @@ def test_remap_cloud_classes():
 def test_remap_iwc():
     """
     Test remapping of IWC by ensuring that total IWP is conserved.
-
     """
     cs_data = CloudSat2CIce(TEST_DATA / CS_2CICE_FILE).to_xarray_dataset()
 
@@ -108,17 +108,23 @@ def test_remap_iwc():
     iwc[below_surface] = 0.0
     iwc_s, height_s = subsample_iwc_and_height(iwc, height)
 
-    target_altitudes = (np.arange(20)) * 1e3
+    target_altitudes = (np.linspace(0, 20, 21)) * 1e3
     iwc_r = remap_iwc(iwc_s, height_s, surface_altitude, target_altitudes)
 
     # IWP in kg/m^2
+    ind = 13714
     iwp_s = np.trapz(iwc_s, x=height_s, axis=-1) * 1e-3
-    iwp_r = np.trapz(iwc_r, x=target_altitudes) * 1e-3
+    iwp_r = np.trapz(iwc_r, x=target_altitudes, axis=-1) * 1e-3
 
     # Subsampling seems to incur another error of around 10%
+
+
     inds = np.argsort(np.abs(iwp_s - iwp_r))
     notable_iwp = iwp_s > 1e-3
-    assert np.all(np.isclose(iwp_s[notable_iwp], iwp_r[notable_iwp], rtol=1e-1))
+    iwp_r = iwp_r[notable_iwp]
+    iwp_s = iwp_s[notable_iwp]
+    ind = np.argmax(np.abs(iwp_r - iwp_s) / (0.5 * (np.abs(iwp_r) + np.abs(iwp_s))))
+    assert np.all(np.isclose(iwp_r, iwp_s, rtol=1e-2))
 
 
 @NEEDS_TEST_DATA
@@ -173,8 +179,8 @@ def test_resampling_gpmir():
         cloudsat_files
     )
 
-    lats_cs = data_resampled.cloudsat_latitude.data
-    lons_cs = data_resampled.cloudsat_longitude.data
+    lats_cs = data_resampled.latitude_cloudsat.data
+    lons_cs = data_resampled.longitude_cloudsat.data
     rows, cols = np.where(np.isfinite(lats_cs))
 
     # Make sure collocations are found.
