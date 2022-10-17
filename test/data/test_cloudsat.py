@@ -49,8 +49,8 @@ def test_available_granules():
 @NEEDS_TEST_DATA
 def test_subsample_iwc_and_height():
     """
-    Test downsampling of cloud labels by ensuring that all returned labels
-    are valid.
+    Test downsampling of IWC profiles by ensuring that the total IWP is
+    conserved.
     """
     cs_data = CloudSat2CIce(TEST_DATA / CS_2CICE_FILE).to_xarray_dataset()
 
@@ -73,8 +73,8 @@ def test_subsample_iwc_and_height():
 @NEEDS_TEST_DATA
 def test_remap_cloud_classes():
     """
-    Test downsampling of IWC profiles by ensuring that the total IWP is
-    conserved.
+    Test downsampling of cloud labels by ensuring that all returned labels
+    are valid.
     """
     cs_data = CloudSat2BCLDCLASS(
         TEST_DATA / CS_2BCLDCLASS_FILE
