@@ -5,6 +5,8 @@ ccic.data.cloudsat
 This module provides functionality to read and resample  CloudSat 2C-Ice
 files.
 """
+import warnings
+
 import dask.array as da
 import numpy as np
 from pansat.download.providers.cloudsat_dpc import CloudSatDPCProvider
@@ -453,18 +455,20 @@ def resample_data(
         The target_dataset or ``None`` if no matches can be found within
         the given time constraints.
     """
+
     cloudsat_data = cloudsat_files[0].to_xarray_dataset(
         start_time=start_time, end_time=end_time
     )
     if cloudsat_data.rays.size == 0:
         return None
 
-
-    resampler = BucketResampler(
-        target_grid,
-        source_lons=da.from_array(cloudsat_data.longitude.data),
-        source_lats=da.from_array(cloudsat_data.latitude.data),
-    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        resampler = BucketResampler(
+            target_grid,
+            source_lons=da.from_array(cloudsat_data.longitude.data),
+            source_lats=da.from_array(cloudsat_data.latitude.data),
+        )
     # Indices of random samples.
     target_indices, source_indices = get_sample_indices(resampler)
 
