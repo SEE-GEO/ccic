@@ -21,7 +21,7 @@ GPMIR_GRID = create_area_def(
     "gpmir_area",
     {"proj": "longlat", "datum": "WGS84"},
     area_extent=[-180.0, -60.0, 180.0, 60.0],
-    resolution=(0.036378335, 0.03638569),
+    resolution= (0.03637833468067906, 0.036385688295936934),
     units="degrees",
     description="GPMIR grid",
 )
