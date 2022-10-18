@@ -56,8 +56,6 @@ def test_matches():
     assert "iwp" in scenes[0].variables
     assert "cloud_mask" in scenes[0].variables
 
-    gridsat_data = gridsat.to_xarray_dataset()
-
     # Make sure observations and output are co-located.
     for scene in scenes:
         lats_cs = scene.latitude_cloudsat.data
@@ -70,4 +68,3 @@ def test_matches():
         assert np.all(np.isclose(
             lons_cs[rows, cols], scene.longitude.data[cols], atol=0.1
         ))
-

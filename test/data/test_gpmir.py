@@ -71,4 +71,3 @@ def test_matches():
         assert np.all(np.isclose(
             lons_cs[rows, cols], scene.longitude.data[cols], atol=0.1
         ))
-

@@ -34,6 +34,9 @@ GPMIR_FILE = "merg_2008020101_4km-pixel.nc4"
 
 
 def test_available_files():
+    """
+    Test that available files for 2008-02-01 are found.
+    """
     available_files = CloudSat2CIce.get_available_files("2008-02-01T00:00:00")
     assert len(available_files) > 10
     available_files = CloudSat2BCLDCLASS.get_available_files("2008-02-01T00:00:00")
@@ -41,6 +44,9 @@ def test_available_files():
 
 
 def test_available_granules():
+    """
+    Test extraction of available granules is consistent with available files.
+    """
     available_files = CloudSat2CIce.get_available_files("2008-02-01T00:00:00")
     available_files = CloudSat2BCLDCLASS.get_available_files("2008-02-01T00:00:00")
     available_granules = get_available_granules("2008-02-01T00:00:00")
@@ -112,18 +118,12 @@ def test_remap_iwc():
     iwc_r = remap_iwc(iwc_s, height_s, surface_altitude, target_altitudes)
 
     # IWP in kg/m^2
-    ind = 13714
     iwp_s = np.trapz(iwc_s, x=height_s, axis=-1) * 1e-3
     iwp_r = np.trapz(iwc_r, x=target_altitudes, axis=-1) * 1e-3
 
-    # Subsampling seems to incur another error of around 10%
-
-
-    inds = np.argsort(np.abs(iwp_s - iwp_r))
     notable_iwp = iwp_s > 1e-3
     iwp_r = iwp_r[notable_iwp]
     iwp_s = iwp_s[notable_iwp]
-    ind = np.argmax(np.abs(iwp_r - iwp_s) / (0.5 * (np.abs(iwp_r) + np.abs(iwp_s))))
     assert np.all(np.isclose(iwp_r, iwp_s, rtol=1e-2))
 
 
@@ -134,7 +134,6 @@ def test_random_resampling():
     from resampling of longitude and latitudes is of the same order
     as the grid resolution.
     """
-    gpm_data = GPMIR(TEST_DATA / GPMIR_FILE).to_xarray_dataset()
     cs_data = CloudSat2CIce(TEST_DATA / CS_2CICE_FILE).to_xarray_dataset()
     target_grid = GPMIR_GRID
 
@@ -173,15 +172,11 @@ def test_resampling_gpmir():
         CloudSat2BCLDCLASS(TEST_DATA / CS_2BCLDCLASS_FILE),
     ]
 
-    data_resampled = resample_data(
+    resample_data(
         gpm_data,
         GPMIR_GRID,
         cloudsat_files
     )
-
-    lats_cs = data_resampled.latitude_cloudsat.data
-    lons_cs = data_resampled.longitude_cloudsat.data
-    rows, cols = np.where(np.isfinite(lats_cs))
 
     # Make sure collocations are found.
     iwp_r = gpm_data.iwp.data
