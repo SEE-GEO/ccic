@@ -123,12 +123,23 @@ def process_day(year, month, day, destination, size=256, timedelta=15, valid_inp
     )
 
     for granule, cloudsat_files in granules.items():
+        if not len(cloudsat_files) == 2:
+            LOGGER.info(
+                "Skipping granule %s because less than two CloudSat product"
+                " files are available."
+            )
+            continue
         try:
             cache = DownloadCache(n_threads=4)
             scenes = process_cloudsat_files(
                 cloudsat_files, cache, size=size, timedelta=timedelta
             )
             write_scenes(scenes, destination, valid_input=valid_input)
+            LOGGER.info(
+                "Extracted %s match-ups from CloudSat granule %s.",
+                len(scenes),
+                granule
+            )
         except Exception as ex:
             LOGGER.error(
                 "The following error was encountered while processing CloudSat"
@@ -145,6 +156,8 @@ def run(args):
     Args:
         args: The namespace object provided by the top-level parser.
     """
+    logging.basicConfig(level=logging.INFO)
+
     year = args.year
     month = args.month
     days = args.days
