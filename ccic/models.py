@@ -4,222 +4,91 @@ ccic.models
 
 Machine learning models for CCIC.
 """
-import torch
 from torch import nn
 
-
-class SymmetricPadding(nn.Module):
-    """
-    Network module implementing symmetric padding.
-
-    This is just a wrapper around torch's ``nn.functional.pad`` with mode
-    set to 'replicate'.
-    """
-
-    def __init__(self, amount):
-        super().__init__()
-        if isinstance(amount, int):
-            self.amount = [amount] * 4
-        else:
-            self.amount = amount
-
-    def forward(self, x):
-        return nn.functional.pad(x, self.amount, "replicate")
+from quantnn.models.pytorch.encoders import SpatialEncoder
+from quantnn.models.pytorch.decoders import SpatialDecoder
+from quantnn.models.pytorch.fully_connected import MLP
+import quantnn.models.pytorch.torchvision as blocks
 
 
-class SeparableConv(nn.Sequential):
-    """
-    Depth-wise separable convolution.
-    """
-
-    def __init__(self, channels_in, channels_out, size=7):
-        super().__init__(
-            nn.Conv2d(channels_in, channels_in, kernel_size=7, groups=channels_in),
-            nn.BatchNorm2d(channels_in),
-            nn.Conv2d(channels_in, channels_out, kernel_size=1),
-        )
+SCALAR_VARIABLES = ["iwp", "cloud_flag", "iwp_rand"]
+PROFILE_VARIABLES = ["iwc", "cloud_mask"]
 
 
-class ConvNextBlock(nn.Module):
-    """
-    Conv block based on "A ConvNet for the 2020s".
-    """
-
-    def __init__(self, n_channels_in, n_channels_out=None, size=7, activation=nn.GELU):
-        """
-        Args:
-            n_channels_in: Number of channels of the input tensors.
-            n_channels_out: Number of channels for the output. Set to
-                ``n_channels_in`` if not provided.
-            size: Size of the convolution kernel.
-            activation: The activation function to use.
-        """
-        super().__init__()
-
-        if n_channels_out is None:
-            n_channels_out = n_channels_in
-        self.body = nn.Sequential(
-            SymmetricPadding(3),
-            SeparableConv(n_channels_in, 2 * n_channels_out, size=size),
-            activation(),
-            nn.Conv2d(2 * n_channels_out, n_channels_out, kernel_size=1),
-        )
-
-        if n_channels_in != n_channels_out:
-            self.projection = nn.Conv2d(n_channels_in, n_channels_out, kernel_size=1)
-        else:
-            self.projection = nn.Identity()
-
-    def forward(self, x):
-        y = self.body(x)
-        return y + self.projection(x)
-
-
-class DownsamplingBlock(nn.Sequential):
-    """
-    Downsampling block  based on "A ConvNet for the 2020s".
-    """
-
-    def __init__(self, channels_in, channels_out, bn_first=True):
-        if bn_first:
-            blocks = [
-                nn.BatchNorm2d(channels_in),
-                nn.Conv2d(channels_in, channels_out, kernel_size=2, stride=2),
-            ]
-        else:
-            blocks = [
-                nn.Conv2d(channels_in, channels_out, kernel_size=2, stride=2),
-                nn.BatchNorm2d(channels_out),
-            ]
-        super().__init__(*blocks)
-
-
-class DownsamplingStage(nn.Sequential):
-    """
-    Downsampling stage  based on "A ConvNet for the 2020s".
-    """
-
-    def __init__(self, channels_in, channels_out, n_blocks, size=7):
-        blocks = [DownsamplingBlock(channels_in, channels_out)]
-        for i in range(n_blocks):
-            blocks.append(ConvNextBlock(channels_out, size=size))
-        super().__init__(*blocks)
-
-
-class UpsamplingStage(nn.Module):
-    """
-    Upsampling stage with bilinear interpolation, a single ConvNext
-    block and skip connections.
-    """
-
-    def __init__(self, channels_in, channels_skip, channels_out, size=7):
-        """
-        Args:
-            n_channels: The number of incoming and outgoing channels.
-        """
-        super().__init__()
-        self.upsample = nn.Upsample(
-            mode="bilinear", scale_factor=2, align_corners=False
-        )
-        self.block = nn.Sequential(
-            nn.Conv2d(channels_in + channels_skip, channels_out, kernel_size=1),
-            ConvNextBlock(channels_out, size=size),
-        )
-
-    def forward(self, x, x_skip):
-        """
-        Propagate input through block.
-        """
-        x_up = self.upsample(x)
-        if x_skip is not None:
-            x_merged = torch.cat([x_up, x_skip], 1)
-        else:
-            x_merged = x_up
-        return self.block(x_merged)
-
-
-class EncoderDecoder(nn.Module):
+class CCICModel(nn.Module):
     """
     The CCIC retrieval model.
+
+    The neural network is a simple encoder-decoder architecture with U-Net-type
+    skip connections, and a head for every output variables.
     """
 
     def __init__(self, n_stages, features, n_quantiles, n_blocks=2):
         """
         Args:
-            n_stages: The number of stages in the encode
-            features: The base number of features.
+            n_stages: The number of stages in the encoder and decoder.
+            features: The number of features at the highest resolution.
             n_quantiles: The number of quantiles to predict.
             n_blocks: The number of blocks in each stage.
         """
         super().__init__()
-        self.n_quantiles = n_quantiles
 
+        self.n_quantiles = n_quantiles
         n_channels_in = 3
 
-        if not isinstance(n_blocks, list):
-            n_blocks = [n_blocks] * n_stages
+        block_factory = blocks.ConvNextBlockFactory()
+        norm_factory = block_factory.layer_norm
 
-        stages = []
-        ch_in = n_channels_in
-        ch_out = features
-        for i in range(n_stages):
-            stages.append(DownsamplingStage(ch_in, ch_out, n_blocks[i]))
-            ch_in = ch_out
-            ch_out = ch_out * 2
-        self.down_stages = nn.ModuleList(stages)
-
-        stages = []
-        ch_out = ch_in // 2
-        for i in range(n_stages):
-            ch_skip = ch_out if i < n_stages - 1 else n_channels_in
-            stages.append(UpsamplingStage(ch_in, ch_skip, ch_out))
-            ch_in = ch_out
-            ch_out = ch_out // 2 if i < n_stages - 2 else features
-        self.up_stages = nn.ModuleList(stages)
-
-        self.up = UpsamplingStage(features, 0, features)
-
-        self.head_iwp = nn.Sequential(
-            nn.Conv2d(features, features, kernel_size=1),
-            nn.GELU(),
-            nn.Conv2d(features, features, kernel_size=1),
-            nn.GELU(),
-            nn.Conv2d(features, features, kernel_size=1),
-            nn.GELU(),
-            nn.Conv2d(features, features, kernel_size=1),
-            nn.GELU(),
-            nn.Conv2d(features, n_quantiles, kernel_size=1),
+        self.stem = block_factory(3, features)
+        self.encoder = SpatialEncoder(
+            input_channels=features,
+            stages=[n_blocks] * n_stages,
+            block_factory=block_factory,
+            max_channels=512,
+        )
+        self.decoder = SpatialDecoder(
+            output_channels=features,
+            stages=[1] * n_stages,
+            block_factory=block_factory,
+            max_channels=512,
+            skip_connections=True,
         )
 
-        self.head_iwc = nn.Sequential(
-            nn.Conv2d(features, features, kernel_size=1),
-            nn.GELU(),
-            nn.Conv2d(features, features, kernel_size=1),
-            nn.GELU(),
-            nn.Conv2d(features, features, kernel_size=1),
-            nn.GELU(),
-            nn.Conv2d(features, features, kernel_size=1),
-            nn.GELU(),
-            nn.Conv2d(features, 20 * n_quantiles, kernel_size=1),
-        )
+        self.heads = nn.ModuleDict()
+        for name in SCALAR_VARIABLES:
+            self.heads[name] = MLP(
+                features_in=features,
+                n_features=2 * features,
+                features_out=n_quantiles,
+                n_layers=5,
+                residuals="simple",
+                activation_factory=nn.GELU,
+                norm_factory=norm_factory,
+            )
+        for name in PROFILE_VARIABLES:
+            self.heads[name] = MLP(
+                features_in=features,
+                n_features=2 * features,
+                features_out=20 * n_quantiles,
+                n_layers=5,
+                residuals="simple",
+                activation_factory=nn.GELU,
+                norm_factory=norm_factory,
+            )
 
     def forward(self, x):
-        """Propagate input though model."""
-        skips = []
-        y = x
-        for stage in self.down_stages:
-            skips.append(y)
-            y = stage(y)
+        """
+        Propagate input through network.
+        """
+        y = self.encoder(self.stem(x), return_skips=True)
+        y = self.decoder(y)
 
-        skips.reverse()
-        for skip, stage in zip(skips, self.up_stages):
-            y = stage(y, skip)
-
-        profile_shape = list(x.shape)
-        profile_shape[1] = 20
-        profile_shape.insert(1, self.n_quantiles)
-
-        return {
-            "iwp": self.head_iwp(y),
-            "iwc": self.head_iwc(y).reshape(tuple(profile_shape)),
-        }
+        output = {}
+        for name in SCALAR_VARIABLES:
+            output[name] = self.heads[name](y)
+        shape = y.shape
+        profile_shape = [shape[0], self.n_quantiles, 20, shape[-2], shape[-1]]
+        for name in PROFILE_VARIABLES:
+            output[name] = self.heads[name](y).reshape(profile_shape)
+        return output
