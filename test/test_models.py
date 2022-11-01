@@ -28,15 +28,17 @@ def test_forward():
     data_loader = DataLoader(data, batch_size=2)
 
     x, y = next(iter(data_loader))
-    model = CCICModel(4, 64, 128, n_blocks=2)
+    model = CCICModel(4, 64, 64, n_blocks=2)
     with torch.no_grad():
         y_pred = model(x)
 
-    for variable in SCALAR_VARIABLES:
-        assert variable in y_pred
-        assert y_pred[variable].shape[1] == 128
-
-    for variable in PROFILE_VARIABLES:
-        assert variable in y_pred
-        assert y_pred[variable].shape[1] == 128
-        assert y_pred[variable].shape[2] == 20
+    assert "iwc" in y_pred
+    assert y_pred["iwc"].shape[1] == 64
+    assert "iwp" in y_pred
+    assert y_pred["iwp"].shape[1] == 64
+    assert "iwp_rand" in y_pred
+    assert y_pred["iwp_rand"].shape[1] == 64
+    assert "cloud_mask" in y_pred
+    assert y_pred["cloud_mask"].shape[1] == 1
+    assert "cloud_class" in y_pred
+    assert y_pred["cloud_class"].shape[1] == 9
