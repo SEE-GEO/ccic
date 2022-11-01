@@ -1,26 +1,21 @@
-Bootstrap: docker
-
-From: continuumio/miniconda3
+Bootstrap: localimage
+From: ccic_conda.sif
 
 %files
-    ccic.yml
     ../pansat /pansat
     ../quantnn /quantnn
-    . /ccic
+    ../ccic /ccic
 
 %environment
     export PATH="/opt/conda/bin:$PATH"
     export PATH="/opt/conda/envs/ccic/bin:$PATH"
 
 %post
-    apt update
-    apt install -y build-essential
-    /opt/conda/bin/conda env create -f ccic.yml
     /opt/conda/envs/ccic/bin/python3 -m pip install --no-cache-dir /pansat
     /opt/conda/envs/ccic/bin/python3 -m pip install --no-cache-dir /quantnn
     /opt/conda/envs/ccic/bin/python3 -m pip install --no-cache-dir /ccic
     /opt/conda/envs/ccic/bin/python3 -m pip install notebook
-    rm -rf /pansat /quantnn /ccic
+
     echo ". /opt/conda/etc/profile.d/conda.sh" >> $SINGULARITY_ENVIRONMENT
     echo "conda activate ccic" >> $SINGULARITY_ENVIRONMENT
 

@@ -1,0 +1,23 @@
+Bootstrap: docker
+
+From: continuumio/miniconda3
+
+%files
+    ../ccic/ccic.yml /ccic.yml
+
+%environment
+    export PATH="/opt/conda/bin:$PATH"
+    export PATH="/opt/conda/envs/ccic/bin:$PATH"
+
+%post
+    apt update
+    apt install -y build-essential
+    /opt/conda/bin/conda env create -f /ccic.yml
+    echo ". /opt/conda/etc/profile.d/conda.sh" >> $SINGULARITY_ENVIRONMENT
+    echo "conda activate ccic" >> $SINGULARITY_ENVIRONMENT
+    /opt/conda/envs/ccic/bin/python3 -m pip install  -U torch torchvision torchaudio --extra-index-url https://download.pytorch.org/whl/cu116
+
+%runscript
+
+    exec "$@"
+    
