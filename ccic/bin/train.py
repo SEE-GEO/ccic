@@ -132,10 +132,10 @@ def run(args):
     from torch.optim.lr_scheduler import CosineAnnealingLR
     import pytorch_lightning as pl
     from pytorch_lightning.callbacks import LearningRateMonitor
-    from quantnn.qrnn import QRNN
+    from quantnn.mrnn import MRNN, Classification, Quantiles
     from quantnn import metrics
     from quantnn import transformations
-    from ccic.models import EncoderDecoder
+    from ccic.models import CCICModel
 
     #
     # Prepare training and validation data.
@@ -153,13 +153,14 @@ def run(args):
     training_loader = DataLoader(
         training_data,
         batch_size=args.batch_size,
-        num_workers=8,
+        num_workers=16,
         worker_init_fn=training_data.seed,
         shuffle=True,
         pin_memory=True,
     )
 
     validation_data = args.validation_data
+    validation_loader = None
     if validation_data is not None:
         validation_data = Path(validation_data)
         if not validation_data.exists():
@@ -188,18 +189,34 @@ def run(args):
     transformations = {
         "iwc": transformations.LogLinear(),
         "iwp": transformations.LogLinear(),
+        "iwp_rand": transformations.LogLinear(),
+        "cloud_mask": None,
+        "cloud_class": None
+    }
+    quantiles_iwp = np.linspace(0, 1, 64)
+    quantiles_iwp[0] = 1e-3
+    quantiles_iwp[-1] = 1 - 1e-3
+    quantiles_iwc = np.linspace(0, 1, 16)
+    quantiles_iwc[0] = 1e-3
+    quantiles_iwc[-1] = 1 - 1e-3
+
+    losses = {
+        "iwp": Quantiles(quantiles_iwp, sparse=True),
+        "iwp_rand": Quantiles(quantiles_iwp, sparse=True),
+        "iwc": Quantiles(quantiles_iwc, sparse=True),
+        "cloud_mask": Classification(2, sparse=True),
+        "cloud_class": Classification(9, sparse=True),
     }
 
     if model_path.exists() and not model_path.is_dir():
-        qrnn = QRNN.load(model_path)
-        model = qrnn.model
+        mrnn = MRNN.load(model_path)
+        model = mrnn.model
     else:
         if model_path.is_dir():
             model_path = model_path / f"ccic_{n_stages}_{n_blocks}_{n_features}.pckl"
 
-        model = EncoderDecoder(n_stages, n_features, n_quantiles=64, n_blocks=n_blocks)
-        quantiles = np.linspace(0, 1, 66)[1:-1]
-        qrnn = QRNN(model=model, quantiles=quantiles, transformation=transformations)
+        model = CCICModel(n_stages, n_features, n_quantiles=64, n_blocks=n_blocks)
+        mrnn = MRNN(model=model, losses=losses, transformation=transformations)
 
     #
     # Run training
@@ -208,12 +225,9 @@ def run(args):
     metrics = [
         metrics.Bias(),
         metrics.Correlation(),
-        metrics.CRPS(),
         metrics.MeanSquaredError(),
-        metrics.ScatterPlot(log_scale=True),
-        metrics.CalibrationPlot(),
     ]
-    lm = qrnn.lightning(mask=-100, metrics=metrics, name=args.name)
+    lm = mrnn.lightning(mask=-100, metrics=metrics, name=args.name)
     optimizer = AdamW(model.parameters(), lr=args.lr)
     scheduler = CosineAnnealingLR(optimizer, T_max=args.n_epochs)
     lm.optimizer = optimizer
@@ -225,10 +239,12 @@ def run(args):
         precision=args.precision,
         logger=lm.tensorboard,
         callbacks=[LearningRateMonitor()],
-        gradient_clip_val=1.0,
+        strategy="ddp",
+        replace_sampler_ddp=True,
+        enable_checkpointing=False
     )
     trainer.fit(
         model=lm, train_dataloaders=training_loader, val_dataloaders=validation_loader
     )
 
-    qrnn.save(model_path)
+    mrnn.save(model_path)
