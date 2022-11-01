@@ -12,8 +12,8 @@ from quantnn.models.pytorch.fully_connected import MLP
 import quantnn.models.pytorch.torchvision as blocks
 
 
-SCALAR_VARIABLES = ["iwp", "cloud_flag", "iwp_rand"]
-PROFILE_VARIABLES = ["iwc", "cloud_mask"]
+SCALAR_VARIABLES = ["iwp", "cloud_mask", "iwp_rand"]
+PROFILE_VARIABLES = ["iwc", "cloud_class"]
 
 
 class CCICModel(nn.Module):
@@ -56,26 +56,22 @@ class CCICModel(nn.Module):
         )
 
         self.heads = nn.ModuleDict()
-        for name in SCALAR_VARIABLES:
-            self.heads[name] = MLP(
+
+        head_factory = lambda n_out: MLP(
                 features_in=features,
                 n_features=2 * features,
-                features_out=n_quantiles,
+                features_out=n_out,
                 n_layers=5,
                 residuals="simple",
                 activation_factory=nn.GELU,
                 norm_factory=norm_factory,
-            )
-        for name in PROFILE_VARIABLES:
-            self.heads[name] = MLP(
-                features_in=features,
-                n_features=2 * features,
-                features_out=20 * n_quantiles,
-                n_layers=5,
-                residuals="simple",
-                activation_factory=nn.GELU,
-                norm_factory=norm_factory,
-            )
+        )
+
+        self.heads["iwc"] = head_factory(20 * self.n_quantiles // 4)
+        self.heads["iwp"] = head_factory(self.n_quantiles)
+        self.heads["iwp_rand"] = head_factory(self.n_quantiles)
+        self.heads["cloud_mask"] = head_factory(1)
+        self.heads["cloud_class"] = head_factory(20 * 9)
 
     def forward(self, x):
         """
@@ -85,10 +81,18 @@ class CCICModel(nn.Module):
         y = self.decoder(y)
 
         output = {}
-        for name in SCALAR_VARIABLES:
-            output[name] = self.heads[name](y)
+
+        output["iwp"] = self.heads["iwp"](y)
+        output["iwp_rand"] = self.heads["iwp_rand"](y)
+        output["cloud_mask"] = self.heads["cloud_mask"](y)
+
         shape = y.shape
-        profile_shape = [shape[0], self.n_quantiles, 20, shape[-2], shape[-1]]
-        for name in PROFILE_VARIABLES:
-            output[name] = self.heads[name](y).reshape(profile_shape)
+        profile_shape = [shape[0], self.n_quantiles // 4, 20, shape[-2], shape[-1]]
+        head = self.heads["iwc"]
+        output["iwc"] = head(y).reshape(profile_shape)
+
+        profile_shape = [shape[0], 9, 20, shape[-2], shape[-1]]
+        head = self.heads["cloud_class"]
+        output["cloud_class"] = head(y).reshape(profile_shape)
+
         return output
