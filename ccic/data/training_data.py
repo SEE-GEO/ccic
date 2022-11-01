@@ -40,7 +40,7 @@ def replace_zeros(data, low, high, rng):
         A copy of 'data' with zeros replaced with random values.
     """
     data = data.copy()
-    mask = data < high
+    mask = (data >= 0.0) * (data < high)
     low = np.log10(low)
     high = np.log10(high)
     n_valid = mask.sum()
@@ -64,7 +64,7 @@ def expand_sparse(size, row_indices, col_indices, data):
         ``dense[row_indices, col_indices] == data``.
     """
     new_shape = (size, size) + data.shape[1:]
-    data_dense = np.nan * np.zeros(new_shape, dtype=data.dtype)
+    data_dense = np.ones(new_shape, dtype=data.dtype) * MASK_VALUE
     data_dense[row_indices, col_indices] = data
     return data_dense
 
@@ -132,6 +132,7 @@ def apply_transformations(x, y, rng):
             y_k = torch.transpose(y_k, -2, -1)
         if len(flip_dims) > 0:
             y_k = torch.flip(y_k, flip_dims)
+        y[key] = y_k
 
     return x, y
 
@@ -208,20 +209,21 @@ class CCICDataset:
                 x[0] = data.vis.data
             if "ir_wv" in data:
                 x[1] = data.ir_wv.data
-            if "ir_window" in data:
-                x[2] = data.ir_window.data
+            if "ir_win" in data:
+                x[2] = data.ir_win.data
 
             #
             # Output
             #
-
-            iwp = load_output_data(data, "iwp", 1e-3, 1, self.rng) / 1e3
+            data["iwp"] = data["iwp"] * 1e-3
+            data["iwp_rand"] = data["iwp_rand"] * 1e-3
+            iwp = load_output_data(data, "iwp", 1e-6, 1e-3, self.rng)
             iwp_rand = load_output_data(data, "iwp_rand", 1e-6, 1e-3, self.rng)
             iwc = load_output_data(data, "iwc", 1e-6, 1e-3, self.rng)
-            cloud_mask = load_output_data(data, "cloud_mask")
-            cloud_class = load_output_data(data, "cloud_class")
+            cloud_mask = load_output_data(data, "cloud_mask").astype(np.int64)
+            cloud_class = load_output_data(data, "cloud_class").astype(np.int64)
 
-            x = torch.tensor(NORMALIZER(x, rng=self.rng))
+            x = torch.tensor(NORMALIZER(x))
             y = {}
             y["iwp"] = torch.tensor(iwp.copy())
             y["iwp_rand"] = torch.tensor(iwp_rand.copy())
