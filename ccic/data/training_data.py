@@ -220,8 +220,8 @@ class CCICDataset:
             iwp = load_output_data(data, "iwp", 1e-6, 1e-3, self.rng)
             iwp_rand = load_output_data(data, "iwp_rand", 1e-6, 1e-3, self.rng)
             iwc = load_output_data(data, "iwc", 1e-6, 1e-3, self.rng)
-            cloud_mask = load_output_data(data, "cloud_mask").astype(np.int64)
             cloud_class = load_output_data(data, "cloud_class").astype(np.int64)
+            cloud_mask = (cloud_class.max(0) > 0).astype(np.int64)
 
             x = torch.tensor(NORMALIZER(x))
             y = {}
