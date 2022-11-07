@@ -4,15 +4,14 @@ channels:
   - conda-forge
   - defaults
 dependencies:
-  - python=3.8
+  - python=3.10
+  - pytorch::pytorch
+  - pytorch::torchaudio
+  - pytorch::torchvision
+  - cudatoolkit=11.6
   - satpy
   - xarray
   - cartopy
   - pyhdf
   - scipy
-  - torchvision
-  - torchaudio
-  - pytorch
-  - cudatoolkit=11.6
-  - pytorch-lightning
 prefix: /home/simonpf/miniconda3/envs/ccic
