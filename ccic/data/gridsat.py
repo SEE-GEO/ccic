@@ -5,6 +5,7 @@ ccic.data.gridsat
 This module provides classes to represent and handle the NOAA
 GridSat-B1 files.
 """
+from datetime import datetime
 import logging
 from pathlib import Path
 
@@ -37,18 +38,57 @@ class GridSatB1:
     provider = PROVIDER
 
     @classmethod
-    def get_available_files(cls, date):
+    def find_files(cls, path, start_time=None, end_time=None):
         """
-        Return list of available files for a given day.
+        Find GridSat files in folder.
 
         Args:
-            date: The desired date
+            path: Path to the folder in which to look for GPMIR files.
+            start_time: Optional start time to filter returned files.
+            end_time: Optional end time to filter returned files.
+
         Return:
-            List of filename that are available on the given day.
+            A list containing the found GridSat files that match the
+            time constraints given by 'start_time' and 'end_time'
+
         """
-        date = to_datetime(date)
-        day = int(date.strftime("%j"))
-        files = PROVIDER.get_files_by_day(date.year, day)
+        pattern = r"**/GRIDSAT-B1.????.??.??.??.v02r01.nc"
+        files = list(Path(path).glob(pattern))
+
+        def get_date(path):
+            return datetime.strptime(
+                path.name,
+                "GRIDSAT-B1.%Y.%m.%d.%H.v02r01.nc"
+            )
+
+        if start_time is not None:
+            start_time = to_datetime(start_time)
+            files = [
+                fil for fil in files
+                if get_date(fil) >= start_time
+            ]
+
+        if end_time is not None:
+            end_time = to_datetime(end_time)
+            files = [
+                fil for fil in files
+                if get_date(fil) <= end_time
+            ]
+        return files
+
+    @classmethod
+    def get_available_files(cls, start_time, end_time=None):
+        """
+        Return list of times at which this data is available.
+        """
+        start_time = to_datetime(start_time)
+        day = int(start_time.strftime("%j"))
+
+        if end_time is None:
+            files = PROVIDER.get_files_by_day(start_time.year, day)
+        else:
+            end_time = to_datetime(end_time)
+            files = PROVIDER.get_files_in_range(start_time, end_time)
         return files
 
     @classmethod

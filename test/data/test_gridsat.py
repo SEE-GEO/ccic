@@ -21,12 +21,40 @@ CS_2CICE_FILE = "2008032011612_09374_CS_2C-ICE_GRANULE_P1_R05_E02_F00.hdf"
 CS_2BCLDCLASS_FILE = "2008032011612_09374_CS_2B-CLDCLASS_GRANULE_P1_R05_E02_F00.hdf"
 GRIDSAT_FILE = "GRIDSAT-B1.2008.02.01.03.v02r01.nc"
 
+
+def test_find_files():
+    """
+    Ensure that all three files in test data folder are found.
+    """
+    files = GridSatB1.find_files(TEST_DATA)
+    assert len(files) == 2
+
+    start_time = "2008-02-01T01:00:00"
+    files = GridSatB1.find_files(TEST_DATA, start_time=start_time)
+    assert len(files) == 1
+
+    end_time = "2008-02-01T01:00:00"
+    files = GridSatB1.find_files(TEST_DATA, end_time=end_time)
+    assert len(files) == 1
+
+    files = GridSatB1.find_files(TEST_DATA, start_time=start_time, end_time=end_time)
+    assert len(files) == 0
+
+
 def test_get_times():
     """
     Assert that the correct time are returned for a given day.
     """
-    times = GridSatB1.get_available_files("2016-01-01")
+    start_time = "2016-01-01T00:00:00"
+    times = GridSatB1.get_available_files(start_time)
     assert len(times) == 8
+
+    end_time = "2016-01-01T11:59:00"
+    times = GridSatB1.get_available_files(
+        start_time=start_time,
+        end_time=end_time
+    )
+    assert len(times) == 4
 
 
 @NEEDS_TEST_DATA
