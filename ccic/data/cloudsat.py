@@ -393,9 +393,9 @@ class CloudSat2BCLDCLASS(CloudsatFile):
         surface_altitude = data.surface_elevation.data
         labels = remap_cloud_classes(labels, height, surface_altitude, ALTITUDE_LEVELS)
 
-        cloud_mask_r = np.zeros(output_shape, dtype=np.uint8)
+        cloud_mask_r = np.zeros(output_shape, dtype=np.int8)
         cloud_mask_r.ravel()[target_indices] = cloud_mask[source_indices]
-        labels_r = np.zeros(output_shape + (20,), dtype=np.uint8)
+        labels_r = np.zeros(output_shape + (20,), dtype=np.int8)
         labels_r.reshape(-1, 20)[target_indices] = labels[source_indices]
 
         target_dataset["levels"] = (("levels",), ALTITUDE_LEVELS)
