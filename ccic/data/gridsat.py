@@ -14,6 +14,7 @@ from pansat.download.providers.noaa_ncei import NOAANCEIProvider
 from pansat.products.satellite.gridsat import gridsat_b1
 from pansat.time import to_datetime
 from pyresample import create_area_def
+import torch
 import xarray as xr
 
 from ccic.data import cloudsat
@@ -93,7 +94,7 @@ class GridSatB1:
 
     @classmethod
     def download(cls, filename, destination):
-        PROVIDER.download_file(filename, destination)
+        return PROVIDER.download_file(filename, destination)
 
     @classmethod
     def download_files(cls, date, destination):
@@ -115,6 +116,29 @@ class GridSatB1:
         with xr.open_dataset(self.filename) as data:
             self.start_time = data.time[0].data
             self.end_time = data.time[0].data
+
+    def get_input_file_attributes(self):
+        """Get attributes from input file to include in retrieval output."""
+        return {
+            "input_filename": self.filename.name,
+            "processing_time": datetime.now().isoformat()
+        }
+
+    def get_retrieval_input(self):
+        """
+        Return observations as retrieval input.
+
+        Return:
+            A torch tensor containing the observations as a torch.tensor that
+            can be fed into the CCIC retrieval model.
+        """
+        from ccic.data.training_data import NORMALIZER
+        input_data = xr.load_dataset(self.filename)
+        xs = []
+        for name in ["vschn", "irwvp", "irwin_cdr"]:
+            xs.append(input_data[name].data[0])
+        x = NORMALIZER(np.stack(xs))
+        return torch.tensor(x[None]).to(torch.float32)
 
     def get_matches(self, rng, cloudsat_data, size=128, timedelta=15):
         """

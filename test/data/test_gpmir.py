@@ -26,7 +26,7 @@ def test_find_files():
     Ensure that all three files in test data folder are found.
     """
     files = GPMIR.find_files(TEST_DATA)
-    assert len(files) == 3
+    assert len(files) == 4
 
     start_time = "2008-02-01T01:00:00"
     files = GPMIR.find_files(TEST_DATA, start_time=start_time)
@@ -34,7 +34,7 @@ def test_find_files():
 
     end_time = "2008-02-01T01:00:00"
     files = GPMIR.find_files(TEST_DATA, end_time=end_time)
-    assert len(files) == 2
+    assert len(files) == 3
 
     files = GPMIR.find_files(TEST_DATA, start_time=start_time, end_time=end_time)
     assert len(files) == 1
@@ -52,6 +52,28 @@ def test_get_available_files():
         end_time="2016-01-01T11:59:00")
     assert len(files) == 12
 
+
+@NEEDS_TEST_DATA
+def test_get_input_file_attributes():
+    """
+    Assert that data is loaded with decreasing latitudes.
+    """
+    gpmir = GPMIR(TEST_DATA / GPMIR_FILE)
+    attrs = gpmir.get_input_file_attributes()
+    assert isinstance(attrs, dict)
+
+@NEEDS_TEST_DATA
+def test_get_retrieval_input():
+    """
+    Assert that data is loaded with decreasing latitudes.
+    """
+    gpmir = GPMIR(TEST_DATA / GPMIR_FILE)
+    x = gpmir.get_retrieval_input()
+    assert x.ndim == 4
+    assert x.shape[0] == 1
+    assert x.shape[1] == 3
+    assert (x >= -1.5).all()
+    assert (x <= 1.0).all()
 
 @NEEDS_TEST_DATA
 def test_to_xarray_dataset():

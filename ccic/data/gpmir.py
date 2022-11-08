@@ -181,6 +181,13 @@ class GPMIR:
         # Flip latitudes to be consistent with pyresample.
         return data.isel(lat=slice(None, None, -1))
 
+    def get_input_file_attributes(self):
+        """Get attributes from input file to include in retrieval output."""
+        return {
+            "input_filename": self.filename.name,
+            "processing_time": datetime.now().isoformat()
+        }
+
     def get_retrieval_input(self):
         """
         Load and normalize retrieval input from file.
@@ -196,11 +203,8 @@ class GPMIR:
         for i in range(2):
             x_i = np.nan * np.ones((3, m, n))
             x_i[-1] = tbs[i]
-            x_i = NORMALIZER(x_i)
-            xs.append(x_i)
-        x = np.stack(xs)
-
-        return torch.tensor(x).to(torch.float32)
+            xs.append(NORMALIZER(x_i))
+        return torch.tensor(np.stack(xs)).to(torch.float32)
 
     def get_matches(
             self,

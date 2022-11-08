@@ -27,7 +27,7 @@ def test_find_files():
     Ensure that all three files in test data folder are found.
     """
     files = GridSatB1.find_files(TEST_DATA)
-    assert len(files) == 2
+    assert len(files) == 3
 
     start_time = "2008-02-01T01:00:00"
     files = GridSatB1.find_files(TEST_DATA, start_time=start_time)
@@ -35,7 +35,7 @@ def test_find_files():
 
     end_time = "2008-02-01T01:00:00"
     files = GridSatB1.find_files(TEST_DATA, end_time=end_time)
-    assert len(files) == 1
+    assert len(files) == 2
 
     files = GridSatB1.find_files(TEST_DATA, start_time=start_time, end_time=end_time)
     assert len(files) == 0
@@ -56,6 +56,28 @@ def test_get_times():
     )
     assert len(times) == 4
 
+
+@NEEDS_TEST_DATA
+def test_get_input_file_attributes():
+    """
+    Assert that data is loaded with decreasing latitudes.
+    """
+    input_file = GridSatB1(TEST_DATA / GRIDSAT_FILE)
+    attrs = input_file.get_input_file_attributes()
+    assert isinstance(attrs, dict)
+
+@NEEDS_TEST_DATA
+def test_get_retrieval_input():
+    """
+    Assert that data is loaded with decreasing latitudes.
+    """
+    input_file = GridSatB1(TEST_DATA / GRIDSAT_FILE)
+    x = input_file.get_retrieval_input()
+    assert x.ndim == 4
+    assert x.shape[0] == 1
+    assert x.shape[1] == 3
+    assert (x >= -1.5).all()
+    assert (x <= 1.0).all()
 
 @NEEDS_TEST_DATA
 def test_to_xarray_dataset():
