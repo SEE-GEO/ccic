@@ -14,7 +14,7 @@ setup(
     url="https://github.com/see-geo/ccic",
     author="Simon Pfreundschuh",
     author_email="simon.pfreundschuh@chalmers.se",
-    install_requires=["numpy", "xarray", "torch", "quantnn"],
+    install_requires=["numpy", "xarray", "torch", "quantnn", "pytorch-lightning"],
     packages=find_packages(),
     python_requires=">=3.8",
     project_urls={
