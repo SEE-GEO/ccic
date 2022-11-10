@@ -70,8 +70,15 @@ def test_get_retrieval_input():
     gpmir = GPMIR(TEST_DATA / GPMIR_FILE)
     x = gpmir.get_retrieval_input()
     assert x.ndim == 4
-    assert x.shape[0] == 1
+    assert x.shape[0] == 2
     assert x.shape[1] == 3
+    assert (x >= -1.5).all()
+    assert (x <= 1.0).all()
+
+    x = gpmir.get_retrieval_input(roi=(0, 0, 1, 1))
+    assert x.ndim == 4
+    assert x.shape[2] == 256
+    assert x.shape[3] == 256
     assert (x >= -1.5).all()
     assert (x <= 1.0).all()
 

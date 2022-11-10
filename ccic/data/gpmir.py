@@ -17,8 +17,7 @@ import torch
 import xarray as xr
 
 from ccic.data import cloudsat
-from ccic.data.utils import included_pixel_mask
-
+from ccic.data.utils import included_pixel_mask, extract_roi
 
 PROVIDER = Disc2Provider(gpm_mergeir)
 GPMIR_GRID = create_area_def(
@@ -188,13 +187,29 @@ class GPMIR:
             "processing_time": datetime.now().isoformat()
         }
 
-    def get_retrieval_input(self):
+    def get_retrieval_input(self, roi=None):
         """
         Load and normalize retrieval input from file.
+
+        NOTE: Even if a bounding box is given, a minimum size of 256 x 256
+            pixels is enforced.
+
+        Args:
+            roi: Coordinates ``(lon_min, lat_min, lon_max, lat_max)`` of a
+                bounding box from which to extract the training data. If given,
+                only data from the given bounding box is extracted.
+
+        Return:
+
+            A torch tensor containing the observations from this file
+            as input.
         """
         from ccic.data.training_data import NORMALIZER
 
         input_data = xr.load_dataset(self.filename)
+        if roi is not None:
+            input_data = extract_roi(input_data, roi, min_size=256)
+
         m = input_data.lat.size
         n = input_data.lon.size
         tbs = input_data.Tb.data

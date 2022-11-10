@@ -18,7 +18,7 @@ import torch
 import xarray as xr
 
 from ccic.data import cloudsat
-from ccic.data.utils import included_pixel_mask
+from ccic.data.utils import included_pixel_mask, extract_roi
 
 PROVIDER = NOAANCEIProvider(gridsat_b1)
 GRIDSAT_GRID = create_area_def(
@@ -124,9 +124,17 @@ class GridSatB1:
             "processing_time": datetime.now().isoformat()
         }
 
-    def get_retrieval_input(self):
+    def get_retrieval_input(self, roi=None):
         """
         Return observations as retrieval input.
+
+        NOTE: Even if a bounding box is given, a minimum size of 256 x 256
+            pixels is enforced.
+
+        Args:
+            roi: Coordinates ``(lon_min, lat_min, lon_max, lat_max)`` of a
+                bounding box from which to extract the training data. If given,
+                only data from the given bounding box is extracted.
 
         Return:
             A torch tensor containing the observations as a torch.tensor that
@@ -134,6 +142,8 @@ class GridSatB1:
         """
         from ccic.data.training_data import NORMALIZER
         input_data = xr.load_dataset(self.filename)
+        if roi is not None:
+            input_data = extract_roi(input_data, roi, min_size=256)
         xs = []
         for name in ["vschn", "irwvp", "irwin_cdr"]:
             xs.append(input_data[name].data[0])

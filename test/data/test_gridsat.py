@@ -79,6 +79,13 @@ def test_get_retrieval_input():
     assert (x >= -1.5).all()
     assert (x <= 1.0).all()
 
+    x = input_file.get_retrieval_input(roi=(0, 0, 1, 1))
+    assert x.ndim == 4
+    assert x.shape[2] == 256
+    assert x.shape[3] == 256
+    assert (x >= -1.5).all()
+    assert (x <= 1.0).all()
+
 @NEEDS_TEST_DATA
 def test_to_xarray_dataset():
     """
