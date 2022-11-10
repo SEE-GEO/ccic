@@ -11,7 +11,8 @@ from ccic.data.gridsat import GridSatB1
 from ccic.processing import (
     get_input_files,
     RemoteFile,
-    process_input_file
+    process_input_file,
+    get_output_filename
 )
 
 
@@ -104,6 +105,7 @@ def test_processing():
 
     for input_file in [gpmir_file, gridsat_file]:
         results = process_input_file(mrnn, input_file)
+        print(results)
         assert "iwp_mean" in results
         assert "iwp_quantiles" in results
         assert "iwp_sample" in results
@@ -118,3 +120,9 @@ def test_processing():
 
         assert "input_filename" in results.attrs
         assert "processing_time" in results.attrs
+
+
+def test_get_output_filename():
+    gpmir_file = GPMIR(TEST_DATA / "input_data" / "merg_2008020100_4km-pixel.nc4")
+    data = gpmir_file.to_xarray_dataset()
+    output_filename = get_output_filename(gpmir_file, data.time[0].item())

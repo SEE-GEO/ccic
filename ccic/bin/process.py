@@ -5,14 +5,10 @@ ccic.bin.process
 
 This sub-module implements the CLI to run the CCIC retrievals.
 """
-from calendar import monthrange
 import logging
-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
-import importlib
-import multiprocessing as mp
+from concurrent.futures import ProcessPoolExecutor
+from tempfile import TemporaryDirectory
 from pathlib import Path
-import sys
-
 import numpy as np
 
 
@@ -43,16 +39,46 @@ def add_parser(subparsers):
         help="Path to the trained CCIC model.",
     )
     parser.add_argument(
-        "input",
-        metavar="input",
+        "input_type",
+        metavar="GPMIR/GRIDSAT",
         type=str,
-        help="Input file or folder containing multiple input files.",
+        help="For which type of input to run the retrieval.",
     )
     parser.add_argument(
         "output",
         metavar="ouput",
         type=str,
         help="Folder to which to write the output.",
+    )
+    parser.add_argument(
+        "start_time",
+        metavar="t1",
+        type=str,
+        help="The time for which to run the retrieval.",
+    )
+    parser.add_argument(
+        "end_time",
+        metavar="t2",
+        type=str,
+        help=(
+            "If given, the retrieval will be run for all files in the time "
+            "range t1 <= t <= t2"
+        ),
+        nargs="?",
+        default=None,
+    )
+    parser.add_argument(
+        "--input_path",
+        metavar="path",
+        type=str,
+        default=None,
+        help=(
+            "Path to a local directory containing input files. If not given, "
+            "input files will be downloaded using pansat."
+        ),
+    )
+    parser.add_argument(
+        "--targets", metavar="target", type=str, nargs="+", default=["iwp", "iwp_rand"]
     )
     parser.add_argument(
         "--tile_size",
@@ -68,17 +94,32 @@ def add_parser(subparsers):
         help="Tile size to use for processing.",
         default=128,
     )
+    parser.add_argument("--roi", metavar="x", type=float, nargs=4, default=None)
+    parser.add_argument("--n_processes", metavar="n", type=int, default=1)
     parser.set_defaults(func=run)
 
 
-def process_file(model, input_file, output_file, tile_size, overlap):
-    from ccic.data.gpm_ir import GPMIR
-    from ccic.processing import process_input
+def process_file(model, input_file, output, retrieval_settings):
+    """
+    Processing of a single input file.
+    """
+    from quantnn.mrnn import MRNN
+    from ccic.processing import process_input_file, get_output_filename, RemoteFile
 
-    input_file = GPMIR(input_file)
-    x = input_file.get_retrieval_input()
-    results = process_input(model, x, tile_size=tile_size, overlap=overlap)
-    results.to_netcdf(output_file)
+    mrnn = MRNN.load(model)
+    mrnn.model.train(False)
+
+    with TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        if isinstance(input_file, RemoteFile):
+            input_file = input_file.get(tmp_path)
+
+        results = process_input_file(
+            mrnn, input_file, retrieval_settings=retrieval_settings
+        )
+        input_data = input_file.to_xarray_dataset()
+        output_filename = get_output_filename(input_file, input_data.time[0].item())
+        results.to_netcdf(output / output_filename)
 
 
 def run(args):
@@ -88,37 +129,76 @@ def run(args):
     Args:
         args: The namespace object provided by the top-level parser.
     """
-    from quantnn.qrnn import QRNN
+    from ccic.data.gridsat import GridSatB1
+    from ccic.data.gpmir import GPMIR
+    from ccic.processing import process_input_file, get_input_files, RetrievalSettings
 
-    input = Path(args.input)
-    if not input.exists():
-        LOGGER.error("The provided input path '%s' does not exist.")
-        return 1
-    if input.is_dir():
-        input_files = list(input.glob("*.nc4"))
-    else:
-        input_files = [input]
-
-    output = Path(args.output)
-    if len(input_files) > 1:
-        if not output.exists():
-            output.mkdir(exist_ok=True, parents=True)
-        output_files = [output / f_in.name for f_in in input_files]
-    else:
-        output.parent.mkdir(exist_ok=True, parents=True)
-        output_files = [output]
-
+    # Load model.
     model = Path(args.model)
     if not model.exists():
         LOGGER.error("The provides model '%s' does not exist.", model.name)
-    qrnn = QRNN.load(model)
-    qrnn.model.train(False)
+        return 1
 
-    for input_file, output_file in zip(input_files, output_files):
-        process_file(
-            qrnn,
-            input_file,
-            output_file,
-            tile_size=args.tile_size,
-            overlap=args.overlap,
+    # Determine input data.
+    input_type = args.input_type.lower()
+    if not input_type in ["gpmir", "gridsatb1"]:
+        LOGGER.error(
+            "'input_type' must be one of ['gpmir', gridsatb1'] not '%s'.", input_type
         )
+        return 1
+    if input_type == "gpmir":
+        input_cls = GPMIR
+    else:
+        input_cls = GridSatB1
+
+    # Output path
+    output = Path(args.output)
+
+    # Start and end time.
+    try:
+        start_time = np.datetime64(args.start_time)
+    except ValueError:
+        LOGGER.error(
+            "'start_time' argument must be a valid numpy.datetime64 " " time string."
+        )
+        return 1
+
+    end_time = args.end_time
+    if end_time is None:
+        end_time = start_time
+    else:
+        try:
+            end_time = np.datetime64(args.end_time)
+        except ValueError:
+            LOGGER.error(
+                "'start_time' argument must be a valid numpy.datetime64 time " "string."
+            )
+            return 1
+
+    input_files = get_input_files(input_cls, start_time, end_time=end_time)
+
+    # Retrieval settings
+    valid_targets = [
+        "iwp",
+        "iwp_rand",
+        "iwc",
+        "cloud_type",
+        "cloud_prob_2d",
+        "cloud_prob_3d",
+    ]
+    targets = args.targets
+    if any([target not in VALID_TARGETS for target in targets]):
+        LOGGER.error("Targets must be a subset of %s.", VALID_TARGETS)
+
+    retrieval_settings = RetrievalSettings(
+        tile_size=args.tile_size, overlap=args.overlap, targets=targets, roi=args.roi
+    )
+
+    pool = ProcessPoolExecutor(max_workers=args.n_processes)
+    tasks = []
+    for input_file in input_files:
+        tasks.append(
+            pool.submit(process_file, model, input_file, output, retrieval_settings)
+        )
+    for task in tasks:
+        task.result()

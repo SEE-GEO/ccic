@@ -16,6 +16,7 @@ import xarray as xr
 from ccic.tiler import Tiler
 from ccic.data.gpmir import GPMIR
 from ccic.data.gridsat import GridSatB1
+from ccic.data.utils import extract_roi
 
 
 @dataclass
@@ -37,7 +38,9 @@ class RemoteFile:
         Return:
             A ``file_cls`` object pointing to the downloaded file.
         """
-        return self.file_cls(self.file_cls.download(self.filename, path))
+        output_path = path / self.filename
+        self.file_cls.download(self.filename, output_path)
+        return self.file_cls(output_path)
 
 
 @dataclass
@@ -48,6 +51,7 @@ class RetrievalSettings:
     tile_size: int = 512
     overlap: int = 128
     targets: list = None
+    roi: list = None
 
 
 def get_input_files(input_cls, start_time, end_time=None, path=None):
@@ -104,7 +108,7 @@ def get_output_filename(
             type(input_file)
         )
     date_str = to_datetime(date).strftime("%Y%m%d%H%M")
-    return f"ccic_{file_type}_{date_str}_v0.nc"
+    return f"ccic_{file_type}_{date_str}.nc"
 
 
 REGRESSION_TARGETS = ["iwp", "iwp_rand", "iwc"]
@@ -177,14 +181,22 @@ def process_input(model, x, retrieval_settings=None):
     overlap = retrieval_settings.overlap
     targets = retrieval_settings.targets
     if targets is None:
-        targets = ["iwp", "iwp_rand", "iwc", "cloud_mask", "cloud_class"]
+        targets = [
+            "iwp",
+            "iwp_rand",
+            "iwc",
+            "cloud_prob_2d",
+            "cloud_prob_3d",
+            "cloud_type"
+        ]
 
     tiler = Tiler(x, tile_size=tile_size, overlap=overlap)
     means = {}
     quantiles = {}
     samples = {}
-    cloud_mask = []
-    cloud_class = []
+    cloud_prob_2d = []
+    cloud_prob_3d = []
+    cloud_type = []
 
     target_quantiles = [0.022, 0.156, 0.841, 0.977]
 
@@ -198,10 +210,12 @@ def process_input(model, x, retrieval_settings=None):
                     if target in SCALAR_TARGETS:
                         quantiles.setdefault(target, []).append([])
                         samples.setdefault(target, []).append([])
-                elif target == "cloud_class":
-                    cloud_class.append([])
-                elif target == "cloud_mask":
-                    cloud_mask.append([])
+                elif target == "cloud_prob_2d":
+                    cloud_prob_2d.append([])
+                elif target == "cloud_prob_3d":
+                    cloud_prob_3d.append([])
+                elif target == "cloud_type":
+                    cloud_type.append([])
 
             for j in range(tiler.N):
                 x_t = tiler.get_tile(i, j)
@@ -219,10 +233,19 @@ def process_input(model, x, retrieval_settings=None):
                             quantiles=quantiles,
                             samples=samples
                         )
-                    elif target == "cloud_class":
-                        cloud_class[-1].append(y_pred[target].cpu().numpy())
-                    elif target == "cloud_mask":
-                        cloud_mask[-1].append(y_pred[target].cpu().numpy())
+                    elif target == "cloud_prob_2d":
+                        cloud_prob_2d[-1].append(y_pred["cloud_mask"].cpu().numpy())
+                    elif target == "cloud_prob_3d":
+                        cloud_prob_3d[-1].append(
+                            1.0 - y_pred["cloud_class"][:, 0].cpu().numpy()
+                        )
+                    elif target == "cloud_type":
+                        ct = torch.softmax(y_pred["cloud_class"][:, 1:], 1)
+                        cloud_type[-1].append(
+                            ct.cpu().numpy()
+                        )
+
+
 
     results = xr.Dataset()
 
@@ -244,18 +267,24 @@ def process_input(model, x, retrieval_settings=None):
     for target, quants in quantiles.items():
         quants = tiler.assemble(quants)
         quants = np.transpose(quants, [0, 2, 3, 1])
-        results[target + "_quantiles"] = (dims, mean)
+        results[target + "_quantiles"] = (dims, quants)
 
     dims = ("time", "latitude", "longitude")
-    if len(cloud_mask) > 0:
-        cloud_mask = tiler.assemble(cloud_mask)[:, 0]
-        results["cloud_mask"] = (dims, cloud_mask)
+    if len(cloud_prob_2d) > 0:
+        cloud_prob_2d = tiler.assemble(cloud_prob_2d)[:, 0]
+        results["cloud_prob_2d"] = (dims, cloud_prob_2d)
 
-    dims = ("time", "latitude", "longitude", "levels", "classes")
-    if len(cloud_class) > 0:
-        cloud_class = tiler.assemble(cloud_class)
-        cloud_class = np.transpose(cloud_class, [0, 3, 4, 2, 1])
-        results["cloud_class"] = (dims, cloud_class)
+    dims = ("time", "latitude", "longitude", "levels")
+    if len(cloud_prob_3d) > 0:
+        cloud_prob_3d = tiler.assemble(cloud_prob_3d)
+        cloud_prob_3d = np.transpose(cloud_prob_3d, [0, 2, 3, 1])
+        results["cloud_prob_3d"] = (dims, cloud_prob_3d)
+
+    dims = ("time", "latitude", "longitude", "levels", "type")
+    if len(cloud_type) > 0:
+        cloud_type = tiler.assemble(cloud_type)
+        cloud_type = np.transpose(cloud_type, [0, 3, 4, 2, 1])
+        results["cloud_type"] = (dims, cloud_type)
 
     return results
 
@@ -278,16 +307,25 @@ def process_input_file(
     Return:
         A 'xarray.Dataset' containing the retrival results.
     """
-    retrieval_input = input_file.get_retrieval_input()
-    results = process_input(mrnn, retrieval_input)
+    if retrieval_settings is None:
+        retrieval_settings = RetrievalSettings()
+    roi = retrieval_settings.roi
+
+    retrieval_input = input_file.get_retrieval_input(roi=roi)
+    results = process_input(
+        mrnn,
+        retrieval_input,
+        retrieval_settings=retrieval_settings
+    )
 
     # Copy values of dimension
-    input_data = input_file.to_xarray_dataset().rename(
-        {"lat": "latitude", "lon": "longitude"}
-    )
+    input_data = input_file.to_xarray_dataset()
+    if roi is not None:
+        input_data = extract_roi(input_data, roi, min_size=256)
+    input_data = input_data.rename({"lat": "latitude", "lon": "longitude"})
+
     for dim in ["time", "latitude", "longitude"]:
         results[dim].data[:] = input_data[dim].data
-
     results.attrs.update(input_file.get_input_file_attributes())
 
     return results
