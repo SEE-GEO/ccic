@@ -6,7 +6,7 @@ Implements functions for the operational processing of the CCIC
 retrieval.
 """
 from dataclasses import dataclass
-from pathlib import Path
+from tempfile import TemporaryDirectory
 
 import numpy as np
 from pansat.time import to_datetime
@@ -27,6 +27,31 @@ class RemoteFile:
     """
     file_cls: type
     filename: str
+    def __init__(
+            self,
+            file_cls,
+            filename,
+            thread_pool=None
+    ):
+        self.file_cls = file_cls
+        self.filename = filename
+        self.prefetch_task = None
+        if thread_pool is not None:
+            self.prefetch(thread_pool)
+
+    def prefetch(self, thread_pool):
+        """
+        Uses a thread pool to schedule prefetching of the remote file.
+
+        Args:
+            thread_pool: The thread pool to use for the prefetching.
+        """
+        self._tmp = TemporaryDirectory()
+        self.prefetch_task = thread_pool.submit(
+            self.file_cls.download,
+            self.filename,
+            self._tmp.name
+        )
 
     def get(self, path):
         """
@@ -39,6 +64,12 @@ class RemoteFile:
             A ``file_cls`` object pointing to the downloaded file.
         """
         output_path = path / self.filename
+
+        # Check if file is prefetched.
+        if self.prefetch_task is not None:
+            self.prefetch_task.result()
+            return self.file_cls(output_path)
+
         self.file_cls.download(self.filename, output_path)
         return self.file_cls(output_path)
 
@@ -53,6 +84,7 @@ class RetrievalSettings:
     targets: list = None
     roi: list = None
     device: str = "cpu"
+    precision: int = 32
 
 
 def get_input_files(input_cls, start_time, end_time=None, path=None):
@@ -142,6 +174,7 @@ Args:
     mean = (
         mrnn.posterior_mean(y_pred=y_pred[target], key=target)
         .cpu()
+        .float()
         .numpy()
     )
     means[target][-1].append(mean)
@@ -151,13 +184,13 @@ Args:
                 y_pred=y_pred[target],
                 quantiles=target_quantiles,
                 key=target
-            ).cpu() .numpy()
+            ).cpu().float().numpy()
         )
         quantiles[target][-1].append(quants)
         sample = (
             mrnn.sample_posterior(
                 y_pred=y_pred[target], n_samples=1, key=target
-            )[:, 0].cpu().numpy()
+            )[:, 0].cpu().float().numpy()
         )
         samples[target][-1].append(sample)
 
@@ -202,6 +235,8 @@ def process_input(mrnn, x, retrieval_settings=None):
     target_quantiles = [0.022, 0.156, 0.841, 0.977]
 
     device = retrieval_settings.device
+    precision = retrieval_settings.precision
+
     mrnn.model.to(device)
 
     with torch.no_grad():
@@ -222,9 +257,15 @@ def process_input(mrnn, x, retrieval_settings=None):
                     cloud_type.append([])
 
             for j in range(tiler.N):
-                x_t = tiler.get_tile(i, j).to(device)
+                x_t = tiler.get_tile(i, j)
 
-                y_pred = mrnn.predict(x_t)
+                # Use torch autocast for mixed precision.
+                x_t = torch.tensor(x_t).to(device)
+                if precision == 16:
+                    with torch.autocast(device_type=device):
+                        y_pred = mrnn.model(x_t)
+                else:
+                    y_pred = mrnn.predict(x_t)
 
                 for target in targets:
                     if target in REGRESSION_TARGETS:
@@ -238,20 +279,21 @@ def process_input(mrnn, x, retrieval_settings=None):
                             samples=samples
                         )
                     elif target == "cloud_prob_2d":
-                        cloud_prob_2d[-1].append(y_pred["cloud_mask"].cpu().numpy())
+                        cloud_prob_2d[-1].append(
+                            y_pred["cloud_mask"].cpu().float().numpy()
+                        )
                     elif target == "cloud_prob_3d":
+                        cp = 1.0 - y_pred["cloud_class"]
                         cloud_prob_3d[-1].append(
-                            1.0 - y_pred["cloud_class"][:, 0].cpu().numpy()
+                            cp[:, 0].cpu().float().numpy()
                         )
                     elif target == "cloud_type":
                         ct = torch.softmax(y_pred["cloud_class"][:, 1:], 1)
                         cloud_type[-1].append(
-                            ct.cpu().numpy()
+                            ct.cpu().float().numpy()
                         )
 
-
     results = xr.Dataset()
-
     for target, mean in means.items():
         mean = tiler.assemble(mean)
         if mean.ndim == 3:

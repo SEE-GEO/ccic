@@ -101,6 +101,16 @@ def add_parser(subparsers):
         help="The name of the torch device to use for processing.",
         default="cpu"
     )
+    parser.add_argument(
+        "--precision",
+        metavar="16/32",
+        type=int,
+        help=(
+            "The precision with which to run the retrieval. Only has an "
+            "effect for GPU processing."
+        ),
+        default=32
+    )
     parser.add_argument("--roi", metavar="x", type=float, nargs=4, default=None)
     parser.add_argument("--n_processes", metavar="n", type=int, default=1)
     parser.set_defaults(func=run)
@@ -202,7 +212,8 @@ def run(args):
         overlap=args.overlap,
         targets=targets,
         roi=args.roi,
-        device=args.device
+        device=args.device,
+        precision=args.precision
     )
 
     pool = ProcessPoolExecutor(max_workers=args.n_processes)
