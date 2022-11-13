@@ -52,6 +52,7 @@ class RetrievalSettings:
     overlap: int = 128
     targets: list = None
     roi: list = None
+    device: str = "cpu"
 
 
 def get_input_files(input_cls, start_time, end_time=None, path=None):
@@ -115,7 +116,7 @@ REGRESSION_TARGETS = ["iwp", "iwp_rand", "iwc"]
 SCALAR_TARGETS = ["iwp", "iwp_rand"]
 
 def process_regression_target(
-        model,
+        mrnn,
         y_pred,
         target,
         target_quantiles,
@@ -130,7 +131,7 @@ def process_regression_target(
     and posterior quantiles, however, are only calculated for scalar retrieval
     targets.
 Args:
-        model: The MRNN model used for the inference.
+        mrnn: The MRNN model used for the inference.
         y_pred: The dictionary containing all predictions from the model.
         target: The retrieval target to process.
         target_quantiles: The quantiles to calculate for the output.
@@ -139,14 +140,14 @@ Args:
         samples: Result dict to which to store the calculated samples.
     """
     mean = (
-        model.posterior_mean(y_pred=y_pred[target], key=target)
+        mrnn.posterior_mean(y_pred=y_pred[target], key=target)
         .cpu()
         .numpy()
     )
     means[target][-1].append(mean)
     if target in SCALAR_TARGETS:
         quants = (
-            model.posterior_quantiles(
+            mrnn.posterior_quantiles(
                 y_pred=y_pred[target],
                 quantiles=target_quantiles,
                 key=target
@@ -154,19 +155,19 @@ Args:
         )
         quantiles[target][-1].append(quants)
         sample = (
-            model.sample_posterior(
+            mrnn.sample_posterior(
                 y_pred=y_pred[target], n_samples=1, key=target
             )[:, 0].cpu().numpy()
         )
         samples[target][-1].append(sample)
 
 
-def process_input(model, x, retrieval_settings=None):
+def process_input(mrnn, x, retrieval_settings=None):
     """
     Process given retrieval input using tiling.
 
     Args:
-        model: The MRNN to use to perform the retrieval.
+        mrnn: The MRNN to use to perform the retrieval.
         x: A 'torch.Tensor' containing the retrieval input.
         retrieval_settings: A RetrievalSettings object defining the settings
             for the retrieval
@@ -200,6 +201,9 @@ def process_input(model, x, retrieval_settings=None):
 
     target_quantiles = [0.022, 0.156, 0.841, 0.977]
 
+    device = retrieval_settings.device
+    mrnn.model.to(device)
+
     with torch.no_grad():
         for i in range(tiler.M):
 
@@ -218,14 +222,14 @@ def process_input(model, x, retrieval_settings=None):
                     cloud_type.append([])
 
             for j in range(tiler.N):
-                x_t = tiler.get_tile(i, j)
+                x_t = tiler.get_tile(i, j).to(device)
 
-                y_pred = model.predict(x_t)
+                y_pred = mrnn.predict(x_t)
 
                 for target in targets:
                     if target in REGRESSION_TARGETS:
                         process_regression_target(
-                            model,
+                            mrnn,
                             y_pred,
                             target,
                             target_quantiles,
@@ -244,7 +248,6 @@ def process_input(model, x, retrieval_settings=None):
                         cloud_type[-1].append(
                             ct.cpu().numpy()
                         )
-
 
 
     results = xr.Dataset()

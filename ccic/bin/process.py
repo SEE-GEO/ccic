@@ -94,6 +94,13 @@ def add_parser(subparsers):
         help="Tile size to use for processing.",
         default=128,
     )
+    parser.add_argument(
+        "--device",
+        metavar="dev",
+        type=str,
+        help="The name of the torch device to use for processing.",
+        default="cpu"
+    )
     parser.add_argument("--roi", metavar="x", type=float, nargs=4, default=None)
     parser.add_argument("--n_processes", metavar="n", type=int, default=1)
     parser.set_defaults(func=run)
@@ -187,11 +194,15 @@ def run(args):
         "cloud_prob_3d",
     ]
     targets = args.targets
-    if any([target not in VALID_TARGETS for target in targets]):
-        LOGGER.error("Targets must be a subset of %s.", VALID_TARGETS)
+    if any([target not in valid_targets for target in targets]):
+        LOGGER.error("Targets must be a subset of %s.", valid_targets)
 
     retrieval_settings = RetrievalSettings(
-        tile_size=args.tile_size, overlap=args.overlap, targets=targets, roi=args.roi
+        tile_size=args.tile_size,
+        overlap=args.overlap,
+        targets=targets,
+        roi=args.roi,
+        device=args.device
     )
 
     pool = ProcessPoolExecutor(max_workers=args.n_processes)
