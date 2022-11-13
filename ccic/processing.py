@@ -6,6 +6,7 @@ Implements functions for the operational processing of the CCIC
 retrieval.
 """
 from dataclasses import dataclass
+from pathlib import Path
 from tempfile import TemporaryDirectory
 
 import numpy as np
@@ -31,12 +32,14 @@ class RemoteFile:
             self,
             file_cls,
             filename,
+            working_dir,
             thread_pool=None
     ):
         self.file_cls = file_cls
         self.filename = filename
+        self.working_dir = working_dir
         self.prefetch_task = None
-        if thread_pool is not None:
+        if thread_pool is not None and working_dir is not None:
             self.prefetch(thread_pool)
 
     def prefetch(self, thread_pool):
@@ -46,29 +49,39 @@ class RemoteFile:
         Args:
             thread_pool: The thread pool to use for the prefetching.
         """
-        self._tmp = TemporaryDirectory()
+        output_path = Path(self.working_dir.name) / self.filename
         self.prefetch_task = thread_pool.submit(
             self.file_cls.download,
             self.filename,
-            self._tmp.name
+            output_path
         )
 
-    def get(self, path):
+    def get(self, working_dir=None):
         """
         Download the file.
 
         Args:
-            path: The local folder in which to store the file.
+            working_dir: The local folder in which to store the file.
 
         Return:
             A ``file_cls`` object pointing to the downloaded file.
         """
-        output_path = path / self.filename
+        if working_dir is None:
+            working_dir = self.working_dir
 
-        # Check if file is prefetched.
+        if working_dir is None:
+            raise ValueError(
+                "A 'working_dir' must be provided either on creation of "
+                "the RemoteFile object or when the 'get' method is called."
+            )
+
+        output_path = Path(working_dir.name) / self.filename
+
+        # Check if file is pre-fetched.
         if self.prefetch_task is not None:
             self.prefetch_task.result()
-            return self.file_cls(output_path)
+            result = self.file_cls(output_path)
+            return result
 
         self.file_cls.download(self.filename, output_path)
         return self.file_cls(output_path)
@@ -87,7 +100,14 @@ class RetrievalSettings:
     precision: int = 32
 
 
-def get_input_files(input_cls, start_time, end_time=None, path=None):
+def get_input_files(
+        input_cls,
+        start_time,
+        end_time=None,
+        path=None,
+        thread_pool=None,
+        working_dir=None
+):
     """
     Determine local or remote input files.
 
@@ -104,6 +124,9 @@ def get_input_files(input_cls, start_time, end_time=None, path=None):
         end_time: If both 'start_time' and 'end_time' are given, all files
             falling within the specified time range will be considered.
         path: If given, will be used to look for local files.
+        thread_pool: An optional thread pool to use for the prefetching
+            of remote files.
+        working_dir: A temporary directory to use for the prefetching of files.
     """
     start_time = to_datetime(start_time)
     if end_time is None:
@@ -112,7 +135,14 @@ def get_input_files(input_cls, start_time, end_time=None, path=None):
     # Return remote files if no path if given.
     if path is None:
         files = input_cls.get_available_files(start_time=start_time, end_time=end_time)
-        return [RemoteFile(input_cls, filename) for filename in files]
+        return [
+            RemoteFile(
+                input_cls,
+                filename,
+                working_dir,
+                thread_pool=thread_pool,
+            ) for filename in files
+        ]
 
     # Return local files if path if given.
     files = input_cls.find_files(path=path, start_time=start_time, end_time=end_time)

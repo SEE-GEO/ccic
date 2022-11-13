@@ -2,7 +2,11 @@
 Tests for the processing functions defined in ccic.processing.py
 """
 import os
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from tempfile import TemporaryDirectory
+import timeit
+
 
 from quantnn.mrnn import MRNN
 
@@ -93,6 +97,32 @@ def test_get_input_files():
     )
     assert len(input_files) == 3
     assert isinstance(input_files[0], GridSatB1)
+
+
+def test_remote_file():
+    """
+    Test that input files are determined correctly.
+    """
+    temp_dir_1 = TemporaryDirectory()
+    temp_dir_2 = TemporaryDirectory()
+
+    pool = ThreadPoolExecutor(max_workers=4)
+    input_files_no_prefetch = get_input_files(
+        GPMIR,
+        start_time="2008-02-01T00:00:00",
+        working_dir=temp_dir_1
+    )
+    input_files_prefetch = get_input_files(
+        GPMIR,
+        start_time="2008-02-02T00:00:00",
+        thread_pool=pool,
+        working_dir=temp_dir_2
+    )
+
+    if_1 = input_files_no_prefetch[0]
+    if_2 = input_files_prefetch[0]
+    print("No prefetch :: ", timeit.timeit('if_1.get()', number=1, globals=locals()))
+    print("Prefetch ::    ", timeit.timeit('if_2.get()', number=1, globals=locals()))
 
 
 def test_processing():
