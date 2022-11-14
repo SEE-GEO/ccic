@@ -5,10 +5,12 @@ ccic.bin.process
 
 This sub-module implements the CLI to run the CCIC retrievals.
 """
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 import logging
-from concurrent.futures import ProcessPoolExecutor
-from tempfile import TemporaryDirectory
+from multiprocessing import Manager
 from pathlib import Path
+from tempfile import TemporaryDirectory
+
 import numpy as np
 
 
@@ -116,7 +118,34 @@ def add_parser(subparsers):
     parser.set_defaults(func=run)
 
 
-def process_file(model, input_file, output, retrieval_settings):
+ENCODINGS = {
+    "iwp_mean": {"zlib": True},
+    "iwp_quantiles": {"zlib": True},
+    "iwp_sample": {"zlib": True},
+    "iwp_rand_mean": {"zlib": True},
+    "iwp_rand_quantiles": {"zlib": True},
+    "iwp_rand_sample": {"zlib": True},
+    "iwc": {"zlib": True},
+    "cloud_prob_2d": {
+        "zlib": True,
+        "scale_factor": 250,
+        "_FillValue": 255,
+        "dtype": "uint8"
+    },
+    "cloud_prob_3d": {
+        "zlib": True,
+        "scale_factor": 250,
+        "_FillValue": 255,
+        "dtype": "uint8"
+    },
+    "cloud_type": {
+        "zlib": True,
+        "dtype": "uint8"
+    }
+}
+
+
+def process_file(model, file_queue, output, retrieval_settings):
     """
     Processing of a single input file.
     """
@@ -124,19 +153,25 @@ def process_file(model, input_file, output, retrieval_settings):
     from ccic.processing import process_input_file, get_output_filename, RemoteFile
 
     mrnn = MRNN.load(model)
-    mrnn.model.train(False)
+    mrnn.model.eval()
 
-    with TemporaryDirectory() as tmp:
-        tmp_path = Path(tmp)
-        if isinstance(input_file, RemoteFile):
-            input_file = input_file.get(tmp_path)
+    input_file = file_queue.get()
 
-        results = process_input_file(
-            mrnn, input_file, retrieval_settings=retrieval_settings
-        )
-        input_data = input_file.to_xarray_dataset()
-        output_filename = get_output_filename(input_file, input_data.time[0].item())
-        results.to_netcdf(output / output_filename)
+    results = process_input_file(
+        mrnn, input_file, retrieval_settings=retrieval_settings
+    )
+    input_data = input_file.to_xarray_dataset()
+    output_filename = get_output_filename(input_file, input_data.time[0].item())
+
+    encodings = {key: ENCODINGS[key] for key in results.variables.keys()}
+    results.to_netcdf(output / output_filename, encoding=encodings)
+
+
+def download_file(input_file, file_queue):
+    from ccic.processing import RemoteFile
+    if isinstance(input_file, RemoteFile):
+        input_file = input_file.get()
+    file_queue.put(input_file)
 
 
 def run(args):
@@ -192,35 +227,54 @@ def run(args):
             )
             return 1
 
-    input_files = get_input_files(input_cls, start_time, end_time=end_time)
-
-    # Retrieval settings
-    valid_targets = [
-        "iwp",
-        "iwp_rand",
-        "iwc",
-        "cloud_type",
-        "cloud_prob_2d",
-        "cloud_prob_3d",
-    ]
-    targets = args.targets
-    if any([target not in valid_targets for target in targets]):
-        LOGGER.error("Targets must be a subset of %s.", valid_targets)
-
-    retrieval_settings = RetrievalSettings(
-        tile_size=args.tile_size,
-        overlap=args.overlap,
-        targets=targets,
-        roi=args.roi,
-        device=args.device,
-        precision=args.precision
-    )
-
-    pool = ProcessPoolExecutor(max_workers=args.n_processes)
-    tasks = []
-    for input_file in input_files:
-        tasks.append(
-            pool.submit(process_file, model, input_file, output, retrieval_settings)
+    download_pool = ThreadPoolExecutor(max_workers=1)
+    with TemporaryDirectory() as tmp:
+        input_files = get_input_files(
+            input_cls,
+            start_time,
+            end_time=end_time,
+            working_dir=tmp,
         )
-    for task in tasks:
-        task.result()
+
+        # Retrieval settings
+        valid_targets = [
+            "iwp",
+            "iwp_rand",
+            "iwc",
+            "cloud_type",
+            "cloud_prob_2d",
+            "cloud_prob_3d",
+        ]
+        targets = args.targets
+        if any([target not in valid_targets for target in targets]):
+            LOGGER.error("Targets must be a subset of %s.", valid_targets)
+
+        retrieval_settings = RetrievalSettings(
+            tile_size=args.tile_size,
+            overlap=args.overlap,
+            targets=targets,
+            roi=args.roi,
+            device=args.device,
+            precision=args.precision
+        )
+
+        pool = ProcessPoolExecutor(max_workers=args.n_processes)
+        tasks = []
+
+        # Use managed queue to pass files between download threads
+        # and processing processes.
+        manager = Manager()
+        file_queue = manager.Queue(2)
+
+        # Submit a download task for each file.
+        for input_file in input_files:
+            download_pool.submit(download_file, input_file, file_queue)
+        # Submit a corresponding processing task for each file.
+        for input_file in input_files:
+            tasks.append(
+                pool.submit(process_file, model, file_queue, output, retrieval_settings)
+            )
+
+        # Fetch results.
+        for task in tasks:
+            task.result()

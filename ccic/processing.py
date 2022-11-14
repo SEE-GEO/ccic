@@ -49,7 +49,7 @@ class RemoteFile:
         Args:
             thread_pool: The thread pool to use for the prefetching.
         """
-        output_path = Path(self.working_dir.name) / self.filename
+        output_path = Path(self.working_dir) / self.filename
         self.prefetch_task = thread_pool.submit(
             self.file_cls.download,
             self.filename,
@@ -75,7 +75,7 @@ class RemoteFile:
                 "the RemoteFile object or when the 'get' method is called."
             )
 
-        output_path = Path(working_dir.name) / self.filename
+        output_path = Path(working_dir) / self.filename
 
         # Check if file is pre-fetched.
         if self.prefetch_task is not None:

@@ -110,13 +110,13 @@ def test_remote_file():
     input_files_no_prefetch = get_input_files(
         GPMIR,
         start_time="2008-02-01T00:00:00",
-        working_dir=temp_dir_1
+        working_dir=temp_dir_1.name
     )
     input_files_prefetch = get_input_files(
         GPMIR,
         start_time="2008-02-02T00:00:00",
         thread_pool=pool,
-        working_dir=temp_dir_2
+        working_dir=temp_dir_2.name
     )
 
     if_1 = input_files_no_prefetch[0]
