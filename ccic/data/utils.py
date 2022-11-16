@@ -76,6 +76,8 @@ def extract_roi(dataset, roi, min_size=None):
             last = first + min_size
             lat_mask[first:last] = True
 
+        if lat_mask.astype(np.int).sum() < min_size:
+            lat_mask[last - min_size: last] = True
 
         try:
             first, last = np.where(lon_mask)[0][[0, -1]]
@@ -88,5 +90,8 @@ def extract_roi(dataset, roi, min_size=None):
             first = first - diff // 2
             last = first + min_size
             lon_mask[first:last] = True
+
+        if lat_mask.astype(np.int).sum() < min_size:
+            lat_mask[last - min_size: last] = True
 
     return dataset[{"lat": lat_mask, "lon": lon_mask}]
