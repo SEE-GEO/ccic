@@ -290,10 +290,10 @@ def process_input(mrnn, x, retrieval_settings=None):
                 x_t = tiler.get_tile(i, j)
 
                 # Use torch autocast for mixed precision.
-                x_t = torch.tensor(x_t).to(device)
+                x_t = x_t.to(device)
                 if precision == 16:
                     with torch.autocast(device_type=device):
-                        y_pred = mrnn.model(x_t)
+                        y_pred = mrnn.predict(x_t)
                 else:
                     y_pred = mrnn.predict(x_t)
 
@@ -400,7 +400,7 @@ def process_input_file(
     input_data = input_data.rename({"lat": "latitude", "lon": "longitude"})
 
     for dim in ["time", "latitude", "longitude"]:
-        results[dim].data[:] = input_data[dim].data
+        results[dim] = input_data[dim]
     results.attrs.update(input_file.get_input_file_attributes())
 
     return results
