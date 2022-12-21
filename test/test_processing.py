@@ -9,6 +9,7 @@ import timeit
 
 
 from quantnn.mrnn import MRNN
+import numpy as np
 
 from ccic.data.gpmir import GPMIR
 from ccic.data.gridsat import GridSatB1
@@ -136,17 +137,23 @@ def test_processing():
     for input_file in [gpmir_file, gridsat_file]:
         results = process_input_file(mrnn, input_file)
         print(results)
-        assert "iwp_mean" in results
-        assert "iwp_quantiles" in results
-        assert "iwp_sample" in results
+        assert "tiwp" in results
+        assert "tiwp_log_std_dev" in results
+        assert "p_tiwp" in results
+        assert np.all(np.isfinite(results["tiwp"].data))
+        assert np.all(np.isfinite(results["tiwp_log_std_dev"].data))
+        assert np.all(np.isfinite(results["p_tiwp"].data))
 
-        assert "iwp_rand_mean" in results
-        assert "iwp_rand_quantiles" in results
-        assert "iwp_rand_sample" in results
+        assert "tiwp_fpavg" in results
+        assert "tiwp_fpavg_log_std_dev" in results
+        assert "p_tiwp_fpavg" in results
+        assert np.all(np.isfinite(results["tiwp_fpavg"].data))
+        assert np.all(np.isfinite(results["tiwp_fpavg_log_std_dev"].data))
+        assert np.all(np.isfinite(results["p_tiwp_fpavg"].data))
 
-        assert "iwc_mean" in results
-        assert "iwc_quantiles" not in results
-        assert "iwc_sample" not in results
+        assert "tiwc" in results
+        assert "tiwc_log_std_dev" not in results
+        assert "p_tiwc" not in results
 
         assert "input_filename" in results.attrs
         assert "processing_time" in results.attrs

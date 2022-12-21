@@ -13,11 +13,13 @@ import numpy as np
 from pansat.time import to_datetime
 import torch
 import xarray as xr
+import zarr
 
 from ccic.tiler import Tiler
 from ccic.data.gpmir import GPMIR
 from ccic.data.gridsat import GridSatB1
 from ccic.data.utils import extract_roi
+from ccic.codecs import LogBins
 
 
 @dataclass
@@ -176,15 +178,26 @@ def get_output_filename(
 
 REGRESSION_TARGETS = ["iwp", "iwp_rand", "iwc"]
 SCALAR_TARGETS = ["iwp", "iwp_rand"]
+THRESHOLDS = {
+    "iwp": 1e-3,
+    "iwp_rand": 1e-3,
+    "iwc": 1e-3
+}
+
+# Maps NN target names to output names.
+OUTPUT_NAMES = {
+    "iwp": "tiwp_fpavg",
+    "iwp_rand": "tiwp",
+    "iwc": "tiwc"
+}
 
 def process_regression_target(
         mrnn,
         y_pred,
         target,
-        target_quantiles,
         means,
-        quantiles,
-        samples
+        log_std_devs,
+        p_non_zeros,
 ):
     """
     Implements the processing logic for regression targets.
@@ -192,14 +205,15 @@ def process_regression_target(
     The posterior mean is calculated for all regression targets. A random sample
     and posterior quantiles, however, are only calculated for scalar retrieval
     targets.
-Args:
+    Args:
         mrnn: The MRNN model used for the inference.
         y_pred: The dictionary containing all predictions from the model.
         target: The retrieval target to process.
-        target_quantiles: The quantiles to calculate for the output.
         means: Result dict to which to store the calculated posterior means.
-        quantiles: Result dict to which to store the calculated posterior quantiles.
-        samples: Result dict to which to store the calculated samples.
+        log_std_devs: Result dict to which to store the calculate log standard
+            deviations.
+        p_non_zeros: Result dict to which to store the calculated probability that
+            the target is larger than the corresponding minimum threshold.
     """
     mean = (
         mrnn.posterior_mean(y_pred=y_pred[target], key=target)
@@ -209,20 +223,17 @@ Args:
     )
     means[target][-1].append(mean)
     if target in SCALAR_TARGETS:
-        quants = (
-            mrnn.posterior_quantiles(
-                y_pred=y_pred[target],
-                quantiles=target_quantiles,
+        log_std_dev = (
+            mrnn.posterior_std_dev(
+                y_pred=torch.log10(y_pred[target]),
                 key=target
             ).cpu().float().numpy()
         )
-        quantiles[target][-1].append(quants)
-        sample = (
-            mrnn.sample_posterior(
-                y_pred=y_pred[target], n_samples=1, key=target
-            )[:, 0].cpu().float().numpy()
-        )
-        samples[target][-1].append(sample)
+        log_std_devs[target][-1].append(log_std_dev)
+        p_non_zero = mrnn.probability_larger_than(
+                y_pred=y_pred[target], y=THRESHOLDS[target], key=target
+            )[:].cpu().float().numpy()
+        p_non_zeros[target][-1].append(p_non_zero)
 
 
 def process_input(mrnn, x, retrieval_settings=None):
@@ -256,13 +267,11 @@ def process_input(mrnn, x, retrieval_settings=None):
 
     tiler = Tiler(x, tile_size=tile_size, overlap=overlap)
     means = {}
-    quantiles = {}
-    samples = {}
+    log_std_devs = {}
+    p_non_zeros = {}
     cloud_prob_2d = []
     cloud_prob_3d = []
     cloud_type = []
-
-    target_quantiles = [0.022, 0.156, 0.841, 0.977]
 
     device = retrieval_settings.device
     precision = retrieval_settings.precision
@@ -277,8 +286,8 @@ def process_input(mrnn, x, retrieval_settings=None):
                 if target in REGRESSION_TARGETS:
                     means.setdefault(target, []).append([])
                     if target in SCALAR_TARGETS:
-                        quantiles.setdefault(target, []).append([])
-                        samples.setdefault(target, []).append([])
+                        log_std_devs.setdefault(target, []).append([])
+                        p_non_zeros.setdefault(target, []).append([])
                 elif target == "cloud_prob_2d":
                     cloud_prob_2d.append([])
                 elif target == "cloud_prob_3d":
@@ -303,10 +312,9 @@ def process_input(mrnn, x, retrieval_settings=None):
                             mrnn,
                             y_pred,
                             target,
-                            target_quantiles,
                             means=means,
-                            quantiles=quantiles,
-                            samples=samples
+                            log_std_devs=log_std_devs,
+                            p_non_zeros=p_non_zeros
                         )
                     elif target == "cloud_prob_2d":
                         cloud_prob_2d[-1].append(
@@ -331,18 +339,17 @@ def process_input(mrnn, x, retrieval_settings=None):
         else:
             dims = ("time", "latitude", "longitude", "levels")
             mean = np.transpose(mean, [0, 2, 3, 1])
-        results[target + "_mean"] = (dims, mean)
+
+        results[OUTPUT_NAMES[target]] = (dims, mean)
 
     dims = ("time", "latitude", "longitude")
-    for target, sample in samples.items():
-        smpls = tiler.assemble(sample)
-        results[target + "_sample"] = (dims, smpls)
+    for target, p_non_zero in p_non_zeros.items():
+        smpls = tiler.assemble(p_non_zero)
+        results["p_" + OUTPUT_NAMES[target]] = (dims, smpls)
 
-    dims = ("time", "latitude", "longitude", "quantiles")
-    for target, quants in quantiles.items():
-        quants = tiler.assemble(quants)
-        quants = np.transpose(quants, [0, 2, 3, 1])
-        results[target + "_quantiles"] = (dims, quants)
+    for target, log_std_dev in log_std_devs.items():
+        log_std_dev = tiler.assemble(log_std_dev)
+        results[OUTPUT_NAMES[target] + "_log_std_dev"] = (dims, log_std_dev)
 
     dims = ("time", "latitude", "longitude")
     if len(cloud_prob_2d) > 0:
@@ -397,6 +404,8 @@ def process_input_file(
     input_data = input_file.to_xarray_dataset()
     if roi is not None:
         input_data = extract_roi(input_data, roi, min_size=256)
+    print(input_data)
+    print(results)
     input_data = input_data.rename({"lat": "latitude", "lon": "longitude"})
 
     for dim in ["time", "latitude", "longitude"]:
@@ -405,3 +414,37 @@ def process_input_file(
 
     return results
 
+
+def get_encodings_zarr(variable_names):
+    """
+    Get variable encoding dict for storing the results for selected
+    target variables.
+    """
+    compressor = zarr.Blosc(cname="zstd", clevel=3, shuffle=2)
+    filters = [LogBins(1e-3, 1e2)]
+    all_encodings = {
+        "iwp_mean": {"compressor": compressor, "filters": filters, "dtype": "float32"},
+        "iwp_quantiles": {"compressor": compressor, "filters": filters, "dtype": "float32"},
+        "iwp_sample": {"compressor": compressor, "filters": filters, "dtype": "float32"},
+        "iwp_rand_mean": {"compressor": compressor, "filters": filters, "dtype": "float32"},
+        "iwp_rand_quantiles": {"compressor": compressor, "filters": filters, "dtype": "float32"},
+        "iwp_rand_sample": {"compressor": compressor, "filters": filters, "dtype": "float32"},
+        "iwc_mean": {"compressor": compressor, "filters": filters, "dtype": "float32"},
+        "cloud_prob_2d": {
+            "compressor": compressor,
+            "scale_factor": 250,
+            "_FillValue": 255,
+            "dtype": "uint8"
+        },
+        "cloud_prob_3d": {
+            "compressor": compressor,
+            "scale_factor": 250,
+            "_FillValue": 255,
+            "dtype": "uint8"
+        },
+        "cloud_type": {
+            "compressor": compressor,
+            "dtype": "uint8"
+        }
+    }
+    return {all_encodings[name] for name in variable_names}
