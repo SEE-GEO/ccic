@@ -7,9 +7,9 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import timeit
 
-
 from quantnn.mrnn import MRNN
 import numpy as np
+import xarray as xr
 
 from ccic.data.gpmir import GPMIR
 from ccic.data.gridsat import GridSatB1
@@ -17,7 +17,11 @@ from ccic.processing import (
     get_input_files,
     RemoteFile,
     process_input_file,
-    get_output_filename
+    get_output_filename,
+    RetrievalSettings,
+    get_encodings,
+    OutputFormat,
+    ProcessingLog
 )
 
 
@@ -122,13 +126,11 @@ def test_remote_file():
 
     if_1 = input_files_no_prefetch[0]
     if_2 = input_files_prefetch[0]
-    print("No prefetch :: ", timeit.timeit('if_1.get()', number=1, globals=locals()))
-    print("Prefetch ::    ", timeit.timeit('if_2.get()', number=1, globals=locals()))
 
 
-def test_processing():
+def test_processing(tmp_path):
     """
-    Test processing of GPMIR and GridSat input files.
+    Test processing and writing of GPMIR and GridSat input files.
     """
     mrnn = MRNN.load(TEST_DATA / "models" / "ccic.pckl")
     gpmir_file = GPMIR(TEST_DATA / "input_data" / "merg_2008020100_4km-pixel.nc4")
@@ -136,7 +138,6 @@ def test_processing():
 
     for input_file in [gpmir_file, gridsat_file]:
         results = process_input_file(mrnn, input_file)
-        print(results)
         assert "tiwp" in results
         assert "tiwp_log_std_dev" in results
         assert "p_tiwp" in results
@@ -158,8 +159,77 @@ def test_processing():
         assert "input_filename" in results.attrs
         assert "processing_time" in results.attrs
 
+        # Store as netcdf file.
+        retrieval_settings = RetrievalSettings()
+        retrieval_settings.output_format = OutputFormat["NETCDF"]
+        filename = get_output_filename(
+            input_file,
+            results.time[0].item(),
+            retrieval_settings
+        )
+        encodings = get_encodings(results.variables.keys(), retrieval_settings)
+        results.to_netcdf(tmp_path / filename, encoding=encodings)
+        results_nc = xr.load_dataset(tmp_path / filename)
+
+        # Store as zarr file.
+        retrieval_settings.output_format = OutputFormat["ZARR"]
+        filename = get_output_filename(
+            input_file,
+            results.time[0].item(),
+            retrieval_settings
+        )
+        encodings = get_encodings(results.variables.keys(), retrieval_settings)
+        results.to_zarr(tmp_path / filename, encoding=encodings)
+        results_zarr = xr.load_dataset(tmp_path / filename)
+
+        assert results_nc.variables.keys() == results_zarr.variables.keys()
+
 
 def test_get_output_filename():
+    """
+    Ensure that filenames have the right suffixes.
+    """
     gpmir_file = GPMIR(TEST_DATA / "input_data" / "merg_2008020100_4km-pixel.nc4")
     data = gpmir_file.to_xarray_dataset()
-    output_filename = get_output_filename(gpmir_file, data.time[0].item())
+    retrieval_settings = RetrievalSettings()
+    retrieval_settings.output_format = OutputFormat["NETCDF"]
+    output_filename_netcdf = get_output_filename(gpmir_file, data.time[0].item(), retrieval_settings)
+    assert Path(output_filename_netcdf).suffix == ".nc"
+
+    retrieval_settings.output_format = OutputFormat["ZARR"]
+    output_filename_zarr = get_output_filename(gpmir_file, data.time[0].item(), retrieval_settings)
+    assert Path(output_filename_zarr).suffix == ".zarr"
+
+    assert output_filename_netcdf != output_filename_zarr
+
+
+def test_processing_logger(tmp_path):
+    import sqlite3
+    from logging import getLogger
+    db_path = tmp_path / "processing.db"
+
+    pl = ProcessingLog(db_path, "test_file.nc")
+
+    pl = ProcessingLog(db_path, "test_file.nc")
+    LOGGER = getLogger()
+
+    with pl.log(LOGGER):
+        LOGGER.error("THIS IS A LOG.")
+    with pl.log(LOGGER):
+        LOGGER.error("THIS IS ANOTHER LOG.")
+
+    data = np.random.normal(size=(100, 100))
+    data[90:, 90:]
+    results = xr.Dataset({
+        "tiwp": (("x", "y"), data)
+    })
+    pl.finalize(results, "filename")
+
+    with sqlite3.connect(db_path) as conn:
+        cursor = conn.cursor()
+        res = cursor.execute("SELECT * FROM files")
+
+
+
+
+
