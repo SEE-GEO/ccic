@@ -141,11 +141,13 @@ def process_day(year, month, day, destination, size=256, timedelta=15, valid_inp
                 granule
             )
         except Exception as ex:
-            LOGGER.error(
+            LOGGER.exception(
                 "The following error was encountered while processing CloudSat"
-                " granule '%s':\n %s",
+                " granule '%s' on %s-%s-%s.",
                 granule,
-                ex,
+                year,
+                f"{month:02}",
+                f"{day:02}",
             )
 
 

@@ -94,6 +94,12 @@ class GridSatB1:
 
     @classmethod
     def download(cls, filename, destination):
+        logger = logging.getLogger(__file__)
+        logger.info(
+            "Starting download of file '%s' to '%s'.",
+            filename,
+            destination
+        )
         return PROVIDER.download_file(filename, destination)
 
     @classmethod

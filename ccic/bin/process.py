@@ -7,12 +7,12 @@ This sub-module implements the CLI to run the CCIC retrievals.
 """
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 import logging
-from multiprocessing import Manager
+from multiprocessing import Manager, Process
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from threading import Thread
 
 import numpy as np
-
 
 LOGGER = logging.getLogger(__name__)
 
@@ -113,65 +113,158 @@ def add_parser(subparsers):
         ),
         default=32
     )
+    parser.add_argument(
+        "--output_format",
+        metavar="netcdf/zarr",
+        type=str,
+        help=(
+            "The output format in which to store the output: 'zarr' or"
+            " 'netcdf'. 'zarr' format applies a custom filter to allow "
+            " storing 'tiwp' fields as 8-bit integer, which significantly"
+            " reduces the size of the output files."
+        ),
+        default="netcdf"
+    )
     parser.add_argument("--roi", metavar="x", type=float, nargs=4, default=None)
     parser.add_argument("--n_processes", metavar="n", type=int, default=1)
     parser.set_defaults(func=run)
 
 
-ENCODINGS = {
-    "iwp_mean": {"zlib": True},
-    "iwp_quantiles": {"zlib": True},
-    "iwp_sample": {"zlib": True},
-    "iwp_rand_mean": {"zlib": True},
-    "iwp_rand_quantiles": {"zlib": True},
-    "iwp_rand_sample": {"zlib": True},
-    "iwc": {"zlib": True},
-    "cloud_prob_2d": {
-        "zlib": True,
-        "scale_factor": 250,
-        "_FillValue": 255,
-        "dtype": "uint8"
-    },
-    "cloud_prob_3d": {
-        "zlib": True,
-        "scale_factor": 250,
-        "_FillValue": 255,
-        "dtype": "uint8"
-    },
-    "cloud_type": {
-        "zlib": True,
-        "dtype": "uint8"
-    }
-}
-
-
-def process_file(model, file_queue, output, retrieval_settings):
+def process_files(processing_queue, result_queue, model, retrieval_settings):
     """
-    Processing of a single input file.
+    Take a file from the queue, process it and write the output to
+    the given folder.
+
+    Args:
+        processing_queue: Queue on which the downloaded input files are put.
+        results_queue: The queue to hold the results to store to disk.
+        model: The neural network model to run the retrieval with.
+        retrieval_settings: RetrievalSettings object specifying the retrieval
+            settings.
     """
     from quantnn.mrnn import MRNN
-    from ccic.processing import process_input_file, get_output_filename, RemoteFile
+    from ccic.processing import (
+        process_input_file,
+        RemoteFile,
+        ProcessingLog
+    )
+    logger = logging.getLogger(__file__)
 
     mrnn = MRNN.load(model)
     mrnn.model.eval()
 
-    input_file = file_queue.get()
+    while True:
+        input_file = processing_queue.get()
+        if input_file is None:
+            break
 
-    results = process_input_file(
-        mrnn, input_file, retrieval_settings=retrieval_settings
+        log = ProcessingLog(
+            retrieval_settings.database_path,
+            Path(input_file.filename).name
+        )
+
+        with log.log(logger):
+            try:
+                logger.info("Starting processing input file '%s'.", input_file.filename)
+                results = process_input_file(
+                    mrnn, input_file, retrieval_settings=retrieval_settings
+                )
+                result_queue.put((input_file, results))
+                logger.info("Finished processing file '%s'.", input_file.filename)
+            except Exception as e:
+                logger.exception(e)
+
+    result_queue.put(None)
+
+
+def download_files(download_queue, processing_queue, retrieval_settings):
+    """
+    Downloads file from download queue, if required.
+
+    Args:
+        download_queue: A queue object containing names of files to
+            download.
+        processing_queue: A queue object on which the downloaded files
+            will be put.
+    """
+    from ccic.processing import (
+        RemoteFile,
+        ProcessingLog
     )
-    input_data = input_file.to_xarray_dataset()
-    output_filename = get_output_filename(input_file, input_data.time[0].item())
+    logger = logging.getLogger(__file__)
 
-    encodings = {key: ENCODINGS[key] for key in results.variables.keys()}
-    results.to_netcdf(output / output_filename, encoding=encodings)
+    while True:
+        input_file = download_queue.get()
+        if input_file is None:
+            break
+
+        log = ProcessingLog(
+            retrieval_settings.database_path,
+            Path(input_file.filename).name
+        )
+        with log.log(logger):
+            try:
+                if isinstance(input_file, RemoteFile):
+                    logger.info(
+                        "Input file not locally available, download required."
+                    )
+                    input_file = input_file.get()
+                else:
+                    logger.info("Input file locally available.")
+            except Exception e:
+                log.exception(e)
+        processing_queue.put(input_file)
+    processing_queue.put(None)
 
 
-def download_file(input_file, file_queue):
-    from ccic.processing import RemoteFile
-    if isinstance(input_file, RemoteFile):
-        input_file = input_file.get()
-    file_queue.put(input_file)
+def write_output(result_queue, retrieval_settings, output_path):
+    """
+    Write output.
+
+    Args:
+        result_queue: Queue on which retrieval results are put.
+        retrieval_settings: The retrieval settings specifying the output
+            format.
+        output_path: The path to which to write the output.
+    """
+    from ccic.processing import (
+        OutputFormat,
+        get_encodings,
+        get_output_filename,
+        ProcessingLog
+    )
+    logger = logging.getLogger(__file__)
+
+    while True:
+        results = result_queue.get()
+        if results is None:
+            break
+
+        input_file, data = results
+        log = ProcessingLog(
+            retrieval_settings.database_path,
+            input_file.filename.name
+        )
+        output_file = get_output_filename(
+            input_file,
+            data.time.data[0],
+            retrieval_settings
+        )
+        with log.log(logger):
+            try:
+                logger.info("Writing retrieval results to '%s'.", output_file)
+                encodings = get_encodings(data.variables, retrieval_settings)
+                if retrieval_settings.output_format == OutputFormat["NETCDF"]:
+                    data.to_netcdf(output_path / output_file, encoding=encodings)
+                else:
+                    data.to_zarr(output_path / output_file, encoding=encodings)
+                logger.info(
+                    "Successfully processed input file '%s'.",
+                    input_file.filename
+                )
+            except Exception e:
+                log.exception(e)
+        log.finalize(data, output_file)
 
 
 def run(args):
@@ -183,7 +276,12 @@ def run(args):
     """
     from ccic.data.gridsat import GridSatB1
     from ccic.data.gpmir import GPMIR
-    from ccic.processing import process_input_file, get_input_files, RetrievalSettings
+    from ccic.processing import (
+        process_input_file,
+        get_input_files,
+        RetrievalSettings,
+        OutputFormat
+    )
 
     # Load model.
     model = Path(args.model)
@@ -206,6 +304,16 @@ def run(args):
     # Output path
     output = Path(args.output)
 
+    input_path = args.input_path
+    if input_path is not None:
+        input_path = Path(input_path)
+        if not input_path.exists():
+            LOGGER.error(
+                "If 'input_path' argument is provided it must point to an "
+                "existing local path."
+            )
+            return 1
+
     # Start and end time.
     try:
         start_time = np.datetime64(args.start_time)
@@ -227,6 +335,12 @@ def run(args):
             )
             return 1
 
+    logging.basicConfig(
+        format="%(levelname)s :: %(message)s",
+        level=logging.INFO,
+        force=True
+    )
+
     download_pool = ThreadPoolExecutor(max_workers=1)
     with TemporaryDirectory() as tmp:
         input_files = get_input_files(
@@ -234,6 +348,7 @@ def run(args):
             start_time,
             end_time=end_time,
             working_dir=tmp,
+            path=input_path
         )
 
         # Retrieval settings
@@ -249,32 +364,48 @@ def run(args):
         if any([target not in valid_targets for target in targets]):
             LOGGER.error("Targets must be a subset of %s.", valid_targets)
 
+        output_format = None
+        if not args.output_format.upper() in ["NETCDF", "ZARR"]:
+            LOGGER.error(
+                "'output_format' must be one of 'NETCDF' or 'ZARR'."
+            )
+            return 1
+        output_format = args.output_format.upper()
+
         retrieval_settings = RetrievalSettings(
             tile_size=args.tile_size,
             overlap=args.overlap,
             targets=targets,
             roi=args.roi,
             device=args.device,
-            precision=args.precision
+            precision=args.precision,
+            output_format=OutputFormat[output_format]
         )
-
-        pool = ProcessPoolExecutor(max_workers=args.n_processes)
-        tasks = []
 
         # Use managed queue to pass files between download threads
         # and processing processes.
         manager = Manager()
-        file_queue = manager.Queue(2)
+        download_queue = manager.Queue()
+        processing_queue = manager.Queue(4)
+        result_queue = manager.Queue(4)
+
+        args = (download_queue, processing_queue, retrieval_settings)
+        download_thread = Thread(target=download_files, args=args)
+        args = (processing_queue, result_queue, model, retrieval_settings)
+        processing_process = Process(target=process_files, args=args)
+        args = (result_queue, retrieval_settings, output)
+        output_process = Process(target=write_output, args=args)
 
         # Submit a download task for each file.
         for input_file in input_files:
-            download_pool.submit(download_file, input_file, file_queue)
-        # Submit a corresponding processing task for each file.
-        for input_file in input_files:
-            tasks.append(
-                pool.submit(process_file, model, file_queue, output, retrieval_settings)
-            )
+            download_queue.put(input_file)
+        download_queue.put(None)
 
-        # Fetch results.
-        for task in tasks:
-            task.result()
+        download_thread.start()
+        processing_process.start()
+        output_process.start()
+
+        download_thread.join()
+        processing_process.join()
+        output_process.join()
+

@@ -147,6 +147,12 @@ class GPMIR:
             filename: Name of the file to download.
             destination: Destination to store the file.
         """
+        logger = logging.getLogger(__file__)
+        logger.info(
+            "Starting download of file '%s' to '%s'.",
+            filename,
+            destination
+        )
         PROVIDER.download_file(filename, destination)
 
     @classmethod

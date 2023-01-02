@@ -6,8 +6,12 @@ Implements functions for the operational processing of the CCIC
 retrieval.
 """
 from dataclasses import dataclass
+from datetime import datetime
+from enum import Enum
+from io import StringIO
+from logging import Handler
 from pathlib import Path
-from tempfile import TemporaryDirectory
+import sqlite3
 
 import numpy as np
 from pansat.time import to_datetime
@@ -15,6 +19,7 @@ import torch
 import xarray as xr
 import zarr
 
+from ccic import __version__
 from ccic.tiler import Tiler
 from ccic.data.gpmir import GPMIR
 from ccic.data.gridsat import GridSatB1
@@ -89,6 +94,14 @@ class RemoteFile:
         return self.file_cls(output_path)
 
 
+class OutputFormat(Enum):
+    """
+    Enum class to represent the available output formats.
+    """
+    NETCDF = 1
+    ZARR = 2
+
+
 @dataclass
 class RetrievalSettings:
     """
@@ -100,6 +113,8 @@ class RetrievalSettings:
     roi: list = None
     device: str = "cpu"
     precision: int = 32
+    output_format: OutputFormat = OutputFormat["NETCDF"]
+    database_path: str = "ccic_processing.db"
 
 
 def get_input_files(
@@ -151,9 +166,179 @@ def get_input_files(
     return [input_cls(filename) for filename in files]
 
 
+###############################################################################
+# Database logging
+###############################################################################
+
+class LogContext:
+    """
+    Context manager to handle logging to database.
+    """
+    def __init__(self, handler, logger):
+        """
+        Args:
+            handler: The ProcessingLog handler to use for logging.
+            logger: The current logger.
+        """
+        self.logger = logger
+        self.handler = handler
+
+    def __enter__(self):
+        self.handler.start_logging(self.logger)
+
+    def __exit__(self, type, value, traceback):
+        self.handler.finish_logging(self.logger)
+
+
+class ProcessingLog(Handler):
+    """
+    A logging handler that logs processing info to a database.
+    """
+    def __init__(self, database_path, input_file):
+        super().__init__(level="DEBUG")
+        self.database_path = Path(database_path)
+        self.input_file = input_file
+        self.buffer = StringIO()
+
+        if not self.database_path.exists():
+            self._init_db()
+        self._init_entry()
+
+    def _init_db(self):
+        """
+        Initializes DB.
+        """
+        with sqlite3.connect(self.database_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                CREATE TABLE files(
+                    name TEXT PRIMARY KEY,
+                    date date,
+                    success INTEGER,
+                    output_file TEXT,
+                    tiwp_min FLOAT,
+                    tiwp_max FLOAT,
+                    tiwp_mean FLOAT,
+                    n_missing INTEGER,
+                    log BLOB
+                )
+                """
+            )
+
+    def _init_entry(self):
+        """
+        Initializes entry for current file.
+        """
+        with sqlite3.connect(self.database_path) as conn:
+            cursor = conn.cursor()
+            res = cursor.execute("SELECT * FROM files WHERE name=?", (self.input_file,))
+            if res.fetchone() is None:
+                res = cursor.execute(
+                    """
+                    INSERT INTO files
+                    VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (self.input_file,
+                     datetime.now(),
+                     False,
+                     "",
+                     np.nan,
+                     np.nan,
+                     np.nan,
+                     -1,
+                     bytes()
+                     )
+                )
+
+
+    def log(self, logger):
+        """
+        Return context manager to capture logging.
+
+        Args:
+            The currently active logger.
+        """
+        return LogContext(self, logger)
+
+    def emit(self, record):
+        """
+        Custom emit function that stores log message in buffer.
+        """
+        message = self.format(record)
+        self.buffer.write(message + "\n")
+
+    def start_logging(self, logger):
+        """
+        Start capturing log messages.
+
+        Should be call through context manager return by 'log' method.
+        """
+        logger.addHandler(self)
+        self.buffer = StringIO()
+
+    def finish_logging(self, logger):
+        """
+        Writes capture log messages to DB.
+        """
+        logger.removeHandler(self)
+
+        with sqlite3.connect(self.database_path) as conn:
+            cursor = conn.cursor()
+            res = cursor.execute("SELECT log FROM files WHERE name=?", (self.input_file,))
+            self.buffer.seek(0)
+            log = res.fetchone()[0] + self.buffer.read().encode()
+            res = cursor.execute(
+                "UPDATE files SET log=? WHERE name=?",
+                (log, self.input_file),
+            )
+
+    def finalize(self, results, output_file):
+        """
+        Finalizes log for current files. Sets success flag and calculates
+        tiwp statistics.
+        """
+        tiwp_mean = np.nan
+        tiwp_min = np.nan
+        tiwp_max = np.nan
+        n_missing = -1
+
+        if "tiwp" in results:
+            tiwp_mean = results.tiwp.mean().item()
+            tiwp_min = results.tiwp.min().item()
+            tiwp_max = results.tiwp.max().item()
+            n_missing = int(np.isnan(results.tiwp.data).sum())
+
+        with sqlite3.connect(self.database_path) as conn:
+            cursor = conn.cursor()
+            res = cursor.execute("SELECT log FROM files WHERE name=?", (self.input_file,))
+
+            if res.fetchone() is not None:
+                cmd = """
+            UPDATE files
+            SET success=?,
+                output_file=?,
+                tiwp_min=?,
+                tiwp_max=?,
+                tiwp_mean=?,
+                n_missing=?
+            WHERE name=?
+            """
+                data = (
+                    True,
+                    output_file,
+                    tiwp_min,
+                    tiwp_max,
+                    tiwp_mean,
+                    n_missing,
+                    self.input_file
+                )
+                res = cursor.execute(cmd, data)
+
 def get_output_filename(
         input_file,
-        date
+        date,
+        retrieval_settings
 ):
     """
     Get filename for CCIC output file.
@@ -161,6 +346,10 @@ def get_output_filename(
     Args:
         input_file: The input file object.
         date: Time stamp of the first observations in the input file.
+        retrieval_settings: RetrievalSettings object specifying the output format.
+
+    Return:
+        A string containing the filename.
     """
     if isinstance(input_file, GPMIR):
         file_type = "gpmir"
@@ -173,7 +362,12 @@ def get_output_filename(
             type(input_file)
         )
     date_str = to_datetime(date).strftime("%Y%m%d%H%M")
-    return f"ccic_{file_type}_{date_str}.nc"
+
+    if retrieval_settings.output_format == OutputFormat["NETCDF"]:
+        suffix = "nc"
+    elif retrieval_settings.output_format == OutputFormat["ZARR"]:
+        suffix = "zarr"
+    return f"ccic_{file_type}_{date_str}.{suffix}"
 
 
 REGRESSION_TARGETS = ["iwp", "iwp_rand", "iwc"]
@@ -337,7 +531,7 @@ def process_input(mrnn, x, retrieval_settings=None):
         if mean.ndim == 3:
             dims = ("time", "latitude", "longitude")
         else:
-            dims = ("time", "latitude", "longitude", "levels")
+            dims = ("time", "latitude", "longitude", "altitude")
             mean = np.transpose(mean, [0, 2, 3, 1])
 
         results[OUTPUT_NAMES[target]] = (dims, mean)
@@ -356,17 +550,18 @@ def process_input(mrnn, x, retrieval_settings=None):
         cloud_prob_2d = tiler.assemble(cloud_prob_2d)[:, 0]
         results["cloud_prob_2d"] = (dims, cloud_prob_2d)
 
-    dims = ("time", "latitude", "longitude", "levels")
+    dims = ("time", "latitude", "longitude", "altitude")
     if len(cloud_prob_3d) > 0:
         cloud_prob_3d = tiler.assemble(cloud_prob_3d)
         cloud_prob_3d = np.transpose(cloud_prob_3d, [0, 2, 3, 1])
         results["cloud_prob_3d"] = (dims, cloud_prob_3d)
 
-    dims = ("time", "latitude", "longitude", "levels", "type")
+    dims = ("time", "latitude", "longitude", "altitude", "type")
     if len(cloud_type) > 0:
         cloud_type = tiler.assemble(cloud_type)
         cloud_type = np.transpose(cloud_type, [0, 3, 4, 2, 1])
         results["cloud_type"] = (dims, cloud_type)
+    results["altitude"] = (("altitude,",), np.arange(20) * 1e3 + 500.0)
 
     return results
 
@@ -404,32 +599,84 @@ def process_input_file(
     input_data = input_file.to_xarray_dataset()
     if roi is not None:
         input_data = extract_roi(input_data, roi, min_size=256)
-    print(input_data)
-    print(results)
     input_data = input_data.rename({"lat": "latitude", "lon": "longitude"})
 
     for dim in ["time", "latitude", "longitude"]:
         results[dim] = input_data[dim]
+
     results.attrs.update(input_file.get_input_file_attributes())
+    add_static_cf_attributes(results)
 
     return results
+
+
+def add_static_cf_attributes(dataset):
+    """
+    Adds static attributes required by CF convections.
+    """
+    dataset["latitude"].attrs["units"] = "degrees_north"
+    dataset["latitude"].attrs["axis"] = "Y"
+    dataset["latitude"].attrs["standard_name"] = "latitude"
+    dataset["longitude"].attrs["units"] = "degrees_east"
+    dataset["longitude"].attrs["axis"] = "X"
+    dataset["longitude"].attrs["standard_name"] = "longitude"
+    dataset["altitude"].attrs["axis"] = "Z"
+    dataset["altitude"].attrs["standard_name"] = "altitude"
+    dataset["altitude"].attrs["units"] = "meters"
+    dataset["altitude"].attrs["positive"] = "up"
+
+    dataset.attrs["title"] = "The Chalmers Cloud Ice Climatology"
+    dataset.attrs["institution"] = "Chalmers University of Technology"
+    dataset.attrs["source"] = ["framework: ccic-{__version__}"]
+    dataset.attrs["history"] = "{datetime.now()}: Retrieval processing"
+
+    if "tiwp" in dataset:
+        dataset["tiwp"].attrs["standard_name"] = "atmosphere_mass_content_of_cloud_ice"
+        dataset["tiwp"].attrs["units"] = "kg m-2"
+        dataset["tiwp"].attrs["long_name"] = "Vertically-integrated concentration of frozen hydrometeors"
+        dataset["tiwp"].attrs["ancillary_variables"] = "tiwp_log_std_dev p_tiwp"
+
+        dataset["tiwp_log_std_dev"].attrs["long_name"] = "Standard deviation of log-transformed vertically-integrated concentration of frozen hydrometeors"
+        dataset["tiwp_log_std_dev"].attrs["units"] = "log(kg m-2)"
+        dataset["p_tiwp"].attrs["long_name"] = "Probability that 'tiwp' exceeds 1e-3 kg m-2"
+        dataset["p_tiwp"].attrs["units"] = "1"
+
+    if "tiwp_fpavg" in dataset:
+        dataset["tiwp_fpavg"].attrs["units"] = "kg m-2"
+        dataset["tiwp_fpavg"].attrs["long_name"] = "Vertically-integrated concentration of frozen hydrometeors"
+        dataset["tiwp_fpavg"].attrs["ancillary_variables"] = "tiwp_fpavg_log_std_dev p_tiwp_fpavg"
+
+        dataset["tiwp_fpavg_log_std_dev"].attrs["long_name"] = "Standard deviation of log-transformed vertically-integrated concentration of frozen hydrometeors"
+        dataset["tiwp_fpavg_log_std_dev"].attrs["units"] = "log(kg m-2)"
+        dataset["p_tiwp_fpavg"].attrs["long_name"] = "Probability that 'tiwp_fpavg' exceeds 1e-3 kg m-2"
+        dataset["p_tiwp_fpavg"].attrs["units"] = "1"
+
+    if "tiwc" in dataset:
+        dataset["tiwc"].attrs["units"] = "kg m-3"
+        dataset["tiwc"].attrs["long_name"] = "Concentration of frozen hydrometeors"
+        dataset["tiwc"].attrs["ancillary_variables"] = "tiwc_log_std_dev p_tiwc"
+
+        dataset["tiwc_log_std_dev"].attrs["long_name"] = "Standard deviation of log-transformed vertically-integrated concentration of frozen hydrometeors"
+        dataset["tiwc_log_std_dev"].attrs["units"] = "log(kg m-2)"
+        dataset["p_tiwc"].attrs["long_name"] = "Probability that 'tiwc' exceeds 1e-3 kg m-2"
+        dataset["p_tiwc"].attrs["units"] = "1"
+
 
 
 def get_encodings_zarr(variable_names):
     """
     Get variable encoding dict for storing the results for selected
-    target variables.
+    target variables in zarr format.
     """
     compressor = zarr.Blosc(cname="zstd", clevel=3, shuffle=2)
     filters = [LogBins(1e-3, 1e2)]
     all_encodings = {
-        "iwp_mean": {"compressor": compressor, "filters": filters, "dtype": "float32"},
-        "iwp_quantiles": {"compressor": compressor, "filters": filters, "dtype": "float32"},
-        "iwp_sample": {"compressor": compressor, "filters": filters, "dtype": "float32"},
-        "iwp_rand_mean": {"compressor": compressor, "filters": filters, "dtype": "float32"},
-        "iwp_rand_quantiles": {"compressor": compressor, "filters": filters, "dtype": "float32"},
-        "iwp_rand_sample": {"compressor": compressor, "filters": filters, "dtype": "float32"},
-        "iwc_mean": {"compressor": compressor, "filters": filters, "dtype": "float32"},
+        "tiwp": {"compressor": compressor, "filters": filters, "dtype": "float32"},
+        "p_tiwp": {"compressor": compressor, "dtype": "uint8", "scale_factor": 1/250, "_FillValue": 255},
+        "tiwp_log_std_dev": {"compressor": compressor, "dtype": "float32", "scale_factor": 1/12.5, "_FillValue": 255},
+        "tiwp_fpavg": {"compressor": compressor, "filters": filters, "dtype": "float32"},
+        "p_tiwp_fpavg": {"compressor": compressor, "dtype": "uint8", "scale_factor": 1/250, "_FillValue": 255},
+        "tiwp_fpavg_log_std_dev": {"compressor": compressor, "dtype": "float32", "scale_factor": 1/12.5, "_FillValue": 255},
         "cloud_prob_2d": {
             "compressor": compressor,
             "scale_factor": 250,
@@ -445,6 +692,99 @@ def get_encodings_zarr(variable_names):
         "cloud_type": {
             "compressor": compressor,
             "dtype": "uint8"
+        },
+        "longitude": {
+            "compressor": compressor,
+            "dtype": "float32",
+        },
+        "latitude": {
+            "compressor": compressor,
+            "dtype": "float32",
         }
     }
-    return {all_encodings[name] for name in variable_names}
+    return {
+        name: all_encodings[name] for name in variable_names
+        if name in all_encodings
+    }
+
+
+def get_encodings_netcdf(variable_names):
+    """
+    Get variable encoding dict for storing the results for selected
+    target variables in netcdf format.
+    """
+    all_encodings = {
+        "tiwp": {"dtype": "float32", "zlib": True},
+        "p_tiwp": {
+            "dtype": "uint8",
+            "scale_factor": 1/250,
+            "_FillValue": 255,
+            "zlib": True
+        },
+        "tiwp_log_std_dev": {
+            "dtype": "uint8",
+            "scale_factor": 1/12.5,
+            "_FillValue": 255,
+            "zlib": True
+        },
+        "tiwp_fpavg": {
+            "dtype": "float32",
+            "zlib": True
+        },
+        "p_tiwp_fpavg": {
+            "dtype": "uint8",
+            "scale_factor": 1/250,
+            "_FillValue": 255,
+            "zlib": True
+        },
+        "tiwp_fpavg_log_std_dev": {
+            "dtype": "uint8",
+            "scale_factor": 1/12.5,
+            "_FillValue": 255,
+            "zlib": True
+        },
+        "cloud_prob_2d": {
+            "scale_factor": 1/250,
+            "_FillValue": 255,
+            "dtype": "uint8",
+            "zlib": True
+        },
+        "cloud_prob_3d": {
+            "scale_factor": 1/250,
+            "_FillValue": 255,
+            "dtype": "uint8",
+            "zlib": True
+        },
+        "cloud_type": {
+            "dtype": "uint8",
+            "zlib": True
+        },
+        "longitude": {
+            "dtype": "float32",
+            "zlib": True
+        },
+        "latitude": {
+            "dtype": "float32",
+            "zlib": True
+        }
+    }
+    return {
+        name: all_encodings[name] for name in variable_names
+        if name in all_encodings
+    }
+
+
+def get_encodings(variable_names, retrieval_settings):
+    """
+    Get output encodings for given retrieval settings.
+
+    Simple wrapper that uses 'retrieval_settings' to forward the call to
+    the method corresponding to the 'output_format' in retrieval settings.
+
+    Return:
+        The encoding settings for 'NETCDF' or 'ZARR' output format.
+    """
+    if retrieval_settings.output_format == OutputFormat["ZARR"]:
+        return get_encodings_zarr(variable_names)
+    return get_encodings_netcdf(variable_names)
+
