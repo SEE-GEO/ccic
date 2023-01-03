@@ -738,6 +738,7 @@ def get_encodings_zarr(variable_names):
     filters = [LogBins(1e-3, 1e2)]
     all_encodings = {
         "tiwp": {"compressor": compressor, "filters": filters, "dtype": "float32"},
+        "tiwc": {"compressor": compressor, "filters": filters, "dtype": "float32"},
         "p_tiwp": {
             "compressor": compressor,
             "dtype": "uint8",
@@ -801,6 +802,7 @@ def get_encodings_netcdf(variable_names):
     """
     all_encodings = {
         "tiwp": {"dtype": "float32", "zlib": True},
+        "tiwc": {"dtype": "float32", "zlib": True},
         "p_tiwp": {
             "dtype": "uint8",
             "scale_factor": 1 / 250,
