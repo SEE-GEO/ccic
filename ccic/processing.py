@@ -15,6 +15,7 @@ import sqlite3
 
 import numpy as np
 from pansat.time import to_datetime
+from scipy.ndimage.morphology import binary_closing
 import torch
 import xarray as xr
 import zarr
@@ -33,15 +34,11 @@ class RemoteFile:
     Simple wrapper class around a file that is not locally available
     but downloaded via pansat.
     """
+
     file_cls: type
     filename: str
-    def __init__(
-            self,
-            file_cls,
-            filename,
-            working_dir,
-            thread_pool=None
-    ):
+
+    def __init__(self, file_cls, filename, working_dir, thread_pool=None):
         self.file_cls = file_cls
         self.filename = filename
         self.working_dir = working_dir
@@ -58,9 +55,7 @@ class RemoteFile:
         """
         output_path = Path(self.working_dir) / self.filename
         self.prefetch_task = thread_pool.submit(
-            self.file_cls.download,
-            self.filename,
-            output_path
+            self.file_cls.download, self.filename, output_path
         )
 
     def get(self, working_dir=None):
@@ -98,6 +93,7 @@ class OutputFormat(Enum):
     """
     Enum class to represent the available output formats.
     """
+
     NETCDF = 1
     ZARR = 2
 
@@ -107,6 +103,7 @@ class RetrievalSettings:
     """
     A record class to hold the retrieval settings.
     """
+
     tile_size: int = 512
     overlap: int = 128
     targets: list = None
@@ -118,12 +115,7 @@ class RetrievalSettings:
 
 
 def get_input_files(
-        input_cls,
-        start_time,
-        end_time=None,
-        path=None,
-        thread_pool=None,
-        working_dir=None
+    input_cls, start_time, end_time=None, path=None, thread_pool=None, working_dir=None
 ):
     """
     Determine local or remote input files.
@@ -158,7 +150,8 @@ def get_input_files(
                 filename,
                 working_dir,
                 thread_pool=thread_pool,
-            ) for filename in files
+            )
+            for filename in files
         ]
 
     # Return local files if path if given.
@@ -170,10 +163,12 @@ def get_input_files(
 # Database logging
 ###############################################################################
 
+
 class LogContext:
     """
     Context manager to handle logging to database.
     """
+
     def __init__(self, handler, logger):
         """
         Args:
@@ -194,6 +189,7 @@ class ProcessingLog(Handler):
     """
     A logging handler that logs processing info to a database.
     """
+
     def __init__(self, database_path, input_file):
         super().__init__(level="DEBUG")
         self.database_path = Path(database_path)
@@ -239,18 +235,18 @@ class ProcessingLog(Handler):
                     INSERT INTO files
                     VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
-                    (self.input_file,
-                     datetime.now(),
-                     False,
-                     "",
-                     np.nan,
-                     np.nan,
-                     np.nan,
-                     -1,
-                     bytes()
-                     )
+                    (
+                        self.input_file,
+                        datetime.now(),
+                        False,
+                        "",
+                        np.nan,
+                        np.nan,
+                        np.nan,
+                        -1,
+                        bytes(),
+                    ),
                 )
-
 
     def log(self, logger):
         """
@@ -285,7 +281,9 @@ class ProcessingLog(Handler):
 
         with sqlite3.connect(self.database_path) as conn:
             cursor = conn.cursor()
-            res = cursor.execute("SELECT log FROM files WHERE name=?", (self.input_file,))
+            res = cursor.execute(
+                "SELECT log FROM files WHERE name=?", (self.input_file,)
+            )
             self.buffer.seek(0)
             log = res.fetchone()[0] + self.buffer.read().encode()
             res = cursor.execute(
@@ -311,7 +309,9 @@ class ProcessingLog(Handler):
 
         with sqlite3.connect(self.database_path) as conn:
             cursor = conn.cursor()
-            res = cursor.execute("SELECT log FROM files WHERE name=?", (self.input_file,))
+            res = cursor.execute(
+                "SELECT log FROM files WHERE name=?", (self.input_file,)
+            )
 
             if res.fetchone() is not None:
                 cmd = """
@@ -331,15 +331,12 @@ class ProcessingLog(Handler):
                     tiwp_max,
                     tiwp_mean,
                     n_missing,
-                    self.input_file
+                    self.input_file,
                 )
                 res = cursor.execute(cmd, data)
 
-def get_output_filename(
-        input_file,
-        date,
-        retrieval_settings
-):
+
+def get_output_filename(input_file, date, retrieval_settings):
     """
     Get filename for CCIC output file.
 
@@ -357,9 +354,8 @@ def get_output_filename(
         file_type = "gridsat"
     else:
         raise ValueError(
-            "'input_file' should be an instance of 'GPMIR' or "
-            "'GridSatB1' not '%s'.",
-            type(input_file)
+            "'input_file' should be an instance of 'GPMIR' or " "'GridSatB1' not '%s'.",
+            type(input_file),
         )
     date_str = to_datetime(date).strftime("%Y%m%d%H%M")
 
@@ -372,26 +368,20 @@ def get_output_filename(
 
 REGRESSION_TARGETS = ["iwp", "iwp_rand", "iwc"]
 SCALAR_TARGETS = ["iwp", "iwp_rand"]
-THRESHOLDS = {
-    "iwp": 1e-3,
-    "iwp_rand": 1e-3,
-    "iwc": 1e-3
-}
+THRESHOLDS = {"iwp": 1e-3, "iwp_rand": 1e-3, "iwc": 1e-3}
 
 # Maps NN target names to output names.
-OUTPUT_NAMES = {
-    "iwp": "tiwp_fpavg",
-    "iwp_rand": "tiwp",
-    "iwc": "tiwc"
-}
+OUTPUT_NAMES = {"iwp": "tiwp_fpavg", "iwp_rand": "tiwp", "iwc": "tiwc"}
+
 
 def process_regression_target(
-        mrnn,
-        y_pred,
-        target,
-        means,
-        log_std_devs,
-        p_non_zeros,
+    mrnn,
+    y_pred,
+    invalid,
+    target,
+    means,
+    log_std_devs,
+    p_non_zeros,
 ):
     """
     Implements the processing logic for regression targets.
@@ -409,25 +399,61 @@ def process_regression_target(
         p_non_zeros: Result dict to which to store the calculated probability that
             the target is larger than the corresponding minimum threshold.
     """
-    mean = (
-        mrnn.posterior_mean(y_pred=y_pred[target], key=target)
-        .cpu()
-        .float()
-        .numpy()
-    )
+    mean = mrnn.posterior_mean(y_pred=y_pred[target], key=target).cpu().float().numpy()
+    for ind in range(invalid.shape[0]):
+        mean[ind, ..., invalid[ind]] = np.nan
     means[target][-1].append(mean)
+
     if target in SCALAR_TARGETS:
         log_std_dev = (
-            mrnn.posterior_std_dev(
-                y_pred=torch.log10(y_pred[target]),
-                key=target
-            ).cpu().float().numpy()
+            mrnn.posterior_std_dev(y_pred=torch.log10(y_pred[target]), key=target)
+            .cpu()
+            .float()
+            .numpy()
         )
+        for ind in range(invalid.shape[0]):
+            log_std_dev[ind, ..., invalid[ind]] = np.nan
+
         log_std_devs[target][-1].append(log_std_dev)
-        p_non_zero = mrnn.probability_larger_than(
+        p_non_zero = (
+            mrnn.probability_larger_than(
                 y_pred=y_pred[target], y=THRESHOLDS[target], key=target
-            )[:].cpu().float().numpy()
+            )[:]
+            .cpu()
+            .float()
+            .numpy()
+        )
+
+        for ind in range(invalid.shape[0]):
+            p_non_zero[ind, ..., invalid[ind]] = np.nan
+
         p_non_zeros[target][-1].append(p_non_zero)
+
+
+def get_invalid_mask(x_in):
+    """
+    Get mask of invalid retrieval results.
+
+    The function detects large consecutive regions of missing values
+    in the input. It performs a binary closing operations thus allowing
+    isolated missing values in the input. Missing inputs are identified
+    as input pixels with a value below -1.4 assuming that a quantnn
+    MinMax normalizer has been used that uses -1.5 for missing inputs.
+
+    Args:
+        x_in: The torch tensor that is fed into the network.
+
+    Return:
+        A numpy binary mask identifying regions with invalid inputs.
+    """
+    x_in = x_in.cpu().numpy()
+    masks = []
+    for ind in range(x_in.shape[0]):
+        mask = np.any(x_in[ind] > -1.4, axis=0)
+        mask = np.pad(mask, ((8, 8), (8, 8)), mode="reflect")
+        mask = binary_closing(mask, iterations=8, border_value=0)[8:-8, 8:-8]
+        masks.append(mask)
+    return ~np.stack(masks)
 
 
 def process_input(mrnn, x, retrieval_settings=None):
@@ -456,7 +482,7 @@ def process_input(mrnn, x, retrieval_settings=None):
             "iwc",
             "cloud_prob_2d",
             "cloud_prob_3d",
-            "cloud_type"
+            "cloud_type",
         ]
 
     tiler = Tiler(x, tile_size=tile_size, overlap=overlap)
@@ -500,30 +526,34 @@ def process_input(mrnn, x, retrieval_settings=None):
                 else:
                     y_pred = mrnn.predict(x_t)
 
+                invalid = get_invalid_mask(x_t)
+
                 for target in targets:
                     if target in REGRESSION_TARGETS:
                         process_regression_target(
                             mrnn,
                             y_pred,
+                            invalid,
                             target,
                             means=means,
                             log_std_devs=log_std_devs,
-                            p_non_zeros=p_non_zeros
+                            p_non_zeros=p_non_zeros,
                         )
                     elif target == "cloud_prob_2d":
                         cloud_prob_2d[-1].append(
-                            y_pred["cloud_mask"].cpu().float().numpy()
+                            y_pred["cloud_mask"].cpu().float().numpy()[:, 0]
                         )
+                        cloud_prob_2d[-1][-1][invalid] = np.nan
                     elif target == "cloud_prob_3d":
                         cp = 1.0 - y_pred["cloud_class"]
-                        cloud_prob_3d[-1].append(
-                            cp[:, 0].cpu().float().numpy()
-                        )
+                        cloud_prob_3d[-1].append(cp[:, 0].cpu().float().numpy())
+                        for ind in range(invalid.shape[0]):
+                            cloud_prob_3d[-1][-1][ind, ..., invalid[ind]] = np.nan
                     elif target == "cloud_type":
                         ct = torch.softmax(y_pred["cloud_class"][:, 1:], 1)
-                        cloud_type[-1].append(
-                            ct.cpu().float().numpy()
-                        )
+                        cloud_type[-1].append(ct.cpu().float().numpy())
+                        for ind in range(invalid.shape[0]):
+                            cloud_type[-1][-1][ind, ..., invalid[ind]] = -1
 
     results = xr.Dataset()
     for target, mean in means.items():
@@ -547,7 +577,7 @@ def process_input(mrnn, x, retrieval_settings=None):
 
     dims = ("time", "latitude", "longitude")
     if len(cloud_prob_2d) > 0:
-        cloud_prob_2d = tiler.assemble(cloud_prob_2d)[:, 0]
+        cloud_prob_2d = tiler.assemble(cloud_prob_2d)
         results["cloud_prob_2d"] = (dims, cloud_prob_2d)
 
     dims = ("time", "latitude", "longitude", "altitude")
@@ -566,11 +596,7 @@ def process_input(mrnn, x, retrieval_settings=None):
     return results
 
 
-def process_input_file(
-        mrnn,
-        input_file,
-        retrieval_settings=None
-):
+def process_input_file(mrnn, input_file, retrieval_settings=None):
     """
     Processes an input file and returns the retrieval result together with
     meta data.
@@ -590,9 +616,7 @@ def process_input_file(
 
     retrieval_input = input_file.get_retrieval_input(roi=roi)
     results = process_input(
-        mrnn,
-        retrieval_input,
-        retrieval_settings=retrieval_settings
+        mrnn, retrieval_input, retrieval_settings=retrieval_settings
     )
 
     # Copy values of dimension
@@ -633,34 +657,41 @@ def add_static_cf_attributes(dataset):
     if "tiwp" in dataset:
         dataset["tiwp"].attrs["standard_name"] = "atmosphere_mass_content_of_cloud_ice"
         dataset["tiwp"].attrs["units"] = "kg m-2"
-        dataset["tiwp"].attrs["long_name"] = "Vertically-integrated concentration of frozen hydrometeors"
+        dataset["tiwp"].attrs[
+            "long_name"
+        ] = "Vertically-integrated concentration of frozen hydrometeors"
         dataset["tiwp"].attrs["ancillary_variables"] = "tiwp_log_std_dev p_tiwp"
 
-        dataset["tiwp_log_std_dev"].attrs["long_name"] = "Standard deviation of log-transformed vertically-integrated concentration of frozen hydrometeors"
+        dataset["tiwp_log_std_dev"].attrs[
+            "long_name"
+        ] = "Standard deviation of log-transformed vertically-integrated concentration of frozen hydrometeors"
         dataset["tiwp_log_std_dev"].attrs["units"] = "log(kg m-2)"
-        dataset["p_tiwp"].attrs["long_name"] = "Probability that 'tiwp' exceeds 1e-3 kg m-2"
+        dataset["p_tiwp"].attrs[
+            "long_name"
+        ] = "Probability that 'tiwp' exceeds 1e-3 kg m-2"
         dataset["p_tiwp"].attrs["units"] = "1"
 
     if "tiwp_fpavg" in dataset:
         dataset["tiwp_fpavg"].attrs["units"] = "kg m-2"
-        dataset["tiwp_fpavg"].attrs["long_name"] = "Vertically-integrated concentration of frozen hydrometeors"
-        dataset["tiwp_fpavg"].attrs["ancillary_variables"] = "tiwp_fpavg_log_std_dev p_tiwp_fpavg"
+        dataset["tiwp_fpavg"].attrs[
+            "long_name"
+        ] = "Vertically-integrated concentration of frozen hydrometeors"
+        dataset["tiwp_fpavg"].attrs[
+            "ancillary_variables"
+        ] = "tiwp_fpavg_log_std_dev p_tiwp_fpavg"
 
-        dataset["tiwp_fpavg_log_std_dev"].attrs["long_name"] = "Standard deviation of log-transformed vertically-integrated concentration of frozen hydrometeors"
+        dataset["tiwp_fpavg_log_std_dev"].attrs[
+            "long_name"
+        ] = "Standard deviation of log-transformed vertically-integrated concentration of frozen hydrometeors"
         dataset["tiwp_fpavg_log_std_dev"].attrs["units"] = "log(kg m-2)"
-        dataset["p_tiwp_fpavg"].attrs["long_name"] = "Probability that 'tiwp_fpavg' exceeds 1e-3 kg m-2"
+        dataset["p_tiwp_fpavg"].attrs[
+            "long_name"
+        ] = "Probability that 'tiwp_fpavg' exceeds 1e-3 kg m-2"
         dataset["p_tiwp_fpavg"].attrs["units"] = "1"
 
     if "tiwc" in dataset:
         dataset["tiwc"].attrs["units"] = "kg m-3"
         dataset["tiwc"].attrs["long_name"] = "Concentration of frozen hydrometeors"
-        dataset["tiwc"].attrs["ancillary_variables"] = "tiwc_log_std_dev p_tiwc"
-
-        dataset["tiwc_log_std_dev"].attrs["long_name"] = "Standard deviation of log-transformed vertically-integrated concentration of frozen hydrometeors"
-        dataset["tiwc_log_std_dev"].attrs["units"] = "log(kg m-2)"
-        dataset["p_tiwc"].attrs["long_name"] = "Probability that 'tiwc' exceeds 1e-3 kg m-2"
-        dataset["p_tiwc"].attrs["units"] = "1"
-
 
 
 def get_encodings_zarr(variable_names):
@@ -672,27 +703,48 @@ def get_encodings_zarr(variable_names):
     filters = [LogBins(1e-3, 1e2)]
     all_encodings = {
         "tiwp": {"compressor": compressor, "filters": filters, "dtype": "float32"},
-        "p_tiwp": {"compressor": compressor, "dtype": "uint8", "scale_factor": 1/250, "_FillValue": 255},
-        "tiwp_log_std_dev": {"compressor": compressor, "dtype": "float32", "scale_factor": 1/12.5, "_FillValue": 255},
-        "tiwp_fpavg": {"compressor": compressor, "filters": filters, "dtype": "float32"},
-        "p_tiwp_fpavg": {"compressor": compressor, "dtype": "uint8", "scale_factor": 1/250, "_FillValue": 255},
-        "tiwp_fpavg_log_std_dev": {"compressor": compressor, "dtype": "float32", "scale_factor": 1/12.5, "_FillValue": 255},
+        "p_tiwp": {
+            "compressor": compressor,
+            "dtype": "uint8",
+            "scale_factor": 1 / 250,
+            "_FillValue": 255,
+        },
+        "tiwp_log_std_dev": {
+            "compressor": compressor,
+            "dtype": "float32",
+            "scale_factor": 1 / 12.5,
+            "_FillValue": 255,
+        },
+        "tiwp_fpavg": {
+            "compressor": compressor,
+            "filters": filters,
+            "dtype": "float32",
+        },
+        "p_tiwp_fpavg": {
+            "compressor": compressor,
+            "dtype": "uint8",
+            "scale_factor": 1 / 250,
+            "_FillValue": 255,
+        },
+        "tiwp_fpavg_log_std_dev": {
+            "compressor": compressor,
+            "dtype": "float32",
+            "scale_factor": 1 / 12.5,
+            "_FillValue": 255,
+        },
         "cloud_prob_2d": {
             "compressor": compressor,
             "scale_factor": 250,
             "_FillValue": 255,
-            "dtype": "uint8"
+            "dtype": "uint8",
         },
         "cloud_prob_3d": {
             "compressor": compressor,
             "scale_factor": 250,
             "_FillValue": 255,
-            "dtype": "uint8"
+            "dtype": "uint8",
         },
-        "cloud_type": {
-            "compressor": compressor,
-            "dtype": "uint8"
-        },
+        "cloud_type": {"compressor": compressor, "dtype": "uint8", "_FillValue": -1},
         "longitude": {
             "compressor": compressor,
             "dtype": "float32",
@@ -700,11 +752,10 @@ def get_encodings_zarr(variable_names):
         "latitude": {
             "compressor": compressor,
             "dtype": "float32",
-        }
+        },
     }
     return {
-        name: all_encodings[name] for name in variable_names
-        if name in all_encodings
+        name: all_encodings[name] for name in variable_names if name in all_encodings
     }
 
 
@@ -717,60 +768,47 @@ def get_encodings_netcdf(variable_names):
         "tiwp": {"dtype": "float32", "zlib": True},
         "p_tiwp": {
             "dtype": "uint8",
-            "scale_factor": 1/250,
+            "scale_factor": 1 / 250,
             "_FillValue": 255,
-            "zlib": True
+            "zlib": True,
         },
         "tiwp_log_std_dev": {
             "dtype": "uint8",
-            "scale_factor": 1/12.5,
+            "scale_factor": 1 / 12.5,
             "_FillValue": 255,
-            "zlib": True
+            "zlib": True,
         },
-        "tiwp_fpavg": {
-            "dtype": "float32",
-            "zlib": True
-        },
+        "tiwp_fpavg": {"dtype": "float32", "zlib": True},
         "p_tiwp_fpavg": {
             "dtype": "uint8",
-            "scale_factor": 1/250,
+            "scale_factor": 1 / 250,
             "_FillValue": 255,
-            "zlib": True
+            "zlib": True,
         },
         "tiwp_fpavg_log_std_dev": {
             "dtype": "uint8",
-            "scale_factor": 1/12.5,
+            "scale_factor": 1 / 12.5,
             "_FillValue": 255,
-            "zlib": True
+            "zlib": True,
         },
         "cloud_prob_2d": {
-            "scale_factor": 1/250,
+            "scale_factor": 1 / 250,
             "_FillValue": 255,
             "dtype": "uint8",
-            "zlib": True
+            "zlib": True,
         },
         "cloud_prob_3d": {
-            "scale_factor": 1/250,
+            "scale_factor": 1 / 250,
             "_FillValue": 255,
             "dtype": "uint8",
-            "zlib": True
+            "zlib": True,
         },
-        "cloud_type": {
-            "dtype": "uint8",
-            "zlib": True
-        },
-        "longitude": {
-            "dtype": "float32",
-            "zlib": True
-        },
-        "latitude": {
-            "dtype": "float32",
-            "zlib": True
-        }
+        "cloud_type": {"dtype": "uint8", "zlib": True},
+        "longitude": {"dtype": "float32", "zlib": True},
+        "latitude": {"dtype": "float32", "zlib": True},
     }
     return {
-        name: all_encodings[name] for name in variable_names
-        if name in all_encodings
+        name: all_encodings[name] for name in variable_names if name in all_encodings
     }
 
 
@@ -787,4 +825,3 @@ def get_encodings(variable_names, retrieval_settings):
     if retrieval_settings.output_format == OutputFormat["ZARR"]:
         return get_encodings_zarr(variable_names)
     return get_encodings_netcdf(variable_names)
-

@@ -147,7 +147,7 @@ class GridSatB1:
             can be fed into the CCIC retrieval model.
         """
         from ccic.data.training_data import NORMALIZER
-        input_data = self.to_xarray_datset()
+        input_data = self.to_xarray_dataset()
         if roi is not None:
             input_data = extract_roi(input_data, roi, min_size=256)
         xs = []

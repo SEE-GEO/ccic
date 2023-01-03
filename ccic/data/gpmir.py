@@ -219,7 +219,6 @@ class GPMIR:
         m = input_data.lat.size
         n = input_data.lon.size
         tbs = input_data.Tb.data
-        print("TB STRIDE :: ", tbs.data.strides)
 
         xs = []
         for i in range(2):

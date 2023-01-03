@@ -3,7 +3,9 @@ Tests for the processing functions defined in ccic.processing.py
 """
 import os
 from concurrent.futures import ThreadPoolExecutor
+from logging import getLogger
 from pathlib import Path
+import sqlite3
 from tempfile import TemporaryDirectory
 import timeit
 
@@ -21,7 +23,8 @@ from ccic.processing import (
     RetrievalSettings,
     get_encodings,
     OutputFormat,
-    ProcessingLog
+    ProcessingLog,
+    get_invalid_mask
 )
 
 
@@ -141,16 +144,16 @@ def test_processing(tmp_path):
         assert "tiwp" in results
         assert "tiwp_log_std_dev" in results
         assert "p_tiwp" in results
-        assert np.all(np.isfinite(results["tiwp"].data))
-        assert np.all(np.isfinite(results["tiwp_log_std_dev"].data))
-        assert np.all(np.isfinite(results["p_tiwp"].data))
+        assert np.any(np.isfinite(results["tiwp"].data))
+        assert np.any(np.isfinite(results["tiwp_log_std_dev"].data))
+        assert np.any(np.isfinite(results["p_tiwp"].data))
 
         assert "tiwp_fpavg" in results
         assert "tiwp_fpavg_log_std_dev" in results
         assert "p_tiwp_fpavg" in results
-        assert np.all(np.isfinite(results["tiwp_fpavg"].data))
-        assert np.all(np.isfinite(results["tiwp_fpavg_log_std_dev"].data))
-        assert np.all(np.isfinite(results["p_tiwp_fpavg"].data))
+        assert np.any(np.isfinite(results["tiwp_fpavg"].data))
+        assert np.any(np.isfinite(results["tiwp_fpavg_log_std_dev"].data))
+        assert np.any(np.isfinite(results["p_tiwp_fpavg"].data))
 
         assert "tiwc" in results
         assert "tiwc_log_std_dev" not in results
@@ -204,8 +207,10 @@ def test_get_output_filename():
 
 
 def test_processing_logger(tmp_path):
-    import sqlite3
-    from logging import getLogger
+    """
+    Tests the processing database by ensuring that log information
+    during execution is captured.
+    """
     db_path = tmp_path / "processing.db"
 
     pl = ProcessingLog(db_path, "test_file.nc")
@@ -214,9 +219,9 @@ def test_processing_logger(tmp_path):
     LOGGER = getLogger()
 
     with pl.log(LOGGER):
-        LOGGER.error("THIS IS A LOG.")
+        LOGGER.info("THIS IS A LOG.")
     with pl.log(LOGGER):
-        LOGGER.error("THIS IS ANOTHER LOG.")
+        LOGGER.info("THIS IS ANOTHER LOG.")
 
     data = np.random.normal(size=(100, 100))
     data[90:, 90:]
@@ -227,9 +232,22 @@ def test_processing_logger(tmp_path):
 
     with sqlite3.connect(db_path) as conn:
         cursor = conn.cursor()
-        res = cursor.execute("SELECT * FROM files")
+        res = cursor.execute("SELECT log FROM files")
+        entry = res.fetchone()
+        assert entry is not None
+        print(len(entry[0]))
+        assert len(entry[0]) > 0
 
 
+def test_invalid_mask():
+    """
+    Test masking of invalid inputs.
+    """
+    mrnn = MRNN.load(TEST_DATA / "models" / "ccic.pckl")
+    gpmir_file = GPMIR(TEST_DATA / "input_data" / "merg_2008020100_4km-pixel.nc4")
+    gridsat_file = GridSatB1(TEST_DATA / "input_data" / "GRIDSAT-B1.2008.02.01.00.v02r01.nc")
 
-
-
+    for input_file in [gpmir_file, gridsat_file]:
+        x = input_file.get_retrieval_input()
+        mask = get_invalid_mask(x)
+        assert np.any(~mask)
