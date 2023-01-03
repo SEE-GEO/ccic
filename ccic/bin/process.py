@@ -125,6 +125,15 @@ def add_parser(subparsers):
         ),
         default="netcdf"
     )
+    parser.add_argument(
+        "--database_path",
+        metavar="path",
+        type=str,
+        help=(
+            "Path to the database to use to log processing progress."
+        ),
+        default=None
+    )
     parser.add_argument("--roi", metavar="x", type=float, nargs=4, default=None)
     parser.add_argument("--n_processes", metavar="n", type=int, default=1)
     parser.set_defaults(func=run)
@@ -211,7 +220,7 @@ def download_files(download_queue, processing_queue, retrieval_settings):
                     input_file = input_file.get()
                 else:
                     logger.info("Input file locally available.")
-            except Exception e:
+            except Exception as e:
                 log.exception(e)
         processing_queue.put(input_file)
     processing_queue.put(None)
@@ -262,7 +271,7 @@ def write_output(result_queue, retrieval_settings, output_path):
                     "Successfully processed input file '%s'.",
                     input_file.filename
                 )
-            except Exception e:
+            except Exception as e:
                 log.exception(e)
         log.finalize(data, output_file)
 
@@ -372,6 +381,16 @@ def run(args):
             return 1
         output_format = args.output_format.upper()
 
+        database_path = args.database_path
+        if not database_path is None:
+            database_path = Path(database_path)
+            if not database_path.parent.exists():
+                LOGGER.error(
+                    "If provided, database path must point to a file in an "
+                    " directory."
+                )
+                return 1
+
         retrieval_settings = RetrievalSettings(
             tile_size=args.tile_size,
             overlap=args.overlap,
@@ -379,7 +398,8 @@ def run(args):
             roi=args.roi,
             device=args.device,
             precision=args.precision,
-            output_format=OutputFormat[output_format]
+            output_format=OutputFormat[output_format],
+            database_path=args.database_path
         )
 
         # Use managed queue to pass files between download threads

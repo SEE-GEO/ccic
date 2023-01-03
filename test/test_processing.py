@@ -211,18 +211,31 @@ def test_processing_logger(tmp_path):
     Tests the processing database by ensuring that log information
     during execution is captured.
     """
-    db_path = tmp_path / "processing.db"
-
-    pl = ProcessingLog(db_path, "test_file.nc")
-
+    # Check that disabling the database log works.
+    db_path = None
     pl = ProcessingLog(db_path, "test_file.nc")
     LOGGER = getLogger()
-
     with pl.log(LOGGER):
-        LOGGER.info("THIS IS A LOG.")
+        LOGGER.error("THIS IS A LOG.")
     with pl.log(LOGGER):
-        LOGGER.info("THIS IS ANOTHER LOG.")
+        LOGGER.error("THIS IS ANOTHER LOG.")
+    data = np.random.normal(size=(100, 100))
+    data[90:, 90:]
+    results = xr.Dataset({
+        "tiwp": (("x", "y"), data)
+    })
+    pl.finalize(results, "filename")
+    assert len(list(tmp_path.glob("*"))) == 0
 
+    # Check that log events are captured
+    db_path = tmp_path / "processing.db"
+    pl = ProcessingLog(db_path, "test_file.nc")
+    pl = ProcessingLog(db_path, "test_file.nc")
+    LOGGER = getLogger()
+    with pl.log(LOGGER):
+        LOGGER.error("THIS IS A LOG.")
+    with pl.log(LOGGER):
+        LOGGER.error("THIS IS ANOTHER LOG.")
     data = np.random.normal(size=(100, 100))
     data[90:, 90:]
     results = xr.Dataset({

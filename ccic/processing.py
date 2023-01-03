@@ -192,11 +192,15 @@ class ProcessingLog(Handler):
 
     def __init__(self, database_path, input_file):
         super().__init__(level="DEBUG")
-        self.database_path = Path(database_path)
+        if database_path is not None:
+            self.database_path = Path(database_path)
+        else:
+            self.database_path = None
+
         self.input_file = input_file
         self.buffer = StringIO()
 
-        if not self.database_path.exists():
+        if self.database_path is not None and not self.database_path.exists():
             self._init_db()
         self._init_entry()
 
@@ -204,6 +208,9 @@ class ProcessingLog(Handler):
         """
         Initializes DB.
         """
+        if self.database_path is None:
+            return None
+
         with sqlite3.connect(self.database_path) as conn:
             cursor = conn.cursor()
             cursor.execute(
@@ -221,11 +228,15 @@ class ProcessingLog(Handler):
                 )
                 """
             )
+        return None
 
     def _init_entry(self):
         """
         Initializes entry for current file.
         """
+        if self.database_path is None:
+            return None
+
         with sqlite3.connect(self.database_path) as conn:
             cursor = conn.cursor()
             res = cursor.execute("SELECT * FROM files WHERE name=?", (self.input_file,))
@@ -279,6 +290,9 @@ class ProcessingLog(Handler):
         """
         logger.removeHandler(self)
 
+        if self.database_path is None:
+            return None
+
         with sqlite3.connect(self.database_path) as conn:
             cursor = conn.cursor()
             res = cursor.execute(
@@ -290,12 +304,16 @@ class ProcessingLog(Handler):
                 "UPDATE files SET log=? WHERE name=?",
                 (log, self.input_file),
             )
+        return None
 
     def finalize(self, results, output_file):
         """
         Finalizes log for current files. Sets success flag and calculates
         tiwp statistics.
         """
+        if self.database_path is None:
+            return None
+
         tiwp_mean = np.nan
         tiwp_min = np.nan
         tiwp_max = np.nan
@@ -334,6 +352,7 @@ class ProcessingLog(Handler):
                     self.input_file,
                 )
                 res = cursor.execute(cmd, data)
+        return None
 
 
 def get_output_filename(input_file, date, retrieval_settings):
