@@ -670,8 +670,8 @@ def add_static_cf_attributes(dataset):
 
     dataset.attrs["title"] = "The Chalmers Cloud Ice Climatology"
     dataset.attrs["institution"] = "Chalmers University of Technology"
-    dataset.attrs["source"] = ["framework: ccic-{__version__}"]
-    dataset.attrs["history"] = "{datetime.now()}: Retrieval processing"
+    dataset.attrs["source"] = f"framework: ccic-{__version__}"
+    dataset.attrs["history"] = f"{datetime.now()}: Retrieval processing"
 
     if "tiwp" in dataset:
         dataset["tiwp"].attrs["standard_name"] = "atmosphere_mass_content_of_cloud_ice"
