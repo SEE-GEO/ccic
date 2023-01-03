@@ -212,13 +212,14 @@ class GPMIR:
         """
         from ccic.data.training_data import NORMALIZER
 
-        input_data = xr.load_dataset(self.filename)
+        input_data = self.to_xarray_dataset()
         if roi is not None:
             input_data = extract_roi(input_data, roi, min_size=256)
 
         m = input_data.lat.size
         n = input_data.lon.size
         tbs = input_data.Tb.data
+        print("TB STRIDE :: ", tbs.data.strides)
 
         xs = []
         for i in range(2):
