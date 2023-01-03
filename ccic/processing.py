@@ -734,7 +734,7 @@ def get_encodings_zarr(variable_names):
     Get variable encoding dict for storing the results for selected
     target variables in zarr format.
     """
-    compressor = zarr.Blosc(cname="zstd", clevel=3, shuffle=2)
+    compressor = zarr.Blosc(cname="lz4", clevel=9, shuffle=2)
     filters = [LogBins(1e-3, 1e2)]
     all_encodings = {
         "tiwp": {"compressor": compressor, "filters": filters, "dtype": "float32"},
@@ -746,7 +746,7 @@ def get_encodings_zarr(variable_names):
         },
         "tiwp_log_std_dev": {
             "compressor": compressor,
-            "dtype": "float32",
+            "dtype": "uint8",
             "scale_factor": 1 / 12.5,
             "_FillValue": 255,
         },
@@ -763,7 +763,7 @@ def get_encodings_zarr(variable_names):
         },
         "tiwp_fpavg_log_std_dev": {
             "compressor": compressor,
-            "dtype": "float32",
+            "dtype": "uint8",
             "scale_factor": 1 / 12.5,
             "_FillValue": 255,
         },
