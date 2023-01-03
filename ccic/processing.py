@@ -693,6 +693,22 @@ def add_static_cf_attributes(dataset):
         dataset["tiwc"].attrs["units"] = "kg m-3"
         dataset["tiwc"].attrs["long_name"] = "Concentration of frozen hydrometeors"
 
+    if "cloud_prob_2d" in dataset:
+        dataset["cloud_prob_2d"].attrs["units"] = "1"
+        dataset["cloud_prob_2d"].attrs["long_name"] = "Probability of presence of a cloud anywhere in the atmosphere"
+
+    if "cloud_prob_3d" in dataset:
+        dataset["cloud_prob_3d"].attrs["units"] = "1"
+        dataset["cloud_prob_3d"].attrs["long_name"] = "Probability of presence of a cloud"
+
+    if "cloud_type" in dataset:
+        dataset["cloud_type"].attrs["units"] = "1"
+        dataset["cloud_type"].attrs["long_name"] = "Most likely cloud type"
+        dataset["cloud_type"].attrs["flag_values"] = "0, 1, 2, 3, 4, 5, 6, 7, 8"
+        dataset["cloud_type"].attrs["flag_meanings"] = "No cloud, Cirrus, Altostratus, Altocumulus, Stratus, Stratocumulus, Cumulus, Nimbostratus, Deep convection"
+
+
+
 
 def get_encodings_zarr(variable_names):
     """
