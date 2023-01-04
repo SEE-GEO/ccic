@@ -310,7 +310,7 @@ class CloudSat2CIce(CloudsatFile):
 
         # Resample IWP.
         iwp_r = resampler.get_average(data.iwp.data).compute()
-        iwp_r_rand = np.zeros_like(iwp_r)
+        iwp_r_rand = np.nan * np.zeros_like(iwp_r)
         iwp_r_rand.ravel()[target_indices] = data.iwp.data[source_indices]
 
         # Resample CloudSat time.
@@ -339,9 +339,19 @@ class CloudSat2CIce(CloudsatFile):
         iwc_r.reshape(-1, 20)[target_indices] = iwc
 
         target_dataset["levels"] = (("levels",), ALTITUDE_LEVELS)
-        target_dataset["iwc"] = (("latitude", "longitude", "levels"), iwc_r)
-        target_dataset["iwp"] = (("latitude", "longitude"), iwp_r)
-        target_dataset["iwp_rand"] = (("latitude", "longitude"), iwp_r_rand)
+
+        target_dataset["tiwc"] = (("latitude", "longitude", "levels"), iwc_r)
+        target_dataset["tiwc"].attrs["long_name"] = "Total ice water content"
+        target_dataset["tiwc"].attrs["unit"] = "g m-3"
+
+        target_dataset["tiwp_fpavg"] = (("latitude", "longitude"), iwp_r)
+        target_dataset["tiwp_fpavg"].attrs["long_name"] = "Footprint-averaged total ice water path"
+        target_dataset["tiwp_fpavg"].attrs["unit"] = "g m-3"
+
+        target_dataset["tiwp"] = (("latitude", "longitude"), iwp_r_rand)
+        target_dataset["tiwp"].attrs["long_name"] = "Total ice water path"
+        target_dataset["tiwp"].attrs["unit"] = "g m-3"
+
         target_dataset["time_cloudsat"] = (("latitude", "longitude"), time_r)
 
 
