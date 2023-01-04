@@ -53,7 +53,7 @@ def test_matches():
     print(len(scenes))
     assert len(scenes) > 0
 
-    assert "iwp" in scenes[0].variables
+    assert "tiwp" in scenes[0].variables
     assert "cloud_mask" in scenes[0].variables
 
     # Make sure observations and output are co-located.

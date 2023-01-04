@@ -5,6 +5,7 @@ ccic.data.gridsat
 This module provides classes to represent and handle the NOAA
 GridSat-B1 files.
 """
+import logging
 from pathlib import Path
 
 import numpy as np
@@ -15,6 +16,7 @@ from pyresample import create_area_def
 import xarray as xr
 
 from ccic.data import cloudsat
+from ccic.data.utils import included_pixel_mask
 
 PROVIDER = NOAANCEIProvider(gridsat_b1)
 GRIDSAT_GRID = create_area_def(
@@ -87,6 +89,8 @@ class GridSatB1:
         Return:
             List of ``xarray.Dataset`` object with the extracted matches.
         """
+        logger = logging.getLogger(__file__)
+
         data = self.to_xarray_dataset()[{"time": 0}]
         new_names = {
             "vschn": "vis",
@@ -112,22 +116,62 @@ class GridSatB1:
 
         scenes = []
 
-        indices = np.where(np.isfinite(data.iwp.data))
+        indices = np.where(np.isfinite(data.tiwp.data))
         sort = np.argsort(data.time_cloudsat.data[indices[0], indices[1]])
-        indices = (indices[0][sort], indices[1][sort])
+        rnd = np.random.permutation(indices[0].size)
+        indices = (indices[0][rnd], indices[1][rnd])
 
-        n_pixels = int(np.sqrt(2.0) * size)
         while len(indices[0]) > 0:
-            inds_i = indices[0][:n_pixels]
-            inds_j = indices[1][:n_pixels]
-            indices = (indices[0][n_pixels:], indices[1][n_pixels:])
 
-            c_i = inds_i[len(inds_i) // 2]
-            c_j = inds_j[len(inds_j) // 2]
-            i_start = max(c_i - size // 2, 0)
-            i_end = i_start + size
-            j_start = max(c_j - size // 2, 0)
-            j_end = j_start + size
+            # Choose random pixel and use a center of window.
+            # Add zonal offset.
+            c_i, c_j = indices[0][0], indices[1][0]
+            offset = np.random.randint(
+                -int(0.3 * size), int(0.3 * size)
+            )
+            c_j += offset
+
+            i_start = c_i - size // 2
+            i_end = c_i + (size - size // 2)
+            j_start = c_j - size // 2
+            j_end = c_j + (size - size // 2)
+
+            # Shift window if it exceeds boundaries
+            if j_start < 0:
+                shift = np.abs(j_start)
+                j_start += shift
+                j_end += shift
+            if j_end >= data.longitude.size:
+                shift = j_end - data.longitude.size - 1
+                j_start += shift
+                j_end += shift
+            if i_start < 0:
+                shift = np.abs(i_start)
+                i_start += shift
+                i_end += shift
+            if i_end >= data.latitude.size:
+                shift = i_end - data.latitude.size - 1
+                i_start += shift
+                i_end += shift
+
+            # Determine pixels included in scene.
+            included = included_pixel_mask(
+                indices,
+                c_i,
+                c_j,
+                size
+            )
+
+            # If no pixels are in scene we need to abort to avoid
+            # livelock.
+            if not np.any(included):
+                logger.warning(
+                    "Found an empty sample when extracting scenes from "
+                    "GPM IR file '%s'.", self
+                )
+                break
+            indices = (indices[0][~included], indices[1][~included])
+
             coords = {
                 "latitude": slice(i_start, i_end),
                 "longitude": slice(j_start, j_end),
@@ -135,8 +179,8 @@ class GridSatB1:
             scene = data[coords]
             if (scene.latitude.size == size) and (scene.longitude.size == size):
                 scene.attrs = {}
-                scene.attrs["input_source"] = "GridSat"
-                scenes.append(scene)
+                scene.attrs["input_source"] = "GRIDSAT"
+                scenes.append(scene.copy())
 
         return scenes
 

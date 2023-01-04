@@ -179,20 +179,20 @@ def test_resampling_gpmir():
     )
 
     # Make sure collocations are found.
-    iwp_r = gpm_data.iwp.data
+    iwp_r = gpm_data.tiwp_fpavg.data
     valid = np.isfinite(iwp_r)
     assert np.any(valid)
 
     # Make sure average and random resampling map to the same
     # locations.
-    iwp_rand_r = gpm_data.iwp.data
+    iwp_rand_r = gpm_data.tiwp.data
     valid_rand = np.isfinite(iwp_rand_r)
     assert (valid == valid_rand).all()
 
     iwp = cs_2cice_data.iwp.data
     assert (iwp_r[valid] < iwp.max()).all()
     iwc = cs_2cice_data.iwc.data
-    iwc_r = gpm_data.iwc.data
+    iwc_r = gpm_data.tiwc.data
     valid = np.isfinite(iwc_r)
     assert (iwc_r[valid] < iwc.max()).all()
 

@@ -130,7 +130,7 @@ def write_scenes(
         time_s = xr.DataArray(time).dt.strftime("%Y%m%d_%H%M%S").data.item()
 
         # Use sparse storage for CloudSat output data.
-        profile_row_inds, profile_column_inds = np.where(np.isfinite(scene.iwp.data))
+        profile_row_inds, profile_column_inds = np.where(np.isfinite(scene.tiwp_fpavg.data))
         time_cloudsat = scene.time_cloudsat.data.astype("datetime64[s]")
         scene["profile_row_inds"] = (("profiles"), profile_row_inds)
         scene["profile_column_inds"] = (("profiles"), profile_column_inds)
@@ -139,9 +139,9 @@ def write_scenes(
             "time_cloudsat",
             "latitude_cloudsat",
             "longitude_cloudsat",
-            "iwp",
-            "iwp_rand",
-            "iwc",
+            "tiwp",
+            "tiwp_fpavg",
+            "tiwc",
             "cloud_mask",
             "cloud_class",
         ]
@@ -163,9 +163,9 @@ def write_scenes(
         encoding["latitude"] = {"dtype": "float32", "zlib": True}
         encoding["latitude_cloudsat"] = {"dtype": "float32", "zlib": True}
         encoding["longitude_cloudsat"] = {"dtype": "float32", "zlib": True}
-        encoding["iwc"] = {"dtype": "float32", "zlib": True}
-        encoding["iwp"] = {"dtype": "float32", "zlib": True}
-        encoding["iwp_rand"] = {"dtype": "float32", "zlib": True}
+        encoding["tiwc"] = {"dtype": "float32", "zlib": True}
+        encoding["tiwp"] = {"dtype": "float32", "zlib": True}
+        encoding["tiwp_fpavg"] = {"dtype": "float32", "zlib": True}
         encoding["cloud_class"] = {"dtype": "int8", "zlib": True}
         encoding["cloud_mask"] = {"dtype": "int8", "zlib": True}
         encoding["time_cloudsat"] = {"dtype": "int64", "zlib": True}

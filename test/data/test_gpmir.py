@@ -54,9 +54,9 @@ def test_matches():
     scenes = gpmir.get_matches(cloudsat_files, size=size)
     assert len(scenes) > 0
     for scene in scenes:
-        assert scene.iwp.shape == (size, size)
+        assert scene.tiwp.shape == (size, size)
 
-    assert "iwp" in scenes[0].variables
+    assert "tiwp" in scenes[0].variables
     assert "cloud_mask" in scenes[0].variables
 
     # Make sure observations and output are co-located.
