@@ -157,11 +157,20 @@ class GPMIR:
 
         return torch.tensor(x).to(torch.float32)
 
-    def get_matches(self, cloudsat_files, size=128, timedelta=15, subsample=False):
+    def get_matches(
+            self,
+            rng,
+            cloudsat_files,
+            size=128,
+            timedelta=15,
+            subsample=False
+    ):
         """
         Extract matches of given cloudsat data with observations.
 
         Args:
+            rng: Numpy random generator to use for randomizing the scene
+                extraction.
             cloudsat_files: List of paths to CloudSat product files
                 with which to match the data.
             size: The size of the windows to extract.
@@ -202,7 +211,7 @@ class GPMIR:
 
             # Extract single scenes.
             indices = np.where(np.isfinite(data_t.tiwp.data))
-            rnd = np.random.permutation(indices[0].size)
+            rnd = rng.permutation(indices[0].size)
             indices = (indices[0][rnd], indices[1][rnd])
 
             while len(indices[0]) > 0:

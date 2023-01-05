@@ -44,12 +44,13 @@ def test_matches():
     """
     Make sure that matches are found for files that overlap in time.
     """
+    rng = np.random.default_rng(111)
     gridsat = GridSatB1(TEST_DATA / GRIDSAT_FILE)
     cloudsat_files = [
         CloudSat2CIce(TEST_DATA / CS_2CICE_FILE),
         CloudSat2BCLDCLASS(TEST_DATA / CS_2BCLDCLASS_FILE),
     ]
-    scenes = gridsat.get_matches(cloudsat_files)
+    scenes = gridsat.get_matches(rng, cloudsat_files)
     print(len(scenes))
     assert len(scenes) > 0
 

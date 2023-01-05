@@ -76,11 +76,13 @@ class GridSatB1:
             self.start_time = data.time[0].data
             self.end_time = data.time[0].data
 
-    def get_matches(self, cloudsat_data, size=128, timedelta=15):
+    def get_matches(self, rng, cloudsat_data, size=128, timedelta=15):
         """
         Extract matches of given cloudsat data with observations.
 
         Args:
+            rng: Numpy random generator to use for randomizing the scene
+                extraction.
             cloudsat_data: ``xarray.Dataset`` containing the CloudSat data
                 to match.
             size: The size of the windows to extract.
@@ -118,7 +120,7 @@ class GridSatB1:
 
         indices = np.where(np.isfinite(data.tiwp.data))
         sort = np.argsort(data.time_cloudsat.data[indices[0], indices[1]])
-        rnd = np.random.permutation(indices[0].size)
+        rnd = rng.permutation(indices[0].size)
         indices = (indices[0][rnd], indices[1][rnd])
 
         while len(indices[0]) > 0:

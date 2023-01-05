@@ -1,5 +1,6 @@
 from concurrent.futures import ThreadPoolExecutor
 from copy import copy
+import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from threading import Lock
@@ -61,6 +62,8 @@ def process_cloudsat_files(
     Return:
         A list of match-up scenes.
     """
+    seed = hash("".join([cs_file.filename for cs_file in cloudsat_files]))
+    rng = np.random.default_rng(seed)
     cloudsat_files = [
         cache.get(type(cs_file), cs_file.filename) for cs_file in cloudsat_files
     ]
@@ -81,9 +84,17 @@ def process_cloudsat_files(
     for filename in gpmir_files:
         gpmir_file = cache.get(GPMIR, filename).result()
         scenes += gpmir_file.get_matches(
+            rng,
             cloudsat_files,
             size=size,
             timedelta=timedelta
+        )
+        scenes += gpmir_file.get_matches(
+            rng,
+            cloudsat_files,
+            size=size,
+            timedelta=timedelta,
+            subsample=True
         )
     gridsat_files = GridSatB1.provider.get_files_in_range(
         to_datetime(start_time),
@@ -93,6 +104,7 @@ def process_cloudsat_files(
     for filename in gridsat_files:
         gs_file = cache.get(GridSatB1, filename).result()
         scenes += gs_file.get_matches(
+            rng,
             cloudsat_files,
             size=size,
             timedelta=timedelta

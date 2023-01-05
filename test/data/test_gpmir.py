@@ -44,6 +44,7 @@ def test_matches():
     """
     Make sure that matches are found for files that overlap in time.
     """
+    rng = np.random.default_rng(111)
     gpmir = GPMIR(TEST_DATA / GPMIR_FILE)
     cloudsat_files = [
         CloudSat2CIce(TEST_DATA / CS_2CICE_FILE),
@@ -51,7 +52,7 @@ def test_matches():
     ]
 
     size = 256
-    scenes = gpmir.get_matches(cloudsat_files, size=size)
+    scenes = gpmir.get_matches(rng, cloudsat_files, size=size)
     assert len(scenes) > 0
     for scene in scenes:
         assert scene.tiwp.shape == (size, size)
@@ -73,4 +74,4 @@ def test_matches():
         ))
 
     # Test subsampling
-    scenes = gpmir.get_matches(cloudsat_files, subsample=True)
+    scenes = gpmir.get_matches(rng, cloudsat_files, subsample=True)
