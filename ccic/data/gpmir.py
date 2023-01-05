@@ -30,6 +30,53 @@ GPMIR_GRID = create_area_def(
 )
 
 
+def subsample_dataset(dataset):
+    """
+    Subsamples GPMIR dataset by a factor of two.
+
+    Args:
+        dataset: The content of the GPMIR file as xarray.Dataset
+
+    Return:
+        The subsampled dataset.
+    """
+    dataset_new = dataset[{
+        "lon": slice(0, None, 2),
+        "lat": slice(0, None, 2),
+    }].copy()
+
+    dataset_00 = dataset[{
+        "lon": slice(0, None, 2),
+        "lat": slice(0, None, 2),
+    }]
+    dataset_01 = dataset[{
+        "lon": slice(0, None, 2),
+        "lat": slice(1, None, 2),
+    }]
+    dataset_10 = dataset[{
+        "lon": slice(1, None, 2),
+        "lat": slice(0, None, 2)
+    }]
+    dataset_11 = dataset[{
+        "lon": slice(1, None, 2),
+        "lat": slice(1, None, 2)
+    }]
+
+    dataset_new["Tb"].data = 0.25 * (
+        dataset_00["Tb"].data +
+        dataset_01["Tb"].data +
+        dataset_10["Tb"].data +
+        dataset_11["Tb"].data
+    )
+    dataset_new["lat"] = 0.5 * (
+        dataset_00.lat.data + dataset_01.lat.data
+    )
+    dataset_new["lon"] = 0.5 * (
+        dataset_00.lon.data + dataset_10.lon.data
+    )
+    return dataset_new
+
+
 class GPMIR:
     """
     Interface class to access GPM IR data.
@@ -110,7 +157,7 @@ class GPMIR:
 
         return torch.tensor(x).to(torch.float32)
 
-    def get_matches(self, cloudsat_files, size=128, timedelta=15):
+    def get_matches(self, cloudsat_files, size=128, timedelta=15, subsample=False):
         """
         Extract matches of given cloudsat data with observations.
 
@@ -118,7 +165,10 @@ class GPMIR:
             cloudsat_files: List of paths to CloudSat product files
                 with which to match the data.
             size: The size of the windows to extract.
-            timedelta: The time range for which to extract matches.
+            timedelta: The time range in minutes for which to extract matches.
+            subsample: If set to 'True' samples will be extract at resolution
+                reduced by a factor of two to roughly match that of the
+                GridSat B1 dataset.
 
         Return:
             List of ``xarray.Dataset`` object with the extracted matches.
@@ -126,6 +176,14 @@ class GPMIR:
         logger = logging.getLogger(__file__)
 
         data = self.to_xarray_dataset()
+        if subsample:
+            data = subsample_dataset(data)
+            source = "GPMIR2"
+            grid = GPMIR_GRID[::2, ::2]
+        else:
+            source = "GPMIR"
+            grid = GPMIR_GRID
+
         new_names = {"Tb": "ir_win", "lat": "latitude", "lon": "longitude"}
         data = data[["Tb", "time"]].rename(new_names)
 
@@ -136,7 +194,7 @@ class GPMIR:
             start_time = data_t.time - np.array(60 * timedelta, dtype="timedelta64[s]")
             end_time = data_t.time + np.array(60 * timedelta, dtype="timedelta64[s]")
             data_t = cloudsat.resample_data(
-                data_t, GPMIR_GRID, cloudsat_files, start_time, end_time
+                data_t, grid, cloudsat_files, start_time, end_time
             )
             # No matches found
             if data_t is None:
@@ -205,7 +263,7 @@ class GPMIR:
                 scene = data_t[coords]
                 if (scene.latitude.size == size) and (scene.longitude.size == size):
                     scene.attrs = {}
-                    scene.attrs["input_source"] = "GPMIR"
+                    scene.attrs["input_source"] = source
                     scenes.append(scene.copy())
 
         return scenes

@@ -71,3 +71,6 @@ def test_matches():
         assert np.all(np.isclose(
             lons_cs[rows, cols], scene.longitude.data[cols], atol=0.1
         ))
+
+    # Test subsampling
+    scenes = gpmir.get_matches(cloudsat_files, subsample=True)
