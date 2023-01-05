@@ -21,12 +21,36 @@ CS_2BCLDCLASS_FILE = "2008032011612_09374_CS_2B-CLDCLASS_GRANULE_P1_R05_E02_F00.
 GPMIR_FILE = "merg_2008020101_4km-pixel.nc4"
 
 
+def test_find_files():
+    """
+    Ensure that all three files in test data folder are found.
+    """
+    files = GPMIR.find_files(TEST_DATA)
+    assert len(files) == 3
+
+    start_time = "2008-02-01T01:00:00"
+    files = GPMIR.find_files(TEST_DATA, start_time=start_time)
+    assert len(files) == 2
+
+    end_time = "2008-02-01T01:00:00"
+    files = GPMIR.find_files(TEST_DATA, end_time=end_time)
+    assert len(files) == 2
+
+    files = GPMIR.find_files(TEST_DATA, start_time=start_time, end_time=end_time)
+    assert len(files) == 1
+
+
 def test_get_available_files():
     """
     Assert that the correct times are returned for a given day.
     """
-    times = GPMIR.get_available_files("2016-01-01")
-    assert len(times) == 24
+    files = GPMIR.get_available_files("2016-01-01T00:00:00")
+    assert len(files) == 24
+
+    files = GPMIR.get_available_files(
+        start_time="2016-01-01T00:00:00",
+        end_time="2016-01-01T11:59:00")
+    assert len(files) == 12
 
 
 @NEEDS_TEST_DATA

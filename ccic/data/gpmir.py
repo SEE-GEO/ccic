@@ -4,6 +4,7 @@ ccic.data.gpmir
 
 This module provides classes to read the GPM merged IR observations.
 """
+from datetime import datetime
 import logging
 from pathlib import Path
 
@@ -85,13 +86,57 @@ class GPMIR:
     provider = PROVIDER
 
     @classmethod
-    def get_available_files(cls, date):
+    def find_files(cls, path, start_time=None, end_time=None):
+        """
+        Find GPMIR files in folder.
+
+        Args:
+            path: Path to the folder in which to look for GPMIR files.
+            start_time: Optional start time to filter returned files.
+            end_time: Optional end time to filter returned files.
+
+        Return:
+            A list containing the found GPMIR files that match the
+            time constraints given by 'start_time' and 'end_time'
+
+        """
+        pattern = r"**/merg_??????????_4km-pixel.nc4"
+        files = list(Path(path).glob(pattern))
+
+        def get_date(path):
+            return datetime.strptime(
+                path.name,
+                "merg_%Y%m%d%H_4km-pixel.nc4"
+            )
+
+        if start_time is not None:
+            start_time = to_datetime(start_time)
+            files = [
+                fil for fil in files
+                if get_date(fil) >= start_time
+            ]
+
+        if end_time is not None:
+            end_time = to_datetime(end_time)
+            files = [
+                fil for fil in files
+                if get_date(fil) <= end_time
+            ]
+        return files
+
+    @classmethod
+    def get_available_files(cls, start_time, end_time=None):
         """
         Return list of times at which this data is available.
         """
-        date = to_datetime(date)
-        day = int(date.strftime("%j"))
-        files = PROVIDER.get_files_by_day(date.year, day)
+        start_time = to_datetime(start_time)
+        day = int(start_time.strftime("%j"))
+
+        if end_time is None:
+            files = PROVIDER.get_files_by_day(start_time.year, day)
+        else:
+            end_time = to_datetime(end_time)
+            files = PROVIDER.get_files_in_range(start_time, end_time)
         return files
 
     @classmethod
