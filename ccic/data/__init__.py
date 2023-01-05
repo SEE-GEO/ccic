@@ -63,7 +63,7 @@ def process_cloudsat_files(
         A list of match-up scenes.
     """
     seed = hash("".join([cs_file.filename for cs_file in cloudsat_files]))
-    rng = np.random.default_rng(seed)
+    rng = np.random.default_rng(abs(seed))
     cloudsat_files = [
         cache.get(type(cs_file), cs_file.filename) for cs_file in cloudsat_files
     ]
