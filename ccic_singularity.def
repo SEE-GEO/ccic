@@ -5,10 +5,12 @@ From: ccic_conda.sif
     ../pansat /pansat
     ../quantnn /quantnn
     ../ccic /ccic
+    ../../.config/pansat/identities.json /pansat/identities.json
 
 %environment
     export PATH="/opt/conda/bin:$PATH"
     export PATH="/opt/conda/envs/ccic/bin:$PATH"
+    export PANSAT_IDENTITIES_FILE=/pansat/identities.json
 
 %post
     /opt/conda/envs/ccic/bin/python3 -m pip install --no-cache-dir /pansat

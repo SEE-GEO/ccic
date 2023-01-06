@@ -21,13 +21,66 @@ CS_2BCLDCLASS_FILE = "2008032011612_09374_CS_2B-CLDCLASS_GRANULE_P1_R05_E02_F00.
 GPMIR_FILE = "merg_2008020101_4km-pixel.nc4"
 
 
+def test_find_files():
+    """
+    Ensure that all three files in test data folder are found.
+    """
+    files = GPMIR.find_files(TEST_DATA)
+    assert len(files) == 4
+
+    start_time = "2008-02-01T01:00:00"
+    files = GPMIR.find_files(TEST_DATA, start_time=start_time)
+    assert len(files) == 2
+
+    end_time = "2008-02-01T01:00:00"
+    files = GPMIR.find_files(TEST_DATA, end_time=end_time)
+    assert len(files) == 3
+
+    files = GPMIR.find_files(TEST_DATA, start_time=start_time, end_time=end_time)
+    assert len(files) == 1
+
+
 def test_get_available_files():
     """
     Assert that the correct times are returned for a given day.
     """
-    times = GPMIR.get_available_files("2016-01-01")
-    assert len(times) == 24
+    files = GPMIR.get_available_files("2016-01-01T00:00:00")
+    assert len(files) == 24
 
+    files = GPMIR.get_available_files(
+        start_time="2016-01-01T00:00:00",
+        end_time="2016-01-01T11:59:00")
+    assert len(files) == 12
+
+
+@NEEDS_TEST_DATA
+def test_get_input_file_attributes():
+    """
+    Assert that data is loaded with decreasing latitudes.
+    """
+    gpmir = GPMIR(TEST_DATA / GPMIR_FILE)
+    attrs = gpmir.get_input_file_attributes()
+    assert isinstance(attrs, dict)
+
+@NEEDS_TEST_DATA
+def test_get_retrieval_input():
+    """
+    Assert that data is loaded with decreasing latitudes.
+    """
+    gpmir = GPMIR(TEST_DATA / GPMIR_FILE)
+    x = gpmir.get_retrieval_input()
+    assert x.ndim == 4
+    assert x.shape[0] == 2
+    assert x.shape[1] == 3
+    assert (x >= -1.5).all()
+    assert (x <= 1.0).all()
+
+    x = gpmir.get_retrieval_input(roi=(0, 0, 1, 1))
+    assert x.ndim == 4
+    assert x.shape[2] == 256
+    assert x.shape[3] == 256
+    assert (x >= -1.5).all()
+    assert (x <= 1.0).all()
 
 @NEEDS_TEST_DATA
 def test_to_xarray_dataset():
@@ -44,6 +97,7 @@ def test_matches():
     """
     Make sure that matches are found for files that overlap in time.
     """
+    rng = np.random.default_rng(111)
     gpmir = GPMIR(TEST_DATA / GPMIR_FILE)
     cloudsat_files = [
         CloudSat2CIce(TEST_DATA / CS_2CICE_FILE),
@@ -51,7 +105,7 @@ def test_matches():
     ]
 
     size = 256
-    scenes = gpmir.get_matches(cloudsat_files, size=size)
+    scenes = gpmir.get_matches(rng, cloudsat_files, size=size)
     assert len(scenes) > 0
     for scene in scenes:
         assert scene.tiwp.shape == (size, size)
@@ -71,3 +125,6 @@ def test_matches():
         assert np.all(np.isclose(
             lons_cs[rows, cols], scene.longitude.data[cols], atol=0.1
         ))
+
+    # Test subsampling
+    scenes = gpmir.get_matches(rng, cloudsat_files, subsample=True)

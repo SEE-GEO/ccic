@@ -338,9 +338,13 @@ class CloudSat2CIce(CloudsatFile):
         iwc_r = np.zeros(iwp_r.shape + (20,), dtype=np.float32) * np.nan
         iwc_r.reshape(-1, 20)[target_indices] = iwc
 
-        target_dataset["levels"] = (("levels",), ALTITUDE_LEVELS)
+        target_dataset["altitude"] = (("altitude",), ALTITUDE_LEVELS)
+        target_dataset["altitude"].attrs = {
+            "units": "meters",
+            "positive": "up"
+        }
 
-        target_dataset["tiwc"] = (("latitude", "longitude", "levels"), iwc_r)
+        target_dataset["tiwc"] = (("latitude", "longitude", "altitude"), iwc_r)
         target_dataset["tiwc"].attrs["long_name"] = "Total ice water content"
         target_dataset["tiwc"].attrs["unit"] = "g m-3"
 
@@ -393,7 +397,7 @@ class CloudSat2BCLDCLASS(CloudsatFile):
         data = self.to_xarray_dataset(start_time=start_time, end_time=end_time)
         output_shape = resampler.target_area.shape
         labels = data.cloud_class.data[..., ::-1]
-        valid = data.cloud_class_flag.data[..., ::-1]
+        valid = data.cloud_class_flag.data[..., ::-1] > 0
         labels[~valid] = -1
 
         cloud_mask = labels.max(axis=-1) > 0
@@ -403,14 +407,33 @@ class CloudSat2BCLDCLASS(CloudsatFile):
         surface_altitude = data.surface_elevation.data
         labels = remap_cloud_classes(labels, height, surface_altitude, ALTITUDE_LEVELS)
 
-        cloud_mask_r = np.zeros(output_shape, dtype=np.int8)
+        cloud_mask_r = -1 *  np.ones(output_shape, dtype=np.int8)
         cloud_mask_r.ravel()[target_indices] = cloud_mask[source_indices]
-        labels_r = np.zeros(output_shape + (20,), dtype=np.int8)
+        labels_r = -1 * np.ones(output_shape + (20,), dtype=np.int8)
         labels_r.reshape(-1, 20)[target_indices] = labels[source_indices]
 
-        target_dataset["levels"] = (("levels",), ALTITUDE_LEVELS)
+        target_dataset["altitude"] = (("altitude",), ALTITUDE_LEVELS)
+        target_dataset["altitude"].attrs = {
+            "units": "meters",
+            "positive": "up"
+        }
+
         target_dataset["cloud_mask"] = (("latitude", "longitude"), cloud_mask_r)
-        target_dataset["cloud_class"] = (("latitude", "longitude", "levels"), labels_r)
+        target_dataset["cloud_mask"].attrs = {
+            "long_name": "Cloud presence in atmospheric column",
+            "flag_values": "0, 1",
+            "flag_meaning": "no cloud, cloud present",
+            "_FillValue": -1
+        }
+        target_dataset["cloud_class"] = (("latitude", "longitude", "altitude"), labels_r)
+        target_dataset["cloud_class"].attrs = {
+            "long_name": "3D cloud classificiation",
+            "flag_values": "0, 1, 2, 3, 4, 5, 6, 7, 8",
+            "flag_meanings": ("no cloud, cirrus, altostratus, altocumulus, "
+                              "stratus, stratocumulus, cumulus, nimbostratuc, "
+                              "deep convection"),
+            "_FillValue": -1,
+        }
 
 
 def get_available_granules(date):

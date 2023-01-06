@@ -40,15 +40,15 @@ class CCICModel(nn.Module):
         block_factory = blocks.ConvNextBlockFactory()
         norm_factory = block_factory.layer_norm
 
-        self.stem = block_factory(3, features)
+        self.stem = block_factory(n_channels_in, features)
         self.encoder = SpatialEncoder(
-            input_channels=features,
+            channels=features,
             stages=[n_blocks] * n_stages,
             block_factory=block_factory,
             max_channels=512,
         )
         self.decoder = SpatialDecoder(
-            output_channels=features,
+            channels=features,
             stages=[1] * n_stages,
             block_factory=block_factory,
             max_channels=512,

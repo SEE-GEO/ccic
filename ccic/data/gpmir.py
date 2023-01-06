@@ -4,6 +4,7 @@ ccic.data.gpmir
 
 This module provides classes to read the GPM merged IR observations.
 """
+from datetime import datetime
 import logging
 from pathlib import Path
 
@@ -16,8 +17,7 @@ import torch
 import xarray as xr
 
 from ccic.data import cloudsat
-from ccic.data.utils import included_pixel_mask
-
+from ccic.data.utils import included_pixel_mask, extract_roi
 
 PROVIDER = Disc2Provider(gpm_mergeir)
 GPMIR_GRID = create_area_def(
@@ -30,6 +30,53 @@ GPMIR_GRID = create_area_def(
 )
 
 
+def subsample_dataset(dataset):
+    """
+    Subsamples GPMIR dataset by a factor of two.
+
+    Args:
+        dataset: The content of the GPMIR file as xarray.Dataset
+
+    Return:
+        The subsampled dataset.
+    """
+    dataset_new = dataset[{
+        "lon": slice(0, None, 2),
+        "lat": slice(0, None, 2),
+    }].copy()
+
+    dataset_00 = dataset[{
+        "lon": slice(0, None, 2),
+        "lat": slice(0, None, 2),
+    }]
+    dataset_01 = dataset[{
+        "lon": slice(0, None, 2),
+        "lat": slice(1, None, 2),
+    }]
+    dataset_10 = dataset[{
+        "lon": slice(1, None, 2),
+        "lat": slice(0, None, 2)
+    }]
+    dataset_11 = dataset[{
+        "lon": slice(1, None, 2),
+        "lat": slice(1, None, 2)
+    }]
+
+    dataset_new["Tb"].data = 0.25 * (
+        dataset_00["Tb"].data +
+        dataset_01["Tb"].data +
+        dataset_10["Tb"].data +
+        dataset_11["Tb"].data
+    )
+    dataset_new["lat"] = 0.5 * (
+        dataset_00.lat.data + dataset_01.lat.data
+    )
+    dataset_new["lon"] = 0.5 * (
+        dataset_00.lon.data + dataset_10.lon.data
+    )
+    return dataset_new
+
+
 class GPMIR:
     """
     Interface class to access GPM IR data.
@@ -38,13 +85,57 @@ class GPMIR:
     provider = PROVIDER
 
     @classmethod
-    def get_available_files(cls, date):
+    def find_files(cls, path, start_time=None, end_time=None):
+        """
+        Find GPMIR files in folder.
+
+        Args:
+            path: Path to the folder in which to look for GPMIR files.
+            start_time: Optional start time to filter returned files.
+            end_time: Optional end time to filter returned files.
+
+        Return:
+            A list containing the found GPMIR files that match the
+            time constraints given by 'start_time' and 'end_time'
+
+        """
+        pattern = r"**/merg_??????????_4km-pixel.nc4"
+        files = list(Path(path).glob(pattern))
+
+        def get_date(path):
+            return datetime.strptime(
+                path.name,
+                "merg_%Y%m%d%H_4km-pixel.nc4"
+            )
+
+        if start_time is not None:
+            start_time = to_datetime(start_time)
+            files = [
+                fil for fil in files
+                if get_date(fil) >= start_time
+            ]
+
+        if end_time is not None:
+            end_time = to_datetime(end_time)
+            files = [
+                fil for fil in files
+                if get_date(fil) <= end_time
+            ]
+        return files
+
+    @classmethod
+    def get_available_files(cls, start_time, end_time=None):
         """
         Return list of times at which this data is available.
         """
-        date = to_datetime(date)
-        day = int(date.strftime("%j"))
-        files = PROVIDER.get_files_by_day(date.year, day)
+        start_time = to_datetime(start_time)
+        day = int(start_time.strftime("%j"))
+
+        if end_time is None:
+            files = PROVIDER.get_files_by_day(start_time.year, day)
+        else:
+            end_time = to_datetime(end_time)
+            files = PROVIDER.get_files_in_range(start_time, end_time)
         return files
 
     @classmethod
@@ -56,6 +147,12 @@ class GPMIR:
             filename: Name of the file to download.
             destination: Destination to store the file.
         """
+        logger = logging.getLogger(__file__)
+        logger.info(
+            "Starting download of file '%s' to '%s'.",
+            filename,
+            destination
+        )
         PROVIDER.download_file(filename, destination)
 
     @classmethod
@@ -89,13 +186,36 @@ class GPMIR:
         # Flip latitudes to be consistent with pyresample.
         return data.isel(lat=slice(None, None, -1))
 
-    def get_retrieval_input(self):
+    def get_input_file_attributes(self):
+        """Get attributes from input file to include in retrieval output."""
+        return {
+            "input_filename": self.filename.name,
+            "processing_time": datetime.now().isoformat()
+        }
+
+    def get_retrieval_input(self, roi=None):
         """
         Load and normalize retrieval input from file.
+
+        NOTE: Even if a bounding box is given, a minimum size of 256 x 256
+            pixels is enforced.
+
+        Args:
+            roi: Coordinates ``(lon_min, lat_min, lon_max, lat_max)`` of a
+                bounding box from which to extract the training data. If given,
+                only data from the given bounding box is extracted.
+
+        Return:
+
+            A torch tensor containing the observations from this file
+            as input.
         """
         from ccic.data.training_data import NORMALIZER
 
-        input_data = xr.load_dataset(self.filename)
+        input_data = self.to_xarray_dataset()
+        if roi is not None:
+            input_data = extract_roi(input_data, roi, min_size=256)
+
         m = input_data.lat.size
         n = input_data.lon.size
         tbs = input_data.Tb.data
@@ -104,21 +224,30 @@ class GPMIR:
         for i in range(2):
             x_i = np.nan * np.ones((3, m, n))
             x_i[-1] = tbs[i]
-            x_i = NORMALIZER(x_i)
-            xs.append(x_i)
-        x = np.stack(xs)
+            xs.append(NORMALIZER(x_i))
+        return torch.tensor(np.stack(xs)).to(torch.float32)
 
-        return torch.tensor(x).to(torch.float32)
-
-    def get_matches(self, cloudsat_files, size=128, timedelta=15):
+    def get_matches(
+            self,
+            rng,
+            cloudsat_files,
+            size=128,
+            timedelta=15,
+            subsample=False
+    ):
         """
         Extract matches of given cloudsat data with observations.
 
         Args:
+            rng: Numpy random generator to use for randomizing the scene
+                extraction.
             cloudsat_files: List of paths to CloudSat product files
                 with which to match the data.
             size: The size of the windows to extract.
-            timedelta: The time range for which to extract matches.
+            timedelta: The time range in minutes for which to extract matches.
+            subsample: If set to 'True' samples will be extract at resolution
+                reduced by a factor of two to roughly match that of the
+                GridSat B1 dataset.
 
         Return:
             List of ``xarray.Dataset`` object with the extracted matches.
@@ -126,6 +255,14 @@ class GPMIR:
         logger = logging.getLogger(__file__)
 
         data = self.to_xarray_dataset()
+        if subsample:
+            data = subsample_dataset(data)
+            source = "GPMIR2"
+            grid = GPMIR_GRID[::2, ::2]
+        else:
+            source = "GPMIR"
+            grid = GPMIR_GRID
+
         new_names = {"Tb": "ir_win", "lat": "latitude", "lon": "longitude"}
         data = data[["Tb", "time"]].rename(new_names)
 
@@ -136,7 +273,7 @@ class GPMIR:
             start_time = data_t.time - np.array(60 * timedelta, dtype="timedelta64[s]")
             end_time = data_t.time + np.array(60 * timedelta, dtype="timedelta64[s]")
             data_t = cloudsat.resample_data(
-                data_t, GPMIR_GRID, cloudsat_files, start_time, end_time
+                data_t, grid, cloudsat_files, start_time, end_time
             )
             # No matches found
             if data_t is None:
@@ -144,7 +281,7 @@ class GPMIR:
 
             # Extract single scenes.
             indices = np.where(np.isfinite(data_t.tiwp.data))
-            rnd = np.random.permutation(indices[0].size)
+            rnd = rng.permutation(indices[0].size)
             indices = (indices[0][rnd], indices[1][rnd])
 
             while len(indices[0]) > 0:
@@ -205,7 +342,7 @@ class GPMIR:
                 scene = data_t[coords]
                 if (scene.latitude.size == size) and (scene.longitude.size == size):
                     scene.attrs = {}
-                    scene.attrs["input_source"] = "GPMIR"
+                    scene.attrs["input_source"] = source
                     scenes.append(scene.copy())
 
         return scenes

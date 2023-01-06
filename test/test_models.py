@@ -33,7 +33,7 @@ def test_forward():
         y_pred = model(x)
 
     assert "iwc" in y_pred
-    assert y_pred["iwc"].shape[1] == 64
+    assert y_pred["iwc"].shape[1] == 64 // 4
     assert "iwp" in y_pred
     assert y_pred["iwp"].shape[1] == 64
     assert "iwp_rand" in y_pred
