@@ -11,7 +11,7 @@ import xarray as xr
 
 from ccic.data.cloudsat import CloudSat2CIce, CloudSat2BCLDCLASS
 from ccic.data.cpcir import CPCIR
-from ccic.data.gridsat import GridSatB1
+from ccic.data.gridsat import GridSat
 
 
 class DownloadCache:
@@ -96,13 +96,13 @@ def process_cloudsat_files(
             timedelta=timedelta,
             subsample=True
         )
-    gridsat_files = GridSatB1.provider.get_files_in_range(
+    gridsat_files = GridSat.provider.get_files_in_range(
         to_datetime(start_time),
         to_datetime(end_time),
         start_inclusive=True
     )
     for filename in gridsat_files:
-        gs_file = cache.get(GridSatB1, filename).result()
+        gs_file = cache.get(GridSat, filename).result()
         scenes += gs_file.get_matches(
             rng,
             cloudsat_files,

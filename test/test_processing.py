@@ -14,7 +14,7 @@ import numpy as np
 import xarray as xr
 
 from ccic.data.cpcir import CPCIR
-from ccic.data.gridsat import GridSatB1
+from ccic.data.gridsat import GridSat
 from ccic.processing import (
     get_input_files,
     RemoteFile,
@@ -76,13 +76,13 @@ def test_get_input_files():
     #
 
     input_files = get_input_files(
-        GridSatB1,
+        GridSat,
         start_time="2008-02-01T00:00:00"
     )
     assert len(input_files) == 1
     assert isinstance(input_files[0], RemoteFile)
     input_files = get_input_files(
-        GridSatB1,
+        GridSat,
         start_time="2008-02-01T00:00:00",
         end_time="2008-02-01T23:59:00"
     )
@@ -90,21 +90,21 @@ def test_get_input_files():
     assert isinstance(input_files[0], RemoteFile)
 
     input_files = get_input_files(
-        GridSatB1,
+        GridSat,
         start_time="2008-02-01T00:00:00",
         path=TEST_DATA
     )
     assert len(input_files) == 2
-    assert isinstance(input_files[0], GridSatB1)
+    assert isinstance(input_files[0], GridSat)
 
     input_files = get_input_files(
-        GridSatB1,
+        GridSat,
         start_time="2008-02-01T00:00:00",
         end_time="2008-02-02T00:00:00",
         path=TEST_DATA
     )
     assert len(input_files) == 3
-    assert isinstance(input_files[0], GridSatB1)
+    assert isinstance(input_files[0], GridSat)
 
 
 def test_remote_file():
@@ -137,7 +137,7 @@ def test_processing(tmp_path):
     """
     mrnn = MRNN.load(TEST_DATA / "models" / "ccic.pckl")
     cpcir_file = CPCIR(TEST_DATA / "input_data" / "merg_2008020100_4km-pixel.nc4")
-    gridsat_file = GridSatB1(TEST_DATA / "input_data" / "GRIDSAT-B1.2008.02.01.00.v02r01.nc")
+    gridsat_file = GridSat(TEST_DATA / "input_data" / "GRIDSAT-B1.2008.02.01.00.v02r01.nc")
 
     for input_file in [cpcir_file, gridsat_file]:
         results = process_input_file(mrnn, input_file)
@@ -258,7 +258,7 @@ def test_invalid_mask():
     """
     mrnn = MRNN.load(TEST_DATA / "models" / "ccic.pckl")
     cpcir_file = CPCIR(TEST_DATA / "input_data" / "merg_2008020100_4km-pixel.nc4")
-    gridsat_file = GridSatB1(TEST_DATA / "input_data" / "GRIDSAT-B1.2008.02.01.00.v02r01.nc")
+    gridsat_file = GridSat(TEST_DATA / "input_data" / "GRIDSAT-B1.2008.02.01.00.v02r01.nc")
 
     for input_file in [cpcir_file, gridsat_file]:
         x = input_file.get_retrieval_input()

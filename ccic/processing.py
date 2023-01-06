@@ -23,7 +23,7 @@ import zarr
 from ccic import __version__
 from ccic.tiler import Tiler
 from ccic.data.cpcir import CPCIR
-from ccic.data.gridsat import GridSatB1
+from ccic.data.gridsat import GridSat
 from ccic.data.utils import extract_roi
 from ccic.codecs import LogBins
 
@@ -369,11 +369,11 @@ def get_output_filename(input_file, date, retrieval_settings):
     """
     if isinstance(input_file, CPCIR):
         file_type = "cpcir"
-    elif isinstance(input_file, GridSatB1):
+    elif isinstance(input_file, GridSat):
         file_type = "gridsat"
     else:
         raise ValueError(
-            "'input_file' should be an instance of 'CPCIR' or " "'GridSatB1' not '%s'.",
+            "'input_file' should be an instance of 'CPCIR' or " "'GridSat' not '%s'.",
             type(input_file),
         )
     date_str = to_datetime(date).strftime("%Y%m%d%H%M")

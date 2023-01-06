@@ -3,7 +3,7 @@ ccic.data.gridsat
 =================
 
 This module provides classes to represent and handle the NOAA
-GridSat-B1 files.
+GridSat files.
 """
 from datetime import datetime
 import logging
@@ -27,11 +27,11 @@ GRIDSAT_GRID = create_area_def(
     area_extent=[-180.035, -70.035, 179.975, 69.965],
     resolution=0.07,
     units="degrees",
-    description="GridSat-B1 grid.",
+    description="GridSat grid.",
 )
 
 
-class GridSatB1:
+class GridSat:
     """
     Interface to download an read GridSat B1 files.
     """
