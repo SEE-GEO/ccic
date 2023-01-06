@@ -44,7 +44,7 @@ class GridSatB1:
         Find GridSat files in folder.
 
         Args:
-            path: Path to the folder in which to look for GPMIR files.
+            path: Path to the folder in which to look for GridSat files.
             start_time: Optional start time to filter returned files.
             end_time: Optional end time to filter returned files.
 
@@ -249,7 +249,7 @@ class GridSatB1:
             if not np.any(included):
                 logger.warning(
                     "Found an empty sample when extracting scenes from "
-                    "GPM IR file '%s'.", self
+                    "CPC IR file '%s'.", self
                 )
                 break
             indices = (indices[0][~included], indices[1][~included])

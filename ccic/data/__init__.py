@@ -10,7 +10,7 @@ from pansat.time import to_datetime
 import xarray as xr
 
 from ccic.data.cloudsat import CloudSat2CIce, CloudSat2BCLDCLASS
-from ccic.data.gpmir import GPMIR
+from ccic.data.cpcir import CPCIR
 from ccic.data.gridsat import GridSatB1
 
 
@@ -48,13 +48,13 @@ def process_cloudsat_files(
         timedelta=15,
 ):
     """
-    Match CloudSat product files for a given granule with GPMIR and
+    Match CloudSat product files for a given granule with CPCIR and
     GridSat B1 observations.
 
     Args:
         cloudsat_files: A list of the CloudSat file objects to match
-            with the GPMIR and GridSat data.
-        cache: A download cache to use for the GPMIR and GridSat files.
+            with the CPCIR and GridSat data.
+        cache: A download cache to use for the CPCIR and GridSat files.
         size: The size of the match-up scenes to extract.
         timedelta: The maximum time difference to allow between CloudSat
             and geostationary observations.
@@ -75,21 +75,21 @@ def process_cloudsat_files(
 
     scenes = []
 
-    gpmir_files = GPMIR.provider.get_files_in_range(
+    cpcir_files = CPCIR.provider.get_files_in_range(
         to_datetime(start_time),
         to_datetime(end_time),
         start_inclusive=True
     )
     cloudsat_files = [cs_file.result() for cs_file in cloudsat_files]
-    for filename in gpmir_files:
-        gpmir_file = cache.get(GPMIR, filename).result()
-        scenes += gpmir_file.get_matches(
+    for filename in cpcir_files:
+        cpcir_file = cache.get(CPCIR, filename).result()
+        scenes += cpcir_file.get_matches(
             rng,
             cloudsat_files,
             size=size,
             timedelta=timedelta
         )
-        scenes += gpmir_file.get_matches(
+        scenes += cpcir_file.get_matches(
             rng,
             cloudsat_files,
             size=size,

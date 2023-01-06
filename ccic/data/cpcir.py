@@ -1,8 +1,8 @@
 """
-ccic.data.gpmir
+ccic.data.cpcir
 ===============
 
-This module provides classes to read the GPM merged IR observations.
+This module provides classes to read the NCEP/CPC 4-km IR data.
 """
 from datetime import datetime
 import logging
@@ -20,22 +20,22 @@ from ccic.data import cloudsat
 from ccic.data.utils import included_pixel_mask, extract_roi
 
 PROVIDER = Disc2Provider(gpm_mergeir)
-GPMIR_GRID = create_area_def(
-    "gpmir_area",
+CPCIR_GRID = create_area_def(
+    "cpcir_area",
     {"proj": "longlat", "datum": "WGS84"},
     area_extent=[-180.0, -60.0, 180.0, 60.0],
     resolution= (0.03637833468067906, 0.036385688295936934),
     units="degrees",
-    description="GPMIR grid",
+    description="CPCIR grid",
 )
 
 
 def subsample_dataset(dataset):
     """
-    Subsamples GPMIR dataset by a factor of two.
+    Subsamples CPCIR dataset by a factor of two.
 
     Args:
-        dataset: The content of the GPMIR file as xarray.Dataset
+        dataset: The content of the CPCIR file as xarray.Dataset
 
     Return:
         The subsampled dataset.
@@ -77,25 +77,24 @@ def subsample_dataset(dataset):
     return dataset_new
 
 
-class GPMIR:
+class CPCIR:
     """
-    Interface class to access GPM IR data.
+    Interface class to access NCEP/CPC 4-km IR data.
     """
-
     provider = PROVIDER
 
     @classmethod
     def find_files(cls, path, start_time=None, end_time=None):
         """
-        Find GPMIR files in folder.
+        Find CPCIR files in folder.
 
         Args:
-            path: Path to the folder in which to look for GPMIR files.
+            path: Path to the folder in which to look for CPCIR files.
             start_time: Optional start time to filter returned files.
             end_time: Optional end time to filter returned files.
 
         Return:
-            A list containing the found GPMIR files that match the
+            A list containing the found CPCIR files that match the
             time constraints given by 'start_time' and 'end_time'
 
         """
@@ -257,11 +256,11 @@ class GPMIR:
         data = self.to_xarray_dataset()
         if subsample:
             data = subsample_dataset(data)
-            source = "GPMIR2"
-            grid = GPMIR_GRID[::2, ::2]
+            source = "CPCIR2"
+            grid = CPCIR_GRID[::2, ::2]
         else:
-            source = "GPMIR"
-            grid = GPMIR_GRID
+            source = "CPCIR"
+            grid = CPCIR_GRID
 
         new_names = {"Tb": "ir_win", "lat": "latitude", "lon": "longitude"}
         data = data[["Tb", "time"]].rename(new_names)
@@ -330,7 +329,7 @@ class GPMIR:
                 if not np.any(included):
                     logger.warning(
                         "Found an empty sample when extracting scenes from "
-                        "GPM IR file '%s'.", self
+                        "CPC IR file '%s'.", self
                     )
                     break
                 indices = (indices[0][~included], indices[1][~included])

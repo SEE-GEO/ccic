@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 from pyresample.bucket import BucketResampler
 
-from ccic.data.gpmir import GPMIR, GPMIR_GRID
+from ccic.data.cpcir import CPCIR, CPCIR_GRID
 from ccic.data.cloudsat import (
     CloudSat2CIce,
     CloudSat2BCLDCLASS,
@@ -30,7 +30,7 @@ NEEDS_TEST_DATA = pytest.mark.skipif(
 )
 CS_2CICE_FILE = "2008032011612_09374_CS_2C-ICE_GRANULE_P1_R05_E02_F00.hdf"
 CS_2BCLDCLASS_FILE = "2008032011612_09374_CS_2B-CLDCLASS_GRANULE_P1_R05_E02_F00.hdf"
-GPMIR_FILE = "merg_2008020101_4km-pixel.nc4"
+CPCIR_FILE = "merg_2008020101_4km-pixel.nc4"
 
 
 def test_available_files():
@@ -135,7 +135,7 @@ def test_random_resampling():
     as the grid resolution.
     """
     cs_data = CloudSat2CIce(TEST_DATA / CS_2CICE_FILE).to_xarray_dataset()
-    target_grid = GPMIR_GRID
+    target_grid = CPCIR_GRID
 
     # Setup resampler
     source_lons = da.from_array(cs_data.longitude.data)
@@ -145,24 +145,24 @@ def test_random_resampling():
     )
 
     target_inds, source_inds = get_sample_indices(resampler)
-    target_lons, target_lats = GPMIR_GRID.get_lonlats()
+    target_lons, target_lats = CPCIR_GRID.get_lonlats()
 
-    lons_gpm = target_lons.ravel()[target_inds]
+    lons_cpc = target_lons.ravel()[target_inds]
     lons_cs = cs_data.longitude.data[source_inds]
-    lats_gpm = target_lats.ravel()[target_inds]
+    lats_cpc = target_lats.ravel()[target_inds]
     lats_cs = cs_data.latitude.data[source_inds]
 
-    assert np.all(np.abs(lons_gpm - lons_cs) < 0.05)
-    assert np.all(np.abs(lats_gpm - lats_cs) < 0.05)
+    assert np.all(np.abs(lons_cpc - lons_cs) < 0.05)
+    assert np.all(np.abs(lats_cpc - lats_cs) < 0.05)
 
 
 @NEEDS_TEST_DATA
-def test_resampling_gpmir():
+def test_resampling_cpcir():
     """
-    Test resampling of cloudsat data to GPM IR data.
+    Test resampling of cloudsat data to CPC IR data.
     """
-    gpm_data = GPMIR(TEST_DATA / GPMIR_FILE).to_xarray_dataset()
-    gpm_data = gpm_data[{"time": 0}]
+    cpc_data = CPCIR(TEST_DATA / CPCIR_FILE).to_xarray_dataset()
+    cpc_data = cpc_data[{"time": 0}]
     cs_2cice_data = CloudSat2CIce(
         TEST_DATA / CS_2CICE_FILE
     ).to_xarray_dataset()
@@ -173,32 +173,32 @@ def test_resampling_gpmir():
     ]
 
     resample_data(
-        gpm_data,
-        GPMIR_GRID,
+        cpc_data,
+        CPCIR_GRID,
         cloudsat_files
     )
 
     # Make sure collocations are found.
-    iwp_r = gpm_data.tiwp_fpavg.data
+    iwp_r = cpc_data.tiwp_fpavg.data
     valid = np.isfinite(iwp_r)
     assert np.any(valid)
 
     # Make sure average and random resampling map to the same
     # locations.
-    iwp_rand_r = gpm_data.tiwp.data
+    iwp_rand_r = cpc_data.tiwp.data
     valid_rand = np.isfinite(iwp_rand_r)
     assert (valid == valid_rand).all()
 
     iwp = cs_2cice_data.iwp.data
     assert (iwp_r[valid] < iwp.max()).all()
     iwc = cs_2cice_data.iwc.data
-    iwc_r = gpm_data.tiwc.data
+    iwc_r = cpc_data.tiwc.data
     valid = np.isfinite(iwc_r)
     assert (iwc_r[valid] < iwc.max()).all()
 
     # Make sure that no cloud classes are consistent with
     # cloud mask.
-    cm_r = gpm_data.cloud_mask.data
+    cm_r = cpc_data.cloud_mask.data
     clear = cm_r == 0
-    cloud_classes = gpm_data.cloud_class.data
+    cloud_classes = cpc_data.cloud_class.data
     assert cloud_classes[clear].max() == 0
