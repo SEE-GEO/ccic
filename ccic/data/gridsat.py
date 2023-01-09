@@ -3,7 +3,7 @@ ccic.data.gridsat
 =================
 
 This module provides classes to represent and handle the NOAA
-GridSat-B1 files.
+GridSat files.
 """
 from datetime import datetime
 import logging
@@ -27,11 +27,11 @@ GRIDSAT_GRID = create_area_def(
     area_extent=[-180.035, -70.035, 179.975, 69.965],
     resolution=0.07,
     units="degrees",
-    description="GridSat-B1 grid.",
+    description="GridSat grid.",
 )
 
 
-class GridSatB1:
+class GridSat:
     """
     Interface to download an read GridSat B1 files.
     """
@@ -44,7 +44,7 @@ class GridSatB1:
         Find GridSat files in folder.
 
         Args:
-            path: Path to the folder in which to look for GPMIR files.
+            path: Path to the folder in which to look for GridSat files.
             start_time: Optional start time to filter returned files.
             end_time: Optional end time to filter returned files.
 
@@ -249,7 +249,7 @@ class GridSatB1:
             if not np.any(included):
                 logger.warning(
                     "Found an empty sample when extracting scenes from "
-                    "GPM IR file '%s'.", self
+                    "CPC IR file '%s'.", self
                 )
                 break
             indices = (indices[0][~included], indices[1][~included])

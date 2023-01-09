@@ -42,7 +42,7 @@ def add_parser(subparsers):
     )
     parser.add_argument(
         "input_type",
-        metavar="GPMIR/GRIDSAT",
+        metavar="cpcir/gridsat",
         type=str,
         help="For which type of input to run the retrieval.",
     )
@@ -283,8 +283,8 @@ def run(args):
     Args:
         args: The namespace object provided by the top-level parser.
     """
-    from ccic.data.gridsat import GridSatB1
-    from ccic.data.gpmir import GPMIR
+    from ccic.data.gridsat import GridSat
+    from ccic.data.cpcir import CPCIR
     from ccic.processing import (
         process_input_file,
         get_input_files,
@@ -300,15 +300,15 @@ def run(args):
 
     # Determine input data.
     input_type = args.input_type.lower()
-    if not input_type in ["gpmir", "gridsatb1"]:
+    if not input_type in ["cpcir", "gridsat"]:
         LOGGER.error(
-            "'input_type' must be one of ['gpmir', gridsatb1'] not '%s'.", input_type
+            "'input_type' must be one of ['cpcir', gridsat'] not '%s'.", input_type
         )
         return 1
-    if input_type == "gpmir":
-        input_cls = GPMIR
+    if input_type == "cpcir":
+        input_cls = CPCIR
     else:
-        input_cls = GridSatB1
+        input_cls = GridSat
 
     # Output path
     output = Path(args.output)

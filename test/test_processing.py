@@ -13,8 +13,8 @@ from quantnn.mrnn import MRNN
 import numpy as np
 import xarray as xr
 
-from ccic.data.gpmir import GPMIR
-from ccic.data.gridsat import GridSatB1
+from ccic.data.cpcir import CPCIR
+from ccic.data.gridsat import GridSat
 from ccic.processing import (
     get_input_files,
     RemoteFile,
@@ -37,17 +37,17 @@ def test_get_input_files():
     """
 
     #
-    # GPMIR
+    # CPCIR
     #
 
     input_files = get_input_files(
-        GPMIR,
+        CPCIR,
         start_time="2008-02-01T00:00:00"
     )
     assert len(input_files) == 1
     assert isinstance(input_files[0], RemoteFile)
     input_files = get_input_files(
-        GPMIR,
+        CPCIR,
         start_time="2008-02-01T00:00:00",
         end_time="2008-02-01T23:59:00"
     )
@@ -55,34 +55,34 @@ def test_get_input_files():
     assert isinstance(input_files[0], RemoteFile)
 
     input_files = get_input_files(
-        GPMIR,
+        CPCIR,
         start_time="2008-02-01T00:00:00",
         path=TEST_DATA
     )
     assert len(input_files) == 2
-    assert isinstance(input_files[0], GPMIR)
+    assert isinstance(input_files[0], CPCIR)
 
     input_files = get_input_files(
-        GPMIR,
+        CPCIR,
         start_time="2008-02-01T00:00:00",
         end_time="2008-02-02T00:00:00",
         path=TEST_DATA
     )
     assert len(input_files) == 4
-    assert isinstance(input_files[0], GPMIR)
+    assert isinstance(input_files[0], CPCIR)
 
     #
     # GridSat
     #
 
     input_files = get_input_files(
-        GridSatB1,
+        GridSat,
         start_time="2008-02-01T00:00:00"
     )
     assert len(input_files) == 1
     assert isinstance(input_files[0], RemoteFile)
     input_files = get_input_files(
-        GridSatB1,
+        GridSat,
         start_time="2008-02-01T00:00:00",
         end_time="2008-02-01T23:59:00"
     )
@@ -90,21 +90,21 @@ def test_get_input_files():
     assert isinstance(input_files[0], RemoteFile)
 
     input_files = get_input_files(
-        GridSatB1,
+        GridSat,
         start_time="2008-02-01T00:00:00",
         path=TEST_DATA
     )
     assert len(input_files) == 2
-    assert isinstance(input_files[0], GridSatB1)
+    assert isinstance(input_files[0], GridSat)
 
     input_files = get_input_files(
-        GridSatB1,
+        GridSat,
         start_time="2008-02-01T00:00:00",
         end_time="2008-02-02T00:00:00",
         path=TEST_DATA
     )
     assert len(input_files) == 3
-    assert isinstance(input_files[0], GridSatB1)
+    assert isinstance(input_files[0], GridSat)
 
 
 def test_remote_file():
@@ -116,12 +116,12 @@ def test_remote_file():
 
     pool = ThreadPoolExecutor(max_workers=4)
     input_files_no_prefetch = get_input_files(
-        GPMIR,
+        CPCIR,
         start_time="2008-02-01T00:00:00",
         working_dir=temp_dir_1.name
     )
     input_files_prefetch = get_input_files(
-        GPMIR,
+        CPCIR,
         start_time="2008-02-02T00:00:00",
         thread_pool=pool,
         working_dir=temp_dir_2.name
@@ -133,13 +133,13 @@ def test_remote_file():
 
 def test_processing(tmp_path):
     """
-    Test processing and writing of GPMIR and GridSat input files.
+    Test processing and writing of CPCIR and GridSat input files.
     """
     mrnn = MRNN.load(TEST_DATA / "models" / "ccic.pckl")
-    gpmir_file = GPMIR(TEST_DATA / "input_data" / "merg_2008020100_4km-pixel.nc4")
-    gridsat_file = GridSatB1(TEST_DATA / "input_data" / "GRIDSAT-B1.2008.02.01.00.v02r01.nc")
+    cpcir_file = CPCIR(TEST_DATA / "input_data" / "merg_2008020100_4km-pixel.nc4")
+    gridsat_file = GridSat(TEST_DATA / "input_data" / "GRIDSAT-B1.2008.02.01.00.v02r01.nc")
 
-    for input_file in [gpmir_file, gridsat_file]:
+    for input_file in [cpcir_file, gridsat_file]:
         results = process_input_file(mrnn, input_file)
         assert "tiwp" in results
         assert "tiwp_log_std_dev" in results
@@ -192,15 +192,15 @@ def test_get_output_filename():
     """
     Ensure that filenames have the right suffixes.
     """
-    gpmir_file = GPMIR(TEST_DATA / "input_data" / "merg_2008020100_4km-pixel.nc4")
-    data = gpmir_file.to_xarray_dataset()
+    cpcir_file = CPCIR(TEST_DATA / "input_data" / "merg_2008020100_4km-pixel.nc4")
+    data = cpcir_file.to_xarray_dataset()
     retrieval_settings = RetrievalSettings()
     retrieval_settings.output_format = OutputFormat["NETCDF"]
-    output_filename_netcdf = get_output_filename(gpmir_file, data.time[0].item(), retrieval_settings)
+    output_filename_netcdf = get_output_filename(cpcir_file, data.time[0].item(), retrieval_settings)
     assert Path(output_filename_netcdf).suffix == ".nc"
 
     retrieval_settings.output_format = OutputFormat["ZARR"]
-    output_filename_zarr = get_output_filename(gpmir_file, data.time[0].item(), retrieval_settings)
+    output_filename_zarr = get_output_filename(cpcir_file, data.time[0].item(), retrieval_settings)
     assert Path(output_filename_zarr).suffix == ".zarr"
 
     assert output_filename_netcdf != output_filename_zarr
@@ -257,10 +257,10 @@ def test_invalid_mask():
     Test masking of invalid inputs.
     """
     mrnn = MRNN.load(TEST_DATA / "models" / "ccic.pckl")
-    gpmir_file = GPMIR(TEST_DATA / "input_data" / "merg_2008020100_4km-pixel.nc4")
-    gridsat_file = GridSatB1(TEST_DATA / "input_data" / "GRIDSAT-B1.2008.02.01.00.v02r01.nc")
+    cpcir_file = CPCIR(TEST_DATA / "input_data" / "merg_2008020100_4km-pixel.nc4")
+    gridsat_file = GridSat(TEST_DATA / "input_data" / "GRIDSAT-B1.2008.02.01.00.v02r01.nc")
 
-    for input_file in [gpmir_file, gridsat_file]:
+    for input_file in [cpcir_file, gridsat_file]:
         x = input_file.get_retrieval_input()
         mask = get_invalid_mask(x)
         assert np.any(~mask)

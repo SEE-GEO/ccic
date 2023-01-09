@@ -1,5 +1,5 @@
 """
-Tests for the ccic.data.gpm_ir module.
+Tests for the ccic.data.cpcir module.
 """
 import os
 from pathlib import Path
@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 
 from ccic.data.cloudsat import CloudSat2CIce, CloudSat2BCLDCLASS
-from ccic.data.gpmir import GPMIR
+from ccic.data.cpcir import CPCIR
 
 TEST_DATA = os.environ.get("CCIC_TEST_DATA", None)
 if TEST_DATA is not None:
@@ -18,25 +18,25 @@ NEEDS_TEST_DATA = pytest.mark.skipif(
 )
 CS_2CICE_FILE = "2008032011612_09374_CS_2C-ICE_GRANULE_P1_R05_E02_F00.hdf"
 CS_2BCLDCLASS_FILE = "2008032011612_09374_CS_2B-CLDCLASS_GRANULE_P1_R05_E02_F00.hdf"
-GPMIR_FILE = "merg_2008020101_4km-pixel.nc4"
+CPCIR_FILE = "merg_2008020101_4km-pixel.nc4"
 
 
 def test_find_files():
     """
     Ensure that all three files in test data folder are found.
     """
-    files = GPMIR.find_files(TEST_DATA)
+    files = CPCIR.find_files(TEST_DATA)
     assert len(files) == 4
 
     start_time = "2008-02-01T01:00:00"
-    files = GPMIR.find_files(TEST_DATA, start_time=start_time)
+    files = CPCIR.find_files(TEST_DATA, start_time=start_time)
     assert len(files) == 2
 
     end_time = "2008-02-01T01:00:00"
-    files = GPMIR.find_files(TEST_DATA, end_time=end_time)
+    files = CPCIR.find_files(TEST_DATA, end_time=end_time)
     assert len(files) == 3
 
-    files = GPMIR.find_files(TEST_DATA, start_time=start_time, end_time=end_time)
+    files = CPCIR.find_files(TEST_DATA, start_time=start_time, end_time=end_time)
     assert len(files) == 1
 
 
@@ -44,10 +44,10 @@ def test_get_available_files():
     """
     Assert that the correct times are returned for a given day.
     """
-    files = GPMIR.get_available_files("2016-01-01T00:00:00")
+    files = CPCIR.get_available_files("2016-01-01T00:00:00")
     assert len(files) == 24
 
-    files = GPMIR.get_available_files(
+    files = CPCIR.get_available_files(
         start_time="2016-01-01T00:00:00",
         end_time="2016-01-01T11:59:00")
     assert len(files) == 12
@@ -58,8 +58,8 @@ def test_get_input_file_attributes():
     """
     Assert that data is loaded with decreasing latitudes.
     """
-    gpmir = GPMIR(TEST_DATA / GPMIR_FILE)
-    attrs = gpmir.get_input_file_attributes()
+    cpcir = CPCIR(TEST_DATA / CPCIR_FILE)
+    attrs = cpcir.get_input_file_attributes()
     assert isinstance(attrs, dict)
 
 @NEEDS_TEST_DATA
@@ -67,15 +67,15 @@ def test_get_retrieval_input():
     """
     Assert that data is loaded with decreasing latitudes.
     """
-    gpmir = GPMIR(TEST_DATA / GPMIR_FILE)
-    x = gpmir.get_retrieval_input()
+    cpcir = CPCIR(TEST_DATA / CPCIR_FILE)
+    x = cpcir.get_retrieval_input()
     assert x.ndim == 4
     assert x.shape[0] == 2
     assert x.shape[1] == 3
     assert (x >= -1.5).all()
     assert (x <= 1.0).all()
 
-    x = gpmir.get_retrieval_input(roi=(0, 0, 1, 1))
+    x = cpcir.get_retrieval_input(roi=(0, 0, 1, 1))
     assert x.ndim == 4
     assert x.shape[2] == 256
     assert x.shape[3] == 256
@@ -87,8 +87,8 @@ def test_to_xarray_dataset():
     """
     Assert that data is loaded with decreasing latitudes.
     """
-    gpmir = GPMIR(TEST_DATA / GPMIR_FILE)
-    data = gpmir.to_xarray_dataset()
+    cpcir = CPCIR(TEST_DATA / CPCIR_FILE)
+    data = cpcir.to_xarray_dataset()
     assert (np.diff(data.lat.data) < 0.0).all()
 
 
@@ -98,14 +98,14 @@ def test_matches():
     Make sure that matches are found for files that overlap in time.
     """
     rng = np.random.default_rng(111)
-    gpmir = GPMIR(TEST_DATA / GPMIR_FILE)
+    cpcir = CPCIR(TEST_DATA / CPCIR_FILE)
     cloudsat_files = [
         CloudSat2CIce(TEST_DATA / CS_2CICE_FILE),
         CloudSat2BCLDCLASS(TEST_DATA / CS_2BCLDCLASS_FILE),
     ]
 
     size = 256
-    scenes = gpmir.get_matches(rng, cloudsat_files, size=size)
+    scenes = cpcir.get_matches(rng, cloudsat_files, size=size)
     assert len(scenes) > 0
     for scene in scenes:
         assert scene.tiwp.shape == (size, size)
@@ -127,4 +127,4 @@ def test_matches():
         ))
 
     # Test subsampling
-    scenes = gpmir.get_matches(rng, cloudsat_files, subsample=True)
+    scenes = cpcir.get_matches(rng, cloudsat_files, subsample=True)

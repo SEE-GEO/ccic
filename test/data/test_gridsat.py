@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 
 from ccic.data.cloudsat import CloudSat2CIce, CloudSat2BCLDCLASS
-from ccic.data.gridsat import GridSatB1
+from ccic.data.gridsat import GridSat
 
 
 TEST_DATA = os.environ.get("CCIC_TEST_DATA", None)
@@ -26,18 +26,18 @@ def test_find_files():
     """
     Ensure that all three files in test data folder are found.
     """
-    files = GridSatB1.find_files(TEST_DATA)
+    files = GridSat.find_files(TEST_DATA)
     assert len(files) == 3
 
     start_time = "2008-02-01T01:00:00"
-    files = GridSatB1.find_files(TEST_DATA, start_time=start_time)
+    files = GridSat.find_files(TEST_DATA, start_time=start_time)
     assert len(files) == 1
 
     end_time = "2008-02-01T01:00:00"
-    files = GridSatB1.find_files(TEST_DATA, end_time=end_time)
+    files = GridSat.find_files(TEST_DATA, end_time=end_time)
     assert len(files) == 2
 
-    files = GridSatB1.find_files(TEST_DATA, start_time=start_time, end_time=end_time)
+    files = GridSat.find_files(TEST_DATA, start_time=start_time, end_time=end_time)
     assert len(files) == 0
 
 
@@ -46,11 +46,11 @@ def test_get_times():
     Assert that the correct time are returned for a given day.
     """
     start_time = "2016-01-01T00:00:00"
-    times = GridSatB1.get_available_files(start_time)
+    times = GridSat.get_available_files(start_time)
     assert len(times) == 8
 
     end_time = "2016-01-01T11:59:00"
-    times = GridSatB1.get_available_files(
+    times = GridSat.get_available_files(
         start_time=start_time,
         end_time=end_time
     )
@@ -62,7 +62,7 @@ def test_get_input_file_attributes():
     """
     Assert that data is loaded with decreasing latitudes.
     """
-    input_file = GridSatB1(TEST_DATA / GRIDSAT_FILE)
+    input_file = GridSat(TEST_DATA / GRIDSAT_FILE)
     attrs = input_file.get_input_file_attributes()
     assert isinstance(attrs, dict)
 
@@ -71,7 +71,7 @@ def test_get_retrieval_input():
     """
     Assert that data is loaded with decreasing latitudes.
     """
-    input_file = GridSatB1(TEST_DATA / GRIDSAT_FILE)
+    input_file = GridSat(TEST_DATA / GRIDSAT_FILE)
     x = input_file.get_retrieval_input()
     assert x.ndim == 4
     assert x.shape[0] == 1
@@ -91,7 +91,7 @@ def test_to_xarray_dataset():
     """
     Assert that data is loaded with decreasing latitudes.
     """
-    gridsat = GridSatB1(TEST_DATA / GRIDSAT_FILE)
+    gridsat = GridSat(TEST_DATA / GRIDSAT_FILE)
     data = gridsat.to_xarray_dataset()
     assert (np.diff(data.lat.data) < 0.0).all()
 
@@ -102,7 +102,7 @@ def test_matches():
     Make sure that matches are found for files that overlap in time.
     """
     rng = np.random.default_rng(111)
-    gridsat = GridSatB1(TEST_DATA / GRIDSAT_FILE)
+    gridsat = GridSat(TEST_DATA / GRIDSAT_FILE)
     cloudsat_files = [
         CloudSat2CIce(TEST_DATA / CS_2CICE_FILE),
         CloudSat2BCLDCLASS(TEST_DATA / CS_2BCLDCLASS_FILE),
