@@ -1,9 +1,11 @@
 from concurrent.futures import ThreadPoolExecutor
 from copy import copy
 import os
+import logging
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from threading import Lock
+from time import sleep
 
 import numpy as np
 from pansat.time import to_datetime
@@ -14,30 +16,73 @@ from ccic.data.cpcir import CPCIR
 from ccic.data.gridsat import GridSat
 
 
+def get_file(provider, product, path, filename, retries):
+    """
+    Tries to download file from provider.
+
+    Args:
+        provider: The 'pansat' data provider to use to download the file.
+        product: The product class that is being downloaded.
+        path: The path to which to download the file.
+        filename: The name of the file.
+        retries: The number of retries to perform in case of failure.
+
+    Return:
+        A instance of the given product class pointing to the downloaded file.
+
+    Raises:
+        RuntimeError if the download fails even after the given number of
+        retries.
+    """
+    local_file = Path(path) / filename
+
+    failed = True
+    n_tries = 0
+    while failed and n_tries < retries:
+        n_tries += 1
+        try:
+            provider.download_file(filename, local_file)
+            failed = False
+        except Exception as e:
+            sleep(10)
+            pass
+
+    if failed:
+        raise RuntimeError(
+            "Downloading of file '%s' failed after three retries."
+        )
+
+    new_file = product(local_file)
+    return new_file
+
+
 class DownloadCache:
     """
     Asynchronous download cache..
     """
-    def __init__(self, n_threads=2):
+    def __init__(self, n_threads=2, retries=3):
         self.path = TemporaryDirectory()
         self.files = {}
         self.pool = ThreadPoolExecutor(max_workers=n_threads)
         self.lock = Lock()
+        self.retries = retries
 
     def get(self, product, filename):
         """
         Get file from the cache.
         """
         provider = product.provider
-        self.lock.acquire()
-        if filename not in self.files:
-            def return_file(filename):
-                local_file = Path(self.path.name) / filename
-                provider.download_file(filename, local_file)
-                new_file = product(local_file)
-                return new_file
-            self.files[filename] = self.pool.submit(return_file, filename)
-        self.lock.release()
+        # Synchronize lookup between threads to avoid inconsistent states.
+        with self.lock:
+            if filename not in self.files:
+                self.files[filename] = self.pool.submit(
+                    get_file,
+                    provider,
+                    product,
+                    Path(self.path.name),
+                    filename,
+                    self.retries
+                )
         return self.files[filename]
 
 
@@ -62,7 +107,9 @@ def process_cloudsat_files(
     Return:
         A list of match-up scenes.
     """
-    seed = hash("".join([cs_file.filename for cs_file in cloudsat_files]))
+    logger = logging.getLogger(__file__)
+
+    seed = hash("".join([cs_file.filename.name for cs_file in cloudsat_files]))
     rng = np.random.default_rng(abs(seed))
     cloudsat_files = [
         cache.get(type(cs_file), cs_file.filename) for cs_file in cloudsat_files
@@ -80,9 +127,21 @@ def process_cloudsat_files(
         to_datetime(end_time),
         start_inclusive=True
     )
+    gridsat_files = GridSat.provider.get_files_in_range(
+        to_datetime(start_time),
+        to_datetime(end_time),
+        start_inclusive=True
+    )
+
     cloudsat_files = [cs_file.result() for cs_file in cloudsat_files]
+
     for filename in cpcir_files:
-        cpcir_file = cache.get(CPCIR, filename).result()
+        try:
+            cpcir_file = cache.get(CPCIR, filename).result()
+        except RuntimeError as err:
+            logger.error(err)
+            continue
+
         scenes += cpcir_file.get_matches(
             rng,
             cloudsat_files,
@@ -96,13 +155,15 @@ def process_cloudsat_files(
             timedelta=timedelta,
             subsample=True
         )
-    gridsat_files = GridSat.provider.get_files_in_range(
-        to_datetime(start_time),
-        to_datetime(end_time),
-        start_inclusive=True
-    )
+
     for filename in gridsat_files:
-        gs_file = cache.get(GridSat, filename).result()
+
+        try:
+            gs_file = cache.get(GridSat, filename).result()
+        except RuntimeError as err:
+            logger.error(err)
+            continue
+
         scenes += gs_file.get_matches(
             rng,
             cloudsat_files,
