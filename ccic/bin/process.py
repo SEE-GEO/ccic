@@ -344,13 +344,6 @@ def run(args):
             )
             return 1
 
-    logging.basicConfig(
-        format="%(levelname)s :: %(message)s",
-        level=logging.INFO,
-        force=True
-    )
-
-    download_pool = ThreadPoolExecutor(max_workers=1)
     with TemporaryDirectory() as tmp:
         input_files = get_input_files(
             input_cls,

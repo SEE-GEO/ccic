@@ -115,7 +115,7 @@ def process_day(year, month, day, destination, size=256, timedelta=15, valid_inp
     date = to_datetime64(datetime(year, month, day))
     granules = get_available_granules(date)
     LOGGER.info(
-        "Found %s granule for %s-%s-%s.",
+        "Found %s granules for %s-%s-%s.",
         len(granules),
         year,
         f"{month:02}",
@@ -158,8 +158,6 @@ def run(args):
     Args:
         args: The namespace object provided by the top-level parser.
     """
-    logging.basicConfig(level=logging.INFO)
-
     year = args.year
     month = args.month
     days = args.days
@@ -193,6 +191,6 @@ def run(args):
 
     for day, task in zip(days, tasks):
         task.result()
-        LOGGER.info("Finished processing day %s.")
+        LOGGER.info("Finished processing day %s of %s-%s.", day, year, month)
 
     return 0
