@@ -156,15 +156,16 @@ class GridSat:
         x = NORMALIZER(np.stack(xs))
         return torch.tensor(x[None]).to(torch.float32)
 
-    def get_matches(self, rng, cloudsat_data, size=128, timedelta=15):
+
+    def get_matches(self, rng, cloudsat_files, size=128, timedelta=15):
         """
         Extract matches of given cloudsat data with observations.
 
         Args:
             rng: Numpy random generator to use for randomizing the scene
                 extraction.
-            cloudsat_data: ``xarray.Dataset`` containing the CloudSat data
-                to match.
+            cloudsat_files: A list of the CloudSat file objects to match
+                with the GridSat data.
             size: The size of the windows to extract.
             timedelta: The maximum time different for collocations.
 
@@ -187,7 +188,7 @@ class GridSat:
         end_time = data.time + np.array(60 * timedelta, dtype="timedelta64[s]")
 
         data = cloudsat.resample_data(
-            data, GRIDSAT_GRID, cloudsat_data, start_time=start_time, end_time=end_time
+            data, GRIDSAT_GRID, cloudsat_files, start_time=start_time, end_time=end_time
         )
         if data is None:
             return []
@@ -260,10 +261,12 @@ class GridSat:
             }
             scene = data[coords]
             if (scene.latitude.size == size) and (scene.longitude.size == size):
-                scene.attrs = {}
+                granule = cloudsat_files[0].granule
+                scene.attrs["granule"] = f"{granule:06}"
                 scene.attrs["input_source"] = "GRIDSAT"
                 scenes.append(scene.copy())
 
+        del data
         return scenes
 
     def to_xarray_dataset(self):
