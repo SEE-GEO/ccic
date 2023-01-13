@@ -30,6 +30,87 @@ CPCIR_GRID = create_area_def(
 )
 
 
+def extract_scenes(rng, collocation, size):
+    """
+    Extract scenes from collocations.
+
+    Args:
+        rng: Numpy random generator to use to randomize the scene
+            extraction.
+        collocation: 'xarray.Dataset' containing the collocated
+            observations and CloudSat retrievals.
+        size: The size of the scenes to extract.
+
+    Return:
+        A list of the extracted scenes.
+    """
+    # Extract single scenes.
+    indices = np.where(np.isfinite(collocation.tiwp.data))
+    rnd = rng.permutation(indices[0].size)
+    indices = (indices[0][rnd], indices[1][rnd])
+
+    scenes = []
+
+    while len(indices[0]) > 0:
+
+        # Choose random pixel and use a center of window.
+        # Add zonal offset.
+        c_i, c_j = indices[0][0], indices[1][0]
+        offset = np.random.randint(
+            -int(0.3 * size), int(0.3 * size)
+        )
+        c_j += offset
+
+        i_start = c_i - size // 2
+        i_end = c_i + (size - size // 2)
+        j_start = c_j - size // 2
+        j_end = c_j + (size - size // 2)
+
+        # Shift window if it exceeds boundaries
+        if j_start < 0:
+            shift = np.abs(j_start)
+            j_start += shift
+            j_end += shift
+        if j_end >= collocation.longitude.size:
+            shift = j_end - collocation.longitude.size - 1
+            j_start += shift
+            j_end += shift
+        if i_start < 0:
+            shift = np.abs(i_start)
+            i_start += shift
+            i_end += shift
+        if i_end >= collocation.latitude.size:
+            shift = i_end - collocation.latitude.size - 1
+            i_start += shift
+            i_end += shift
+
+        # Determine pixels included in scene.
+        included = included_pixel_mask(
+            indices,
+            c_i,
+            c_j,
+            size
+        )
+
+        # If no pixels are in scene we need to abort to avoid
+        # livelock.
+        if not np.any(included):
+            logger.warning(
+                "Found an empty sample when extracting scenes from "
+                "CPC IR file '%s'.", self
+            )
+            break
+        indices = (indices[0][~included], indices[1][~included])
+
+        coords = {
+            "latitude": slice(i_start, i_end),
+            "longitude": slice(j_start, j_end),
+        }
+        scene = collocation[coords]
+        if (scene.latitude.size == size) and (scene.longitude.size == size):
+            scenes.append(scene.copy())
+    return scenes
+
 def subsample_dataset(dataset):
     """
     Subsamples CPCIR dataset by a factor of two.
@@ -41,39 +122,23 @@ def subsample_dataset(dataset):
         The subsampled dataset.
     """
     dataset_new = dataset[{
-        "lon": slice(0, None, 2),
-        "lat": slice(0, None, 2),
+        "longitude": slice(0, None, 2),
+        "latitude": slice(0, None, 2),
     }].copy()
 
-    dataset_00 = dataset[{
-        "lon": slice(0, None, 2),
-        "lat": slice(0, None, 2),
-    }]
-    dataset_01 = dataset[{
-        "lon": slice(0, None, 2),
-        "lat": slice(1, None, 2),
-    }]
-    dataset_10 = dataset[{
-        "lon": slice(1, None, 2),
-        "lat": slice(0, None, 2)
-    }]
-    dataset_11 = dataset[{
-        "lon": slice(1, None, 2),
-        "lat": slice(1, None, 2)
-    }]
+    dataset_new["ir_win"].data += dataset.ir_win.data[0::2, 1::2]
+    dataset_new["ir_win"].data += dataset.ir_win.data[1::2, 0::2]
+    dataset_new["ir_win"].data += dataset.ir_win.data[1::2, 1::2]
 
-    dataset_new["Tb"].data = 0.25 * (
-        dataset_00["Tb"].data +
-        dataset_01["Tb"].data +
-        dataset_10["Tb"].data +
-        dataset_11["Tb"].data
+    dataset_new["longitude"] = 0.5 * (
+        dataset.longitude.data[::2] +
+        dataset.longitude.data[1::2]
     )
-    dataset_new["lat"] = 0.5 * (
-        dataset_00.lat.data + dataset_01.lat.data
+    dataset_new["latitude"] = 0.5 * (
+        dataset.latitude.data[::2] +
+        dataset.latitude.data[1::2]
     )
-    dataset_new["lon"] = 0.5 * (
-        dataset_00.lon.data + dataset_10.lon.data
-    )
+
     return dataset_new
 
 
@@ -252,25 +317,34 @@ class CPCIR:
             List of ``xarray.Dataset`` object with the extracted matches.
         """
         logger = logging.getLogger(__file__)
-
         data = self.to_xarray_dataset()
-        if subsample:
-            data = subsample_dataset(data)
-            source = "CPCIR2"
-            grid = CPCIR_GRID[::2, ::2]
-        else:
-            source = "CPCIR"
-            grid = CPCIR_GRID
 
         new_names = {"Tb": "ir_win", "lat": "latitude", "lon": "longitude"}
         data = data[["Tb", "time"]].rename(new_names)
 
         scenes = []
 
-        for i in range(2):
-            data_t = data[{"time": i}].copy()
-            start_time = data_t.time - np.array(60 * timedelta, dtype="timedelta64[s]")
-            end_time = data_t.time + np.array(60 * timedelta, dtype="timedelta64[s]")
+        for t_index in range(2):
+            data_t = data[{
+                "time": t_index,
+            }].copy()
+
+            if subsample:
+                data_t = subsample_dataset(data_t)
+                source = "CPCIR2"
+                grid = CPCIR_GRID[::2, ::2]
+            else:
+                source = "CPCIR"
+                grid = CPCIR_GRID
+
+            start_time = (
+                data_t.time -
+                np.array(60 * timedelta, dtype="timedelta64[s]")
+            )
+            end_time = (
+                data_t.time +
+                np.array(60 * timedelta, dtype="timedelta64[s]")
+            )
             data_t = cloudsat.resample_data(
                 data_t, grid, cloudsat_files, start_time, end_time
             )
@@ -278,70 +352,15 @@ class CPCIR:
             if data_t is None:
                 continue
 
-            # Extract single scenes.
-            indices = np.where(np.isfinite(data_t.tiwp.data))
-            rnd = rng.permutation(indices[0].size)
-            indices = (indices[0][rnd], indices[1][rnd])
+            new_scenes = extract_scenes(rng, data_t, size)
+            for scene in new_scenes:
+                granule = cloudsat_files[0].granule
+                scene.attrs["granule"] = f"{granule:06}"
+                scene.attrs["input_source"] = source
+                scenes.append(scene.copy())
+            scenes += new_scenes
 
-            while len(indices[0]) > 0:
+            del data_t
 
-                # Choose random pixel and use a center of window.
-                # Add zonal offset.
-                c_i, c_j = indices[0][0], indices[1][0]
-                offset = np.random.randint(
-                    -int(0.3 * size), int(0.3 * size)
-                )
-                c_j += offset
-
-                i_start = c_i - size // 2
-                i_end = c_i + (size - size // 2)
-                j_start = c_j - size // 2
-                j_end = c_j + (size - size // 2)
-
-                # Shift window if it exceeds boundaries
-                if j_start < 0:
-                    shift = np.abs(j_start)
-                    j_start += shift
-                    j_end += shift
-                if j_end >= data_t.longitude.size:
-                    shift = j_end - data_t.longitude.size - 1
-                    j_start += shift
-                    j_end += shift
-                if i_start < 0:
-                    shift = np.abs(i_start)
-                    i_start += shift
-                    i_end += shift
-                if i_end >= data_t.latitude.size:
-                    shift = i_end - data_t.latitude.size - 1
-                    i_start += shift
-                    i_end += shift
-
-                # Determine pixels included in scene.
-                included = included_pixel_mask(
-                    indices,
-                    c_i,
-                    c_j,
-                    size
-                )
-
-                # If no pixels are in scene we need to abort to avoid
-                # livelock.
-                if not np.any(included):
-                    logger.warning(
-                        "Found an empty sample when extracting scenes from "
-                        "CPC IR file '%s'.", self
-                    )
-                    break
-                indices = (indices[0][~included], indices[1][~included])
-
-                coords = {
-                    "latitude": slice(i_start, i_end),
-                    "longitude": slice(j_start, j_end),
-                }
-                scene = data_t[coords]
-                if (scene.latitude.size == size) and (scene.longitude.size == size):
-                    scene.attrs = {}
-                    scene.attrs["input_source"] = source
-                    scenes.append(scene.copy())
-
+        del data
         return scenes
