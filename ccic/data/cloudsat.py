@@ -5,6 +5,7 @@ ccic.data.cloudsat
 This module provides functionality to read and resample  CloudSat 2C-Ice
 files.
 """
+from pathlib import Path
 import warnings
 
 import dask.array as da
@@ -203,10 +204,11 @@ class CloudsatFile:
         Args:
             filename: Path to the CloudSat product file.
         """
-        self.filename = filename
+        self.filename = Path(filename)
         self.start_time = to_datetime64(
             self.product.filename_to_date(self.filename)
         )
+        self.granule = int(self.filename.name.split("_")[1])
 
     def __repr__(self):
         return f"{type(self).__name__}({self.filename})"
@@ -456,7 +458,7 @@ def get_available_granules(date):
     granules = {}
     for cs_file in cloudsat_files:
         filename = cs_file.filename
-        granule = int(filename.split("_")[1])
+        granule = int(filename.name.split("_")[1])
         granules.setdefault(granule, []).append(cs_file)
     return granules
 
@@ -492,6 +494,7 @@ def resample_data(
     cloudsat_data = cloudsat_files[0].to_xarray_dataset(
         start_time=start_time, end_time=end_time
     )
+
     if cloudsat_data.rays.size == 0:
         return None
 
