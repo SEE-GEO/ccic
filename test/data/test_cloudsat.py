@@ -52,6 +52,19 @@ def test_available_granules():
     available_granules = get_available_granules("2008-02-01T00:00:00")
     assert len(available_granules) == len(available_files)
 
+
+@NEEDS_TEST_DATA
+def test_granule_parsing():
+    """
+    Ensure that parsing of the granule works.
+    """
+    cs_file = CloudSat2CIce(CS_2CICE_FILE)
+    assert cs_file.granule == 9374
+
+    cs_file = CloudSat2BCLDCLASS(CS_2BCLDCLASS_FILE)
+    assert cs_file.granule == 9374
+
+
 @NEEDS_TEST_DATA
 def test_subsample_iwc_and_height():
     """
@@ -162,7 +175,10 @@ def test_resampling_cpcir():
     Test resampling of cloudsat data to CPC IR data.
     """
     cpc_data = CPCIR(TEST_DATA / CPCIR_FILE).to_xarray_dataset()
-    cpc_data = cpc_data[{"time": 0}]
+    cpc_data = cpc_data[{"time": 0}].rename({
+        "lon": "longitude",
+        "lat": "latitude"
+    })
     cs_2cice_data = CloudSat2CIce(
         TEST_DATA / CS_2CICE_FILE
     ).to_xarray_dataset()
