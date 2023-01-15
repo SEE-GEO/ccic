@@ -54,11 +54,30 @@ class CloudnetRadar:
     """
     Class to identify and load Cloudnet radar data.
     """
-    def __init__(self, location, radar_type):
+    def __init__(self, location, radar_type, longitude, latitude):
         self.location = location
         self.radar_type = radar_type
+        self.longitude = longitude
+        self.latitude = latitude
 
     def load_data(self, path, date, iwc_path=None):
+        """
+        Load radar data from given data into xarray.Dataset
+
+        This function also resamples the data to a temporal resolution
+        of 5 minutes and a vertical resolution of 900m.
+
+        Args:
+            path: The path containing the Cloudnet data.
+            date: A date specifying the day from which to load the Cloudnet
+                data.
+            iwc_path: Path for IWC files if available. If given, the IWC
+                data will be loaded, resampled to the resolution of the
+                radar data and included in the output data.
+
+        Return:
+            An 'xarray.Dataset' containing the resampled radar data.
+        """
         path = Path(path)
 
         pydate = to_datetime(date)
@@ -68,7 +87,7 @@ class CloudnetRadar:
 
 
         # Resample data
-        time = radar_data.time.data
+        time = radar_data.time.data.astype("datetime64[s]")
         time_bins = np.arange(
             time[0],
             time[-1] + np.timedelta64(1, "s"),
@@ -82,7 +101,7 @@ class CloudnetRadar:
         z = resample_time_and_height(time_bins, height_bins, time, height, z)
         z = np.log10(z)
 
-        time = time_bins[0] + 0.5 * (time_bins[1:] - time_bins[:-1])
+        time = time_bins[:-1] + 0.5 * (time_bins[1:] - time_bins[:-1])
         height = 0.5 * (height_bins[1:] + height_bins[:-1])
         results = xr.Dataset({
             "time": (("time", ), time),
@@ -103,6 +122,8 @@ class CloudnetRadar:
 
         return results
 
+cloudnet_palaiseau = CloudnetRadar("palaiseau", "basta", 2.212, 47.72)
+
 
 class RetrievalInput:
     """
@@ -119,7 +140,9 @@ class RetrievalInput:
         self.radar = radar
         self.radar_data_path = Path(radar_data_path)
         self.era5_data_path = Path(era5_data_path)
-        self.iwc_data_path = Path(iwc_data_path)
+        self.iwc_data_path = iwc_data_path
+        if self.iwc_data_path is not None:
+            self.iwc_data_path = Path(self.iwc_data_path)
         self._data = None
 
     def _load_data(self, date):
@@ -135,27 +158,36 @@ class RetrievalInput:
         else:
             d_t = 0
         if self._data is None or d_t > 0:
-            pydate = to_datetime(date)
-            tmpl = f"**/*era5*{pydate.strftime('%Y%m%d%H')}*.nc"
-            era5_files = sorted(list(self.era5_files.glob(tmpl)))
-            era5_data = xr.concat([
-                xr.load_dataset(filename) for filename in era5_files
-            ], dim="time")
-
             radar_data = self.radar.load_data(
                 self.radar_data_path,
                 date,
                 iwc_path=self.iwc_data_path
             )
-            radar_data.Zh.data = np.nan_to_num(10 ** radar_data.Zh.data, 0.0)
-            radar_data = radar_data.resample({"time": "5min"}).mean()
-            radar_data.Zh.data = np.log10(radar_data.Zh.data)
 
+            pydate = to_datetime(date)
+            tmpl = f"**/*era5*{pydate.strftime('%Y%m%d')}*.nc"
+            era5_files = sorted(list(self.era5_data_path.glob(tmpl)))
+            era5_data = []
+            for filename in era5_files:
+                data = xr.load_dataset(filename)[{"level": slice(None, None, -1)}]
+                data = data.interp({
+                    "latitude": self.radar.latitude,
+                    "longitude": self.radar.longitude,
+                }, method="nearest")
+                data.coords["height"] = (("level",), data.z[0].data / 9.81)
+                data = data.swap_dims({"level": "height"})
+                era5_data.append(data)
+            era5_data = xr.concat(era5_data, dim="time")
+
+            era5_data = era5_data.interp({
+                    "time": radar_data.time,
+                    "height": radar_data.height
+            })
             self._data = xr.merge([era5_data, radar_data])
 
-    def get_input_observations(self, date):
+    def get_radar_reflectivity(self, date):
         """
         Return radar input observations for given date.
         """
         self._load_data(date)
-        return self._data.Zh.interp(time=date).data
+        return self._data.radar_reflectivity.interp(time=date, method="nearest").data
