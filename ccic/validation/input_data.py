@@ -7,6 +7,7 @@ retrieval.
 """
 from pathlib import Path
 
+from artssat.data_provider import DataProviderBase
 from metpy.constants import dry_air_molecular_weight, water_molecular_weight
 from metpy.calc import mixing_ratio_from_relative_humidity
 from metpy.units import units
@@ -131,7 +132,7 @@ class CloudnetRadar:
 cloudnet_palaiseau = CloudnetRadar("palaiseau", "basta", 2.212, 47.72, 156.0)
 
 
-class RetrievalInput:
+class RetrievalInput(DataProviderBase):
     """
     Class to load the retrieval input data implementing the artssat
     data provider interface.
@@ -143,6 +144,7 @@ class RetrievalInput:
             era5_data_path,
             iwc_data_path=None
     ):
+        super().__init__()
         self.radar = radar
         self.radar_data_path = Path(radar_data_path)
         self.era5_data_path = Path(era5_data_path)
@@ -188,9 +190,11 @@ class RetrievalInput:
             era5_data = xr.concat(era5_data, dim="time")
             era5_data.p.data = np.exp(era5_data.p.data)
 
-            era5_data = era5_data.interp({
-                    "time": radar_data.time,
-            })
+            era5_data = era5_data.interp(
+                time=radar_data.time,
+                method="nearest",
+                kwargs={"fill_value": "extrapolate"}
+            )
             self._data = xr.merge([era5_data, radar_data])
 
     def get_radar_reflectivity(self, date):
@@ -198,28 +202,49 @@ class RetrievalInput:
         Return radar input observations for given date.
         """
         self._load_data(date)
-        return self._data.radar_reflectivity.interp(time=date, method="nearest").data
+        dbz = self._data.radar_reflectivity.interp(
+            time=date,
+            method="nearest",
+            kwargs={"fill_value": "extrapolate"}
+        ).data
+        return np.maximum(-40, dbz)
 
     def get_temperature(self, date):
         """Get temperature in the atmospheric column above the radar."""
         self._load_data(date)
-        return self._data.t.interp(time=date, method="nearest").data
+        return self._data.t.interp(
+            time=date,
+            method="nearest",
+            kwargs={"fill_value": "extrapolate"}
+        ).data
 
     def get_pressure(self, date):
         """Get the pressure in the atmospheric column above the radar."""
         self._load_data(date)
         print(self._data)
-        return self._data.p.interp(time=date, method="nearest").data * 1e2
+        return self._data.p.interp(
+            time=date,
+            method="nearest",
+            kwargs={"fill_value": "extrapolate"}
+        ).data * 1e2
 
     def get_altitude(self, date):
         """Get the pressure in the atmospheric column above the radar."""
         self._load_data(date)
-        return self._data.z.interp(time=date, method="nearest").data
+        return self._data.z.interp(
+            time=date,
+            method="nearest",
+            kwargs={"fill_value": "extrapolate"}
+        ).data
 
     def get_h2o(self, date):
         """Get H2O VMR in the atmospheric column above the radar."""
         self._load_data(date)
-        data = self._data.interp(time=date, method="nearest")
+        data = self._data.interp(
+            time=date,
+            method="nearest",
+            kwargs={"fill_value": "extrapolate"}
+        )
         temp = (data.t.data - 273.15) * units.degC
         press = data.p.data * units.hPa
         rel = data.r.data
