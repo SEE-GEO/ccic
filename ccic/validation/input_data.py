@@ -7,8 +7,11 @@ retrieval.
 """
 from pathlib import Path
 
-from pansat.time import to_datetime
+from metpy.constants import dry_air_molecular_weight, water_molecular_weight
+from metpy.calc import mixing_ratio_from_relative_humidity
+from metpy.units import units
 import numpy as np
+from pansat.time import to_datetime
 import xarray as xr
 
 
@@ -36,6 +39,8 @@ def resample_time_and_height(
         A 2D array of shape time_bins.size - 1 x height_bins.size - 1.
     """
     time, height = np.meshgrid(time, height, indexing="ij")
+    time = time.astype(time_bins.dtype)
+    height = height.astype(height_bins.dtype)
     tot = np.histogram2d(
         time.ravel(),
         height.ravel(),
@@ -54,11 +59,12 @@ class CloudnetRadar:
     """
     Class to identify and load Cloudnet radar data.
     """
-    def __init__(self, location, radar_type, longitude, latitude):
+    def __init__(self, location, radar_type, longitude, latitude, elevation):
         self.location = location
         self.radar_type = radar_type
         self.longitude = longitude
         self.latitude = latitude
+        self.elevation = elevation
 
     def load_data(self, path, date, iwc_path=None):
         """
@@ -122,7 +128,7 @@ class CloudnetRadar:
 
         return results
 
-cloudnet_palaiseau = CloudnetRadar("palaiseau", "basta", 2.212, 47.72)
+cloudnet_palaiseau = CloudnetRadar("palaiseau", "basta", 2.212, 47.72, 156.0)
 
 
 class RetrievalInput:
@@ -152,9 +158,9 @@ class RetrievalInput:
         # Need to load data if it's from another day or no data has been
         # loaded yet.
         if self._data is not None:
-            data_day = self._data.time.astyoe("datetime64[d]")
-            date_day = date.astyoe("datetime64[d]")
-            d_t = np.abs(data_day - date_day)
+            data_day = self._data.time.astype("datetime64[D]")
+            date_day = date.astype("datetime64[D]")
+            d_t = np.abs(data_day - date_day).max()
         else:
             d_t = 0
         if self._data is None or d_t > 0:
@@ -176,12 +182,14 @@ class RetrievalInput:
                 }, method="nearest")
                 data.coords["height"] = (("level",), data.z[0].data / 9.81)
                 data = data.swap_dims({"level": "height"})
+                data["p"] = (("height",), np.log(data.level.data))
+                data = data.interp(height=radar_data.height.data)
                 era5_data.append(data)
             era5_data = xr.concat(era5_data, dim="time")
+            era5_data.p.data = np.exp(era5_data.p.data)
 
             era5_data = era5_data.interp({
                     "time": radar_data.time,
-                    "height": radar_data.height
             })
             self._data = xr.merge([era5_data, radar_data])
 
@@ -191,3 +199,32 @@ class RetrievalInput:
         """
         self._load_data(date)
         return self._data.radar_reflectivity.interp(time=date, method="nearest").data
+
+    def get_temperature(self, date):
+        """Get temperature in the atmospheric column above the radar."""
+        self._load_data(date)
+        return self._data.t.interp(time=date, method="nearest").data
+
+    def get_pressure(self, date):
+        """Get the pressure in the atmospheric column above the radar."""
+        self._load_data(date)
+        print(self._data)
+        return self._data.p.interp(time=date, method="nearest").data * 1e2
+
+    def get_altitude(self, date):
+        """Get the pressure in the atmospheric column above the radar."""
+        self._load_data(date)
+        return self._data.z.interp(time=date, method="nearest").data
+
+    def get_h2o(self, date):
+        """Get H2O VMR in the atmospheric column above the radar."""
+        self._load_data(date)
+        data = self._data.interp(time=date, method="nearest")
+        temp = (data.t.data - 273.15) * units.degC
+        press = data.p.data * units.hPa
+        rel = data.r.data
+
+        print(temp, press, rel)
+
+        mmr = mixing_ratio_from_relative_humidity(press, temp, rel)
+        return dry_air_molecular_weight / water_molecular_weight * mmr

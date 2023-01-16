@@ -15,12 +15,13 @@ setup(
     author="Simon Pfreundschuh",
     author_email="simon.pfreundschuh@chalmers.se",
     install_requires=[
+        "metpy"
         "numpy",
-        "xarray",
-        "torch",
         "quantnn",
+        "torch",
         "pytorch-lightning",
-        "zarr"
+        "xarray",
+        "zarr",
     ],
     packages=find_packages(),
     python_requires=">=3.8",

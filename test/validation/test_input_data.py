@@ -47,5 +47,19 @@ def test_retrieval_input():
     )
     date = np.datetime64("2021-01-02T10:00:00")
     y = retrieval_input.get_radar_reflectivity(date)
-    print(y)
     assert y is not None
+
+    p = retrieval_input.get_pressure(date)
+    assert np.any(p > 800e2)
+
+    t = retrieval_input.get_temperature(date)
+    assert np.all(t > 150)
+
+    h2o = retrieval_input.get_h2o(date)
+    assert np.all(h2o >= 0)
+
+    assert p.size == y.size
+    assert t.size == t.size
+    assert h2o.size == h2o.size
+
+
