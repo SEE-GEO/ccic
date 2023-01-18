@@ -5,14 +5,18 @@ ccic.validation.input_data
 This module provides class to read input data for the cloud-radar
 retrieval.
 """
+from datetime import datetime, timedelta
 from pathlib import Path
 
-from artssat.data_provider import DataProviderBase
+from artssat.data_provider import Fascod
 from metpy.constants import dry_air_molecular_weight, water_molecular_weight
 from metpy.calc import mixing_ratio_from_relative_humidity
 from metpy.units import units
 import numpy as np
 from pansat.time import to_datetime
+from pansat.products.reanalysis.era5 import ERA5Hourly
+from pansat.products.ground_based.cloudnet import CloudnetProduct
+
 import xarray as xr
 
 
@@ -66,6 +70,8 @@ class CloudnetRadar:
         self.longitude = longitude
         self.latitude = latitude
         self.elevation = elevation
+        self.product = CloudnetProduct("radar", "Radar L1B data", location)
+        self.iwc_product = CloudnetProduct("iwc", "IWC product", location)
 
     def load_data(self, path, date, iwc_path=None):
         """
@@ -118,7 +124,7 @@ class CloudnetRadar:
 
         if iwc_path is not None:
             tmpl = f"**/{pydate.strftime('%Y%m%d')}_{self.location}*.nc"
-            iwc_data = xr.load_dataset(next(iter(path.glob(tmpl))))
+            iwc_data = xr.load_dataset(next(iter(iwc_path.glob(tmpl))))
             time = iwc_data.time.data
             height = iwc_data.height.data
             iwc = iwc_data.iwc.data
@@ -129,10 +135,54 @@ class CloudnetRadar:
 
         return results
 
+    def download_radar_data(self, date, destination):
+        """
+        Download Radar L1B and IWC data for a given day.
+
+        Args:
+            date: Date specifying the day for which to download the data.
+            destination: Path in which to store the downloaded data.
+        """
+        end = to_datetime(date)
+        start = end - timedelta(days=1)
+        self.product.download(
+            start,
+            end,
+            destination=destination,
+        )
+        self.iwc_product.download(
+            start,
+            end,
+            destination=destination,
+        )
+
+    def download_era5_data(self, date, destination):
+        """
+        Download ERA5 data for a given day.
+
+        Args:
+            date: Date specifying the day for which to download the data.
+            destination: Path in which to store the downloaded data.
+        """
+        py_date = to_datetime(date)
+        start = datetime(py_date.year, py_date.month, py_date.day)
+        end = start + timedelta(days=1)
+        lon = self.longitude
+        lat = self.latitude
+        product = ERA5Hourly(
+            'pressure',
+            ['temperature', 'relative_humidity', 'geopotential'],
+            [lat - 0.5, lat + 0.5, lon - 0.5, lon + 0.5]
+        )
+        product.download(start, end, destination=destination)
+
+
 cloudnet_palaiseau = CloudnetRadar("palaiseau", "basta", 2.212, 47.72, 156.0)
+cloudnet_galati = CloudnetRadar("galati", "basta", 28.037, 45.435, 40.0)
+cloudnet_punta_arenas = CloudnetRadar("punta-arenas", "mira", -70.883, -53.135, 9)
 
 
-class RetrievalInput(DataProviderBase):
+class RetrievalInput(Fascod):
     """
     Class to load the retrieval input data implementing the artssat
     data provider interface.
@@ -144,7 +194,7 @@ class RetrievalInput(DataProviderBase):
             era5_data_path,
             iwc_data_path=None
     ):
-        super().__init__()
+        super().__init__("midlatitude", "summer")
         self.radar = radar
         self.radar_data_path = Path(radar_data_path)
         self.era5_data_path = Path(era5_data_path)
@@ -196,6 +246,7 @@ class RetrievalInput(DataProviderBase):
                 kwargs={"fill_value": "extrapolate"}
             )
             self._data = xr.merge([era5_data, radar_data])
+            self.interpolate_altitude(self._data.height.data)
 
     def get_radar_reflectivity(self, date):
         """
@@ -209,6 +260,29 @@ class RetrievalInput(DataProviderBase):
         ).data
         return np.maximum(-40, dbz)
 
+    def get_y_radar(self, date):
+        """
+        Return radar input observations for given date.
+        """
+        dbz = self.get_radar_reflectivity(date)
+        return 0.5 * (dbz[1:] + dbz[:-1])[1:]
+
+    def get_radar_range_bins(self, date):
+        """
+        Return range bins of radar as center points between radar measurements.
+        """
+        self._load_data(date)
+        height = self._data.height.data
+        return 0.5 * (height[1:] + height[:-1])
+
+    def get_y_radar_nedt(self, date):
+        """
+        Return nedt for radar observations.
+        """
+        self._load_data(date)
+        height = self._data.height.data
+        return 0.5 * np.ones(height.size - 1)
+
     def get_temperature(self, date):
         """Get temperature in the atmospheric column above the radar."""
         self._load_data(date)
@@ -221,7 +295,6 @@ class RetrievalInput(DataProviderBase):
     def get_pressure(self, date):
         """Get the pressure in the atmospheric column above the radar."""
         self._load_data(date)
-        print(self._data)
         return self._data.p.interp(
             time=date,
             method="nearest",
@@ -229,13 +302,18 @@ class RetrievalInput(DataProviderBase):
         ).data * 1e2
 
     def get_altitude(self, date):
-        """Get the pressure in the atmospheric column above the radar."""
+        """Get the altitude in the atmospheric column above the radar."""
         self._load_data(date)
-        return self._data.z.interp(
-            time=date,
-            method="nearest",
-            kwargs={"fill_value": "extrapolate"}
-        ).data
+        return self._data.height.data
+
+    def get_surface_altitude(self, date):
+        """Get the surface altitude."""
+        self._load_data(date)
+        return self._data.height.data[0]
+
+    def get_radar_sensor_position(self, date):
+        self._load_data(date)
+        return np.array([[self._data.height.data[0]]])
 
     def get_h2o(self, date):
         """Get H2O VMR in the atmospheric column above the radar."""
@@ -248,8 +326,6 @@ class RetrievalInput(DataProviderBase):
         temp = (data.t.data - 273.15) * units.degC
         press = data.p.data * units.hPa
         rel = data.r.data
-
-        print(temp, press, rel)
 
         mmr = mixing_ratio_from_relative_humidity(press, temp, rel)
         return dry_air_molecular_weight / water_molecular_weight * mmr
