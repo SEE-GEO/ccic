@@ -63,3 +63,15 @@ def test_retrieval_input():
     assert h2o.size == h2o.size
 
 
+def test_download_cloudnet_data(tmp_path):
+    """
+    Test download of Cloudnet data for a given location.
+    """
+    date = np.datetime64("2023-01-01T00:00:00")
+    cloudnet_palaiseau.download_radar_data(date, tmp_path)
+
+    assert len(list(tmp_path.glob("*.nc"))) == 2
+
+
+
+
