@@ -146,7 +146,10 @@ def run(args):
 
     training_data = Path(args.training_data)
     if not training_data.exists():
-        LOGGER.error("Provided training data path '%s' doesn't exist.")
+        LOGGER.error(
+            "Provided training data path '%s' doesn't exist.",
+            training_data.as_posix()
+        )
         sys.exit()
 
     training_data = CCICDataset(training_data)
@@ -164,7 +167,10 @@ def run(args):
     if validation_data is not None:
         validation_data = Path(validation_data)
         if not validation_data.exists():
-            LOGGER.error("Provided validation data path '%s' doesn't exist.")
+            LOGGER.error(
+                "Provided validation data path '%s' doesn't exist.",
+                validation_data.as_posix()
+            )
             sys.exit()
         validation_data = CCICDataset(validation_data)
         validation_loader = DataLoader(

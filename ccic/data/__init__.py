@@ -49,7 +49,8 @@ def get_file(provider, product, path, filename, retries):
 
     if failed:
         raise RuntimeError(
-            "Downloading of file '%s' failed after three retries."
+            "Downloading of file '%s' failed after three retries.",
+            filename
         )
 
     new_file = product(local_file)
