@@ -46,8 +46,10 @@ def test_retrieval_input():
         VALIDATION_DATA / "era5"
     )
     date = np.datetime64("2021-01-02T10:00:00")
-    y = retrieval_input.get_radar_reflectivity(date)
+    y = retrieval_input.get_y_radar(date)
+    range_bins = retrieval_input.get_radar_range_bins(date)
     assert y is not None
+    assert y.size == range_bins.size - 1
 
     p = retrieval_input.get_pressure(date)
     assert np.any(p > 800e2)
@@ -58,9 +60,12 @@ def test_retrieval_input():
     h2o = retrieval_input.get_h2o(date)
     assert np.all(h2o >= 0)
 
-    assert p.size == y.size
-    assert t.size == t.size
-    assert h2o.size == h2o.size
+    assert p.size == t.size
+    assert h2o.size == t.size
+
+    z = retrieval_input.get_altitude(date)
+    z_s = retrieval_input.get_surface_altitude(date)
+    assert np.all(range_bins > z_s)
 
 
 def test_download_cloudnet_data(tmp_path):
