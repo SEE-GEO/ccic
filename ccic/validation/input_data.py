@@ -107,19 +107,20 @@ class CloudnetRadar:
             np.timedelta64(5 * 60, "s")
         )
         height = radar_data.height.data
-        height_bins = np.arange(height[0], height[-1] + 200, 200.0)
+        range_bins = np.arange(height[0], height[-1], 100)
 
         refl = radar_data.Zh.data
         z = np.nan_to_num(10 ** refl, 0.0)
-        z = resample_time_and_height(time_bins, height_bins, time, height, z)
+        z = resample_time_and_height(time_bins, range_bins, time, height, z)
         z = np.log10(z)
 
         time = time_bins[:-1] + 0.5 * (time_bins[1:] - time_bins[:-1])
-        height = 0.5 * (height_bins[1:] + height_bins[:-1])
+        radar_range = 0.5 * (range_bins[1:] + range_bins[:-1])
         results = xr.Dataset({
             "time": (("time", ), time),
-            "height": (("height",), height),
-            "radar_reflectivity": (("time", "height"), z)
+            "range": (("range",), radar_range),
+            "radar_reflectivity": (("time", "range"), z),
+            "range_bins": (("range_bins",), range_bins)
         })
 
         if iwc_path is not None:
@@ -129,9 +130,9 @@ class CloudnetRadar:
             height = iwc_data.height.data
             iwc = iwc_data.iwc.data
             iwc = resample_time_and_height(
-                time_bins, height_bins, time, height, iwc
+                time_bins, range_bins, time, height, iwc
             )
-            results["iwc"] = (("time", "height"), iwc)
+            results["iwc"] = (("time", "range"), iwc)
 
         return results
 
@@ -232,10 +233,15 @@ class RetrievalInput(Fascod):
                     "latitude": self.radar.latitude,
                     "longitude": self.radar.longitude,
                 }, method="nearest")
-                data.coords["height"] = (("level",), data.z[0].data / 9.81)
-                data = data.swap_dims({"level": "height"})
-                data["p"] = (("height",), np.log(data.level.data))
-                data = data.interp(height=radar_data.height.data)
+                data.coords["altitude"] = (("level",), data.z[0].data / 9.81)
+                data = data.swap_dims({"level": "altitude"})
+                altitudes = np.arange(
+                    self.radar.elevation,
+                    radar_data.range_bins.data.max()
+                    , 200.0
+                )
+                data["p"] = (("altitude",), np.log(data.level.data))
+                data = data.interp(altitude=altitudes, kwargs={"fill_value": "extrapolate"})
                 era5_data.append(data)
             era5_data = xr.concat(era5_data, dim="time")
             era5_data.p.data = np.exp(era5_data.p.data)
@@ -246,7 +252,7 @@ class RetrievalInput(Fascod):
                 kwargs={"fill_value": "extrapolate"}
             )
             self._data = xr.merge([era5_data, radar_data])
-            self.interpolate_altitude(self._data.height.data)
+            self.interpolate_altitude(self._data.altitude.data)
 
     def get_radar_reflectivity(self, date):
         """
@@ -264,24 +270,21 @@ class RetrievalInput(Fascod):
         """
         Return radar input observations for given date.
         """
-        dbz = self.get_radar_reflectivity(date)
-        return 0.5 * (dbz[1:] + dbz[:-1])[1:]
+        return self.get_radar_reflectivity(date)
 
     def get_radar_range_bins(self, date):
         """
         Return range bins of radar as center points between radar measurements.
         """
         self._load_data(date)
-        height = self._data.height.data
-        return 0.5 * (height[1:] + height[:-1])
+        return self._data.range_bins.data
 
     def get_y_radar_nedt(self, date):
         """
         Return nedt for radar observations.
         """
         self._load_data(date)
-        height = self._data.height.data
-        return 0.5 * np.ones(height.size - 1)
+        return 0.5 * np.ones(self._data.range.size)
 
     def get_temperature(self, date):
         """Get temperature in the atmospheric column above the radar."""
@@ -304,16 +307,14 @@ class RetrievalInput(Fascod):
     def get_altitude(self, date):
         """Get the altitude in the atmospheric column above the radar."""
         self._load_data(date)
-        return self._data.height.data
+        return self._data.altitude.data
 
     def get_surface_altitude(self, date):
         """Get the surface altitude."""
-        self._load_data(date)
-        return self._data.height.data[0]
+        return np.array([[self.radar.elevation]])
 
     def get_radar_sensor_position(self, date):
-        self._load_data(date)
-        return np.array([[self._data.height.data[0]]])
+        return np.array([[self.radar.elevation]])
 
     def get_h2o(self, date):
         """Get H2O VMR in the atmospheric column above the radar."""
