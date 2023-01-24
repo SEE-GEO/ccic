@@ -252,7 +252,7 @@ class RetrievalInput(Fascod):
                 kwargs={"fill_value": "extrapolate"}
             )
             self._data = xr.merge([era5_data, radar_data])
-            self.interpolate_altitude(self._data.height.data)
+            self.interpolate_altitude(self._data.altitude.data)
 
     def get_radar_reflectivity(self, date):
         """
@@ -307,16 +307,14 @@ class RetrievalInput(Fascod):
     def get_altitude(self, date):
         """Get the altitude in the atmospheric column above the radar."""
         self._load_data(date)
-        return self._data.height.data
+        return self._data.altitude.data
 
     def get_surface_altitude(self, date):
         """Get the surface altitude."""
-        self._load_data(date)
-        return self._data.height.data[0]
+        return np.array([[self.radar.elevation]])
 
     def get_radar_sensor_position(self, date):
-        self._load_data(date)
-        return np.array([[self._data.height.data[0]]])
+        return np.array([[self.radar.elevation]])
 
     def get_h2o(self, date):
         """Get H2O VMR in the atmospheric column above the radar."""

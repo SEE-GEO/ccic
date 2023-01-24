@@ -78,8 +78,6 @@ def test_download_cloudnet_data(tmp_path):
     assert len(list(tmp_path.glob("*.nc"))) == 2
 
 
-
-
 def test_download_cloudnet_data(tmp_path):
     """
     Test download of Cloudnet data for a given location.
