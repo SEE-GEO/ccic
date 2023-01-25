@@ -28,8 +28,7 @@ def test_cloudnet_radar():
     """
     data = cloudnet_palaiseau.load_data(
         VALIDATION_DATA / "cloudnet",
-        np.datetime64("2021-01-02T14:00:00"),
-        iwc_path=VALIDATION_DATA / "cloudnet"
+        np.datetime64("2021-01-02T14:00:00")
     )
     assert data is not None
     assert "iwc" in data
@@ -67,6 +66,9 @@ def test_retrieval_input():
     z_s = retrieval_input.get_surface_altitude(date)
     assert np.all(range_bins > z_s)
 
+    assert retrieval_input.has_data(date)
+    assert not retrieval_input.has_data(date + np.timedelta64(24 * 60 * 60, "s"))
+
 
 def test_download_cloudnet_data(tmp_path):
     """
@@ -76,7 +78,3 @@ def test_download_cloudnet_data(tmp_path):
     cloudnet_palaiseau.download_radar_data(date, tmp_path)
 
     assert len(list(tmp_path.glob("*.nc"))) == 2
-
-
-
-

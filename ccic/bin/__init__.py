@@ -21,6 +21,7 @@ def ccic():
     from ccic.bin import train
     from ccic.bin import process
     from ccic.bin import extract_training_data
+    from ccic.bin import run_validation_retrieval
 
     warnings.filterwarnings("ignore", category=RuntimeWarning)
 
@@ -32,6 +33,7 @@ def ccic():
     train.add_parser(subparsers)
     process.add_parser(subparsers)
     extract_training_data.add_parser(subparsers)
+    run_validation_retrieval.add_parser(subparsers)
 
     if len(sys.argv) == 1:
         parser.print_help(sys.stderr)
