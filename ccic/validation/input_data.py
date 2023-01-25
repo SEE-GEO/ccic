@@ -7,6 +7,7 @@ retrieval.
 """
 from datetime import datetime, timedelta
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from artssat.data_provider import Fascod
 from metpy.constants import dry_air_molecular_weight, water_molecular_weight
@@ -18,6 +19,23 @@ from pansat.products.reanalysis.era5 import ERA5Hourly
 from pansat.products.ground_based.cloudnet import CloudnetProduct
 
 import xarray as xr
+
+def cloudnet_iwc(dbz, temp):
+    """
+    Calculate IWC from radar reflectivity and temperature profile using
+    the formula used in the Cloudnet retrievals.
+
+    Args:
+        dbz: The radar reflectivities
+        t: The temperature profile.
+
+    Return:
+        The estimated IWC in kg/m^3.
+    """
+    temp_c = temp - 273.5
+    dbz_c = 0.944 * dbz
+    log_iwc = 0.000242 * dbz_c * temp_c + 0.0699 * dbz_c + -0.0186 * temp_c + -1.63
+    return (10 ** log_iwc) / 1e3
 
 
 def resample_time_and_height(
@@ -73,7 +91,27 @@ class CloudnetRadar:
         self.product = CloudnetProduct("radar", "Radar L1B data", location)
         self.iwc_product = CloudnetProduct("iwc", "IWC product", location)
 
-    def load_data(self, path, date, iwc_path=None):
+    def has_data(self, path, date):
+        """
+        Determine whether input files are available for the given date.
+
+        Args:
+            path: Root of the directory tree in which to look for input
+                files.
+            date: The date for which to run the retrieval.
+
+        Return:
+            A boolean indicating whether the data is available.
+        """
+        path = Path(path)
+        pydate = to_datetime(date)
+        tmpl = f"**/{pydate.strftime('%Y%m%d')}_{self.location}_{self.radar_type}.nc"
+        has_radar = len(list(path.glob(tmpl))) > 0
+        tmpl = f"**/{pydate.strftime('%Y%m%d')}_*iwc*.nc"
+        has_iwc = len(list(path.glob(tmpl))) > 0
+        return has_radar and has_iwc
+
+    def load_data(self, path, date):
         """
         Load radar data from given data into xarray.Dataset
 
@@ -84,15 +122,11 @@ class CloudnetRadar:
             path: The path containing the Cloudnet data.
             date: A date specifying the day from which to load the Cloudnet
                 data.
-            iwc_path: Path for IWC files if available. If given, the IWC
-                data will be loaded, resampled to the resolution of the
-                radar data and included in the output data.
 
         Return:
             An 'xarray.Dataset' containing the resampled radar data.
         """
         path = Path(path)
-
         pydate = to_datetime(date)
         tmpl = f"**/{pydate.strftime('%Y%m%d')}_{self.location}_{self.radar_type}.nc"
         radar_file = next(iter(path.glob(tmpl)))
@@ -123,16 +157,38 @@ class CloudnetRadar:
             "range_bins": (("range_bins",), range_bins)
         })
 
-        if iwc_path is not None:
-            tmpl = f"**/{pydate.strftime('%Y%m%d')}_{self.location}*.nc"
-            iwc_data = xr.load_dataset(next(iter(iwc_path.glob(tmpl))))
+        tmpl = f"**/{pydate.strftime('%Y%m%d')}_{self.location}*iwc*.nc"
+        iwc_files = list(path.glob(tmpl))
+        if len(iwc_files) > 0:
+            iwc_data = xr.load_dataset(iwc_files[0])
             time = iwc_data.time.data
             height = iwc_data.height.data
-            iwc = iwc_data.iwc.data
+            iwc = np.nan_to_num(iwc_data.iwc_inc_rain.data, 0.0)
             iwc = resample_time_and_height(
                 time_bins, range_bins, time, height, iwc
             )
+            # Resample reliable retrieval flag to reliably IWC values.
+            reliability = (iwc_data.iwc_retrieval_status.data <= 3).astype(np.float64)
+            reliability = resample_time_and_height(
+                time_bins, range_bins, time, height, reliability
+            )
             results["iwc"] = (("time", "range"), iwc)
+            results["iwc"].attrs = {
+                "units": "kg m-3",
+                "long_name": "Ice water content",
+                "comment": "Resampled Cloudnet IWC. ",
+                "ancillary_variables": "iwc_reliability"
+            }
+            results["iwc_reliability"] = (("time", "range"), reliability)
+            results["iwc_reliability"].attrs = {
+                "long_name": "Reliability of ice water content retrieval.",
+                "comment":
+                """
+                The reliability encodes the fraction of Cloudnet IWC pixels
+                with retrieval status 'reliable' that were used to calculate
+                the resampled IWC. Values
+                """
+            }
 
         return results
 
@@ -192,16 +248,20 @@ class RetrievalInput(Fascod):
             self,
             radar,
             radar_data_path,
-            era5_data_path,
-            iwc_data_path=None
+            era5_data_path
     ):
         super().__init__("midlatitude", "summer")
         self.radar = radar
+
+        if radar_data_path is None and era5_data_path is None:
+            self._tempdir = TemporaryDirectory()
+            radar_data_path = Path(self._tempdir.name) / "radar"
+            era5_data_path = Path(self._tempdir.name) / "era5"
+        else:
+            self._tempdir = None
+
         self.radar_data_path = Path(radar_data_path)
         self.era5_data_path = Path(era5_data_path)
-        self.iwc_data_path = iwc_data_path
-        if self.iwc_data_path is not None:
-            self.iwc_data_path = Path(self.iwc_data_path)
         self._data = None
 
     def _load_data(self, date):
@@ -220,7 +280,6 @@ class RetrievalInput(Fascod):
             radar_data = self.radar.load_data(
                 self.radar_data_path,
                 date,
-                iwc_path=self.iwc_data_path
             )
 
             pydate = to_datetime(date)
@@ -237,8 +296,8 @@ class RetrievalInput(Fascod):
                 data = data.swap_dims({"level": "altitude"})
                 altitudes = np.arange(
                     self.radar.elevation,
-                    radar_data.range_bins.data.max()
-                    , 200.0
+                    radar_data.range_bins.data.max() + 201.0,
+                    200.0
                 )
                 data["p"] = (("altitude",), np.log(data.level.data))
                 data = data.interp(altitude=altitudes, kwargs={"fill_value": "extrapolate"})
@@ -254,6 +313,17 @@ class RetrievalInput(Fascod):
             self._data = xr.merge([era5_data, radar_data])
             self.interpolate_altitude(self._data.altitude.data)
 
+    def has_data(self, date):
+        pydate = to_datetime(date)
+        tmpl = f"**/*era5*{pydate.strftime('%Y%m%d')}*.nc"
+        era5_files = sorted(list(self.era5_data_path.glob(tmpl)))
+        has_era5 = len(era5_files) > 0
+        return has_era5 and self.radar.has_data(self.radar_data_path, date)
+
+    def download_data(self, date):
+        self.radar.download_radar_data(date, self.radar_data_path)
+        self.radar.download_era5_data(date, self.era5_data_path)
+
     def get_radar_reflectivity(self, date):
         """
         Return radar input observations for given date.
@@ -265,6 +335,36 @@ class RetrievalInput(Fascod):
             kwargs={"fill_value": "extrapolate"}
         ).data
         return np.maximum(-40, dbz)
+
+    def get_ice_dm_x0(self, date):
+        n0 = 10 ** self.get_ice_n0_xa(date)
+        t = self.get_temperature(date)
+
+        dbz = self.get_radar_reflectivity(date)
+        z = self.get_altitude(date)
+        bins = self.get_radar_range_bins(date)
+        centers = 0.5 * (bins[1:] + bins[:-1])
+        dbz_i = np.interp(z, centers, dbz, left=-40, right=-40)
+
+        iwc = cloudnet_iwc(dbz_i, t)
+        dm = (256 * iwc / (n0 * np.pi * 917.0)) ** (1 / 4)
+        dm[n0 < 10 ** 5] = 1e-8
+        return dm
+
+    def get_rain_dm_x0(self, date):
+        n0 = 10 ** self.get_rain_n0_xa(date)
+        t = self.get_temperature(date)
+
+        dbz = self.get_radar_reflectivity(date)
+        z = self.get_altitude(date)
+        bins = self.get_radar_range_bins(date)
+        centers = 0.5 * (bins[1:] + bins[:-1])
+        dbz_i = np.interp(z, centers, dbz, left=-40, right=-40)
+
+        iwc = cloudnet_iwc(dbz_i, t)
+        dm = (16 * iwc / (n0 * np.pi * 1000.0)) ** (1 / 4)
+        dm[n0 < 10 ** 3] = 1e-8
+        return dm
 
     def get_y_radar(self, date):
         """
@@ -330,3 +430,27 @@ class RetrievalInput(Fascod):
 
         mmr = mixing_ratio_from_relative_humidity(press, temp, rel)
         return dry_air_molecular_weight / water_molecular_weight * mmr
+
+    def get_iwc_data(self, date, timestep):
+        self._load_data(date)
+        start = date.astype("datetime64[D]").astype("datetime64[s]")
+        end = start + np.timedelta64(1, "D").astype("timedelta64[s]")
+        times = np.arange(
+            start,
+            end,
+            timestep
+        )
+        self._load_data(date)
+        data = self._data[["iwc", "iwc_reliability"]]
+        z = self.get_altitude(date)
+        data = data.interp(
+            time=times,
+            range=z,
+            method="nearest",
+            kwargs={"fill_value": 0}
+        ).rename({
+            "range": "altitude"
+        })
+        return data
+
+
