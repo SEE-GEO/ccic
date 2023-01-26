@@ -15,7 +15,7 @@ setup(
     author="Simon Pfreundschuh",
     author_email="simon.pfreundschuh@chalmers.se",
     install_requires=[
-        "metpy"
+        "metpy",
         "numpy",
         "quantnn",
         "torch",
