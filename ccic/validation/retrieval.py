@@ -19,7 +19,7 @@ from artssat.sensor import ActiveSensor
 from artssat.retrieval import a_priori
 from mcrf.retrieval import CloudRetrieval
 from mcrf.hydrometeors import Hydrometeor
-from mcrf.psds import D14NDmLiquid
+from mcrf.psds import D14NDmLiquid, D14NDmIce
 from mcrf.liras.common import n0_a_priori, dm_a_priori, rh_a_priori, ice_mask, rain_mask
 from mcrf.faam_combined import ObservationError
 from pansat.time import to_datetime
@@ -378,7 +378,6 @@ def process_day(
         output = io.StringIO()
         with capture_stdout(output):
             results = retrieval.process(date, timestep)
-            print("WRITING :: ", ice_shape)
             results.to_netcdf(
                 output_data_path / output_filename, group=ice_shape, mode="a"
             )
