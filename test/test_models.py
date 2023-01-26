@@ -32,12 +32,12 @@ def test_forward():
     with torch.no_grad():
         y_pred = model(x)
 
-    assert "iwc" in y_pred
-    assert y_pred["iwc"].shape[1] == 64 // 4
-    assert "iwp" in y_pred
-    assert y_pred["iwp"].shape[1] == 64
-    assert "iwp_rand" in y_pred
-    assert y_pred["iwp_rand"].shape[1] == 64
+    assert "tiwc" in y_pred
+    assert y_pred["tiwc"].shape[1] == 64 // 4
+    assert "tiwp" in y_pred
+    assert y_pred["tiwp"].shape[1] == 64
+    assert "tiwp_fpavg" in y_pred
+    assert y_pred["tiwp_fpavg"].shape[1] == 64
     assert "cloud_mask" in y_pred
     assert y_pred["cloud_mask"].shape[1] == 1
     assert "cloud_class" in y_pred

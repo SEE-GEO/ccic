@@ -12,12 +12,18 @@ from quantnn.normalizer import MinMaxNormalizer
 import torch
 import xarray as xr
 
+import torchvision.transforms.functional as tf
 
-NORMALIZER = MinMaxNormalizer(np.ones((3, 1, 1)), feature_axis=0)
-NORMALIZER.stats = {
+
+NORMALIZER_ALL = MinMaxNormalizer(np.ones((3, 1, 1)), feature_axis=0)
+NORMALIZER_ALL.stats = {
     0: (0.0, 1.0),
     1: (170, 310),
     2: (170, 310),
+}
+NORMALIZER = MinMaxNormalizer(np.ones((1, 1, 1)), feature_axis=0)
+NORMALIZER.stats = {
+    0: (170, 310),
 }
 
 MASK_VALUE = -100
@@ -102,36 +108,53 @@ def load_output_data(dataset, name, low=None, high=None, rng=None):
     return exp
 
 
-def apply_transformations(x, y, rng):
+def apply_transformations(x, y, rng, input_size=256):
     """
-    Randomly applies transpose and flip transformations to input.
+    Applies random transformation to the input data and extracts image samples
+    of the given size.
 
     Args:
         x: Tensor containing the input from a single training sample.
         y: Dict containing the corresponding training output.
         rng: Numpy RNG object to use for generation of random numbers.
+        input_size: The size of the input. If this is smaller than the input image
+            a random crop will be extracted from the input.
+
+    Return:
+       A tuple ``(x, y)`` containing the network input ``x`` and corresponding retrieval
+       output ``y``.
     """
-    # Transpose
-    transpose = rng.random() > 0.5
-    flip_v = rng.random() > 0.5
+    # Random rotation
+    angle = rng.uniform(0, 360)
     flip_h = rng.random() > 0.5
+
     flip_dims = []
-    if flip_v:
-        flip_dims.append(-2)
     if flip_h:
         flip_dims.append(-1)
 
-    if transpose:
-        x = torch.transpose(x, -2, -1)
+    left = (x.shape[-2] // 2) - 128
+    top = (x.shape[-2] // 2) - 128
+    shift_h = int(rng.uniform(-7, 7))
+    left += shift_h
+    shift_v = int(rng.uniform(-7, 7))
+    top += shift_v
+    top = max(top, 0)
+    left = max(left, 0)
+
+    x = tf.rotate(x, angle)
     if len(flip_dims) > 0:
         x = torch.flip(x, flip_dims)
+    x = tf.crop(x, top, left, input_size, input_size)
 
     for key in y:
         y_k = y[key]
-        if transpose:
-            y_k = torch.transpose(y_k, -2, -1)
+        if (y_k.ndim < 3):
+            y_k = tf.rotate(y_k[None], angle)[0]
+        else:
+            y_k = tf.rotate(y_k, angle)
         if len(flip_dims) > 0:
             y_k = torch.flip(y_k, flip_dims)
+        y_k = tf.crop(y_k, top, left, input_size, input_size)
         y[key] = y_k
 
     return x, y
@@ -141,8 +164,7 @@ class CCICDataset:
     """
     PyTorch dataset class to load the CCIC training data.
     """
-
-    def __init__(self, path, input_size=None):
+    def __init__(self, path, input_size=None, all_channels=False):
         """
         Args:
             path: Path to the folder containing the training samples.
@@ -150,6 +172,7 @@ class CCICDataset:
         """
         self.path = Path(path)
         self.input_size = input_size
+        self.all_channels = all_channels
         self.files = np.array(list(self.path.glob("**/cloudsat_match*.nc")))
         seed = int.from_bytes(os.urandom(4), "big") + os.getpid()
         self.rng = np.random.default_rng(seed)
@@ -204,34 +227,43 @@ class CCICDataset:
             # Input
             #
 
-            x = np.nan * np.ones((3, height, width), dtype="float32")
-            if "vis" in data:
-                x[0] = data.vis.data
-            if "ir_wv" in data:
-                x[1] = data.ir_wv.data
-            if "ir_win" in data:
-                x[2] = data.ir_win.data
+            if self.all_channels:
+                x = np.nan * np.ones((3, height, width), dtype="float32")
+                if "vis" in data:
+                    x[0] = data.vis.data
+                if "ir_wv" in data:
+                    x[1] = data.ir_wv.data
+                if "ir_win" in data:
+                    x[2] = data.ir_win.data
+                x = torch.tensor(NORMALIZER_ALL(x))
+            else:
+                x = np.nan * np.ones((1, height, width), dtype="float32")
+                if "ir_win" in data:
+                    x[0] = data.ir_win.data
+                x = torch.tensor(NORMALIZER_ALL(x))
 
             #
             # Output
             #
-            data["iwp"] = data["iwp"] * 1e-3
-            data["iwp_rand"] = data["iwp_rand"] * 1e-3
-            iwp = load_output_data(data, "iwp", 1e-6, 1e-3, self.rng)
-            iwp_rand = load_output_data(data, "iwp_rand", 1e-6, 1e-3, self.rng)
-            iwc = load_output_data(data, "iwc", 1e-6, 1e-3, self.rng)
+            data["tiwp_fpavg"] = data["tiwp_fpavg"] * 1e-3
+            data["tiwp"] = data["tiwp"] * 1e-3
+            tiwp_fpavg = load_output_data(data, "tiwp_fpavg", 1e-6, 1e-3, self.rng)
+            tiwp = load_output_data(data, "tiwp", 1e-6, 1e-3, self.rng)
+            tiwc = load_output_data(data, "tiwc", 1e-6, 1e-3, self.rng)
             cloud_class = load_output_data(data, "cloud_class").astype(np.int64)
             cloud_mask = (cloud_class.max(0) > 0).astype(np.int64)
 
-            x = torch.tensor(NORMALIZER(x))
             y = {}
-            y["iwp"] = torch.tensor(iwp.copy())
-            y["iwp_rand"] = torch.tensor(iwp_rand.copy())
-            y["iwc"] = torch.tensor(iwc.copy())
+            y["tiwp"] = torch.tensor(tiwp_fpavg.copy())
+            y["tiwp_fpavg"] = torch.tensor(tiwp.copy())
+            y["tiwc"] = torch.tensor(tiwc.copy())
             y["cloud_mask"] = torch.tensor(cloud_mask.copy())
             y["cloud_class"] = torch.tensor(cloud_class.copy())
 
-            x, y = apply_transformations(x, y, self.rng)
+            input_size = self.input_size
+            if input_size is None:
+                input_size = 256
+            x, y = apply_transformations(x, y, self.rng, input_size=input_size)
             return x, y
 
     def __getitem__(self, index):

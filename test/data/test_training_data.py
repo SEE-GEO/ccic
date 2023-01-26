@@ -37,9 +37,9 @@ def test_load_sample():
 
         x, y = dataset[0]
 
-        assert "iwp" in y
-        assert "iwp_rand" in y
-        assert "iwc" in y
+        assert "tiwp_fpavg" in y
+        assert "tiwp" in y
+        assert "tiwc" in y
         assert "cloud_class" in y
         assert "cloud_mask" in y
 
