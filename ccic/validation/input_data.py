@@ -452,5 +452,3 @@ class RetrievalInput(Fascod):
             "range": "altitude"
         })
         return data
-
-
