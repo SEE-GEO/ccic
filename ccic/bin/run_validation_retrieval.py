@@ -3,8 +3,7 @@
 ccic.bin.run_validation_retrieval
 =================================
 
-This sub-module implements the CLI to run CCIC radar-only
-retrievals.
+This sub-module implements the CLI to run CCIC radar-only retrievals.
 """
 from calendar import monthrange
 from datetime import datetime
@@ -102,6 +101,16 @@ def add_parser(subparsers):
             "time."
         )
     )
+    parser.add_argument(
+        "--n_workers",
+        metavar="n",
+        type=int,
+        default=1,
+        help=(
+            "The number of processes to use to parallelize the retrieval"
+            "processing."
+        )
+    )
     parser.set_defaults(func=run)
 
 def download_data(
@@ -127,6 +136,10 @@ def download_data(
         input_data, date = task
         try:
             if not input_data.has_data(date):
+                logger.info(
+                    "Downloading input data for %s",
+                    date
+                )
                 input_data.download_data(date)
             processing_queue.put((input_data, date))
         except Exception as exc:
@@ -210,13 +223,14 @@ def run(args):
         days = list(range(1, n_days + 1))
 
     start = to_datetime64(datetime(year, month, 1))
-    dates = [start + np.timedelta64(24 * 60 * 60, "s") * day for day in days]
+    dates = [start + np.timedelta64(24 * 60 * 60, "s") * (day - 1) for day in days]
 
     # Output path
     output_path = Path(args.output_path)
 
     static_data_path = args.static_data
     ice_shapes = args.ice_shapes
+    n_workers = args.n_workers
 
     # Use managed queue to pass files between download threads
     # and processing processes.
@@ -227,13 +241,16 @@ def run(args):
     args = (download_queue, processing_queue)
     download_process = Process(target=download_data, args=args)
     args = (processing_queue, radar, static_data_path, ice_shapes, output_path)
-    processing_process = Process(target=process_files, args=args)
+    processing_processes = [
+        Process(target=process_files, args=args) for _ in range(n_workers)
+    ]
 
     for date in dates:
         download_queue.put((input_data, date))
+    download_queue.put(None)
 
     download_process.start()
-    processing_process.start()
+    [proc.start() for proc in processing_processes]
 
     download_process.join()
-    processing_process.join()
+    [proc.join() for proc in processing_processes]
