@@ -317,12 +317,19 @@ class RetrievalInput(Fascod):
         pydate = to_datetime(date)
         tmpl = f"**/*era5*{pydate.strftime('%Y%m%d')}*.nc"
         era5_files = sorted(list(self.era5_data_path.glob(tmpl)))
-        has_era5 = len(era5_files) > 0
+        has_era5 = len(era5_files) > 12
         return has_era5 and self.radar.has_data(self.radar_data_path, date)
 
     def download_data(self, date):
-        self.radar.download_radar_data(date, self.radar_data_path)
-        self.radar.download_era5_data(date, self.era5_data_path)
+        pydate = to_datetime(date)
+        tmpl = f"**/*era5*{pydate.strftime('%Y%m%d')}*.nc"
+        era5_files = sorted(list(self.era5_data_path.glob(tmpl)))
+        has_era5 = len(era5_files) > 12
+        if not has_era5:
+            self.radar.download_era5_data(date, self.era5_data_path)
+
+        if not self.radar.has_data(self.radar_data_path, date):
+            self.radar.download_radar_data(date, self.radar_data_path)
 
     def get_radar_reflectivity(self, date):
         """
@@ -398,6 +405,7 @@ class RetrievalInput(Fascod):
     def get_pressure(self, date):
         """Get the pressure in the atmospheric column above the radar."""
         self._load_data(date)
+        print(self._data.p)
         return self._data.p.interp(
             time=date,
             method="nearest",
