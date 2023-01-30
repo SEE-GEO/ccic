@@ -221,7 +221,7 @@ def download_files(download_queue, processing_queue, retrieval_settings):
                 else:
                     logger.info("Input file locally available.")
             except Exception as e:
-                log.exception(e)
+                logger.exception(e)
         processing_queue.put(input_file)
     processing_queue.put(None)
 
@@ -272,7 +272,7 @@ def write_output(result_queue, retrieval_settings, output_path):
                     input_file.filename
                 )
             except Exception as e:
-                log.exception(e)
+                logger.exception(e)
         log.finalize(data, output_file)
 
 
