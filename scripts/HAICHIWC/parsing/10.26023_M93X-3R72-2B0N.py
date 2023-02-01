@@ -1,5 +1,6 @@
 """
 Parses a flight track KML file from the dataset https://doi.org/10.26023/M93X-3R72-2B0N
+into a friendly CSV format for posterior use
 
 The parsing has been constructed by manually identifying the appropriate
 elements in the KML file.
@@ -50,4 +51,4 @@ for placemark in placemarks:
         ignore_index=True
     )
 
-coordinates.to_csv(os.path.join(args.destination, os.path.basename(args.kmlfile).replace('.kml', '.csv')))
+coordinates.to_csv(os.path.join(args.destination, 'friendly_{:}'.format(os.path.basename(args.kmlfile).replace('.kml', '.csv'))), index=False)
