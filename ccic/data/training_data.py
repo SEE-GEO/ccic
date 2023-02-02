@@ -21,7 +21,7 @@ NORMALIZER_ALL.stats = {
     1: (170, 310),
     2: (170, 310),
 }
-NORMALIZER = MinMaxNormalizer(np.ones((1, 1, 1)), feature_axis=0)
+NORMALIZER = MinMaxNormalizer(np.ones((2, 1, 1)), feature_axis=0)
 NORMALIZER.stats = {
     0: (170, 310),
 }
@@ -240,7 +240,10 @@ class CCICDataset:
                 x = np.nan * np.ones((1, height, width), dtype="float32")
                 if "ir_win" in data:
                     x[0] = data.ir_win.data
-                x = torch.tensor(NORMALIZER_ALL(x))
+                if "cpcir2" in filename.stem:
+                    x[0] /= 4
+                x = torch.tensor(NORMALIZER(x))
+
 
             #
             # Output
@@ -251,7 +254,7 @@ class CCICDataset:
             tiwp = load_output_data(data, "tiwp", 1e-6, 1e-3, self.rng)
             tiwc = load_output_data(data, "tiwc", 1e-6, 1e-3, self.rng)
             cloud_class = load_output_data(data, "cloud_class").astype(np.int64)
-            cloud_mask = (cloud_class.max(0) > 0).astype(np.int64)
+            cloud_mask = load_output_data(data, "cloud_mask").astype(np.int64)
 
             y = {}
             y["tiwp"] = torch.tensor(tiwp_fpavg.copy())
@@ -264,6 +267,19 @@ class CCICDataset:
             if input_size is None:
                 input_size = 256
             x, y = apply_transformations(x, y, self.rng, input_size=input_size)
+
+            # Ensure there's a minimum of valid training data in the sample.
+            valid_output = (y["tiwp"] >= 0.0).sum()
+            valid_input = (x >= -1.4).sum()
+
+            valid_output_iwc = (y["tiwc"] >= 0.0).sum()
+            valid_output_cm = (y["cloud_mask"] >= 0.0).sum()
+
+
+            if (valid_output < 50) or (valid_input < 50):
+                new_index = self.rng.integers(0, len(self))
+                return self[new_index]
+
             return x, y
 
     def __getitem__(self, index):

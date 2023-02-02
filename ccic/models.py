@@ -50,7 +50,7 @@ class CCICModel(nn.Module):
         block_factory = blocks.ConvNextBlockFactory()
         norm_factory = block_factory.layer_norm
 
-        self.stem = block_factory(n_channels_in, features)
+        self.stem = nn.Conv2d(n_channels_in, features, 3, padding=1)
         self.encoder = SpatialEncoder(
             channels=features,
             stages=[n_blocks] * n_stages,

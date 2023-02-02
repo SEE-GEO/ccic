@@ -193,9 +193,9 @@ def run(args):
     model_path = Path(args.model_path)
 
     transformations = {
-        "iwc": transformations.LogLinear(),
-        "iwp": transformations.LogLinear(),
-        "iwp_rand": transformations.LogLinear(),
+        "tiwc": transformations.LogLinear(),
+        "tiwp": transformations.LogLinear(),
+        "tiwp_fpavg": transformations.LogLinear(),
         "cloud_mask": None,
         "cloud_class": None
     }
@@ -207,9 +207,9 @@ def run(args):
     quantiles_iwc[-1] = 1 - 1e-3
 
     losses = {
-        "iwp": Quantiles(quantiles_iwp, sparse=True),
-        "iwp_rand": Quantiles(quantiles_iwp, sparse=True),
-        "iwc": Quantiles(quantiles_iwc, sparse=True),
+        "tiwp": Quantiles(quantiles_iwp, sparse=True),
+        "tiwp_fpavg": Quantiles(quantiles_iwp, sparse=True),
+        "tiwc": Quantiles(quantiles_iwc, sparse=True),
         "cloud_mask": Classification(2, sparse=True),
         "cloud_class": Classification(9, sparse=True),
     }
@@ -247,7 +247,7 @@ def run(args):
         callbacks=[LearningRateMonitor()],
         strategy="ddp",
         replace_sampler_ddp=True,
-        enable_checkpointing=False
+        enable_checkpointing=False,
     )
     trainer.fit(
         model=lm, train_dataloaders=training_loader, val_dataloaders=validation_loader
