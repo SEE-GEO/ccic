@@ -56,5 +56,8 @@ FOOT_TO_METRES = 0.3048
 df['altitude_metres'] = FOOT_TO_METRES * df['altitude_feet']
 df = df.drop(columns='altitude_feet')
 
+# Follow common naming
+df = df.rename(columns={'timestamp_UTC': 'UTC', 'altitude_metres': 'altitude_pressure_metres'})
+
 # To CSV
 df.to_csv(os.path.join(args.destination, 'friendly_{:}'.format(os.path.basename(args.filepath))), index=False)
