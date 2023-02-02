@@ -49,7 +49,7 @@ for i in range(5, len(lines)):
 df = df[['Stimech', 'Slat', 'Slong', 'SIAltm', 'XKBZR5s']]
 
 # Remap columns
-df = df.rename(columns={'Stimech': 'timestamp_UTC', 'Slat': 'latitude', 'Slong': 'longitude', 'SIAltm': 'altitude_metres', 'XKBZR5s': 'TWC_?'})
+df = df.rename(columns={'Stimech': 'UTC', 'Slat': 'latitude', 'Slong': 'longitude', 'SIAltm': 'altitude_pressure_metres', 'XKBZR5s': 'TWC_gm3'})
 
 # To CSV
 df.to_csv(os.path.join(args.destination, 'friendly_{:}'.format(os.path.basename(args.filepath))), index=False)

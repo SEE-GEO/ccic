@@ -45,6 +45,7 @@ df = pd.merge(df_in, df_aux, on='timestamp_UTC')
 df = pd.merge(df_in, df_aux, on='timestamp_UTC')
 df = df[['timestamp_UTC', 'TWC_robust', 'latitude', 'longitude', 'altitude_metres']].rename(columns={'TWC_robust': 'TWC_?'})
 df['timestamp_UTC'] = df['timestamp_UTC'].apply(lambda x: datetime.datetime.strptime(x, '%Y-%m-%d %H:%M:%S'))
+df = df.rename(columns={'timestamp_UTC': 'UTC', 'altitude_metres': 'altitude_pressure_metres'})
 
 assert df.index.size > 0
 
