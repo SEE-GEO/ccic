@@ -83,8 +83,18 @@ df_combined['Pressure Altitude (m)'] = FOOT_TO_METRE * df_combined['Pressure Alt
 df_combined['Paltm (metres)'] = FOOT_TO_METRE * df_combined['Paltft']
 df_combined = df_combined.drop(columns=['Pressure Altitude (ft)', 'Paltft', 'GPS Altitude MSL (m)', 'RADAR Altitude (ft)']) # Seems like `GPS Altitude MSL (m)` can be all nan, and `RADAR Altitude (ft)` does not vary
 
+# `Pressure Altitude (m)` and `Paltm (metres)` determined to be very similar checking the numbers for `180727-FLT01-IKP2-R1-V2.7.csv`
+# Keep only one variable
+df_combined = df_combined.drop(columns='Pressure Altitude (m)')
+
 # Rename to keep information
-df_combined = df_combined.rename(columns={'IKPTWC5s': 'TWC_gm3', 'Pressure Altitude (m)': 'Pressure Altitude from nav data (m)', 'Paltm (metres)': 'Pressure altitude instrument(?) (m)'})
+df_combined = df_combined.rename(columns={
+    'Time':'UTC',
+    'IKPTWC5s': 'TWC_gm3',
+    'Latitude (deg)': 'latitude',
+    'Longitude (deg)': 'longitude',
+    'Paltm (metres)': 'altitude_pressure_metres',
+    'GPS Altitude (m)': 'altitude_gps_metres'})
 
 # Write to file
 df_combined.to_csv(os.path.join(args.destination, 'friendly_{:}'.format(os.path.basename(args.filepath))), index=False)
