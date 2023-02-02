@@ -25,7 +25,10 @@ args = parser.parse_args()
 
 df_aux = pd.read_csv(args.auxfile)
 df_in = pd.read_csv(args.filepath)
-df_in = df_in[df_in.isnull().all(axis=1) == False]
+df_in = df_in[df_in.isnull().any(axis=1) == False]
+
+if 'temps' in df_in.columns:
+    df_in = df_in.rename(columns={'temps': 'GMT'})
 
 # Drop rows that are all nan
 
@@ -39,16 +42,15 @@ def fun(row):
     return TIMESTAMP_BASE + datetime.timedelta(hours=hours, minutes=minutes, seconds=seconds)
 
 df_in['GMT'] = df_in.GMT.apply(fun)
-df_in = df_in.rename(columns={'GMT': 'timestamp_UTC'})
+df_in = df_in.rename(columns={'GMT': 'UTC'})
 
-df_in['timestamp_UTC'] = df_in['timestamp_UTC'].apply(str)
-df_aux['timestamp_UTC'] = df_aux['timestamp_UTC'].apply(str)
-df = pd.merge(df_in, df_aux, on='timestamp_UTC')
+df_in['UTC'] = df_in['UTC'].apply(str)
+df_aux['UTC'] = df_aux['UTC'].apply(str)
+df = pd.merge(df_in, df_aux, on='UTC')
 
-df = pd.merge(df_in, df_aux, on='timestamp_UTC')
-df = df[['timestamp_UTC', 'TWC_robust', 'latitude', 'longitude', 'altitude_metres']].rename(columns={'TWC_robust': 'TWC_?'})
-df['timestamp_UTC'] = df['timestamp_UTC'].apply(lambda x: datetime.datetime.strptime(x, '%Y-%m-%d %H:%M:%S'))
-df = df.rename(columns={'timestamp_UTC': 'UTC', 'altitude_metres': 'altitude_pressure_metres'})
+df = df[['UTC', 'TWC_robust', 'latitude', 'longitude', 'altitude_pressure_metres']].rename(columns={'TWC_robust': 'TWC_?'})
+df['UTC'] = df['UTC'].apply(lambda x: datetime.datetime.strptime(x, '%Y-%m-%d %H:%M:%S'))
+# df = df.rename(columns={'altitude_metres': 'altitude_pressure_metres'})
 
 assert df.index.size > 0
 
