@@ -103,7 +103,7 @@ def get_hydrometeors(static_data, shape):
     ice_shape = static_data / f"{shape}.xml"
     ice_shape_meta = static_data / f"{shape}.meta.xml"
 
-    ice_covariance = a_priori.Diagonal(100e-6**2, mask=ice_mask, mask_value=1e-12)
+    ice_covariance = a_priori.Diagonal(500e-6**2, mask=ice_mask, mask_value=1e-12)
     ice_covariance = a_priori.SpatialCorrelation(ice_covariance, 1e3, mask=ice_mask)
     ice_dm_a_priori = a_priori.FunctionalAPriori(
         "ice_dm",
@@ -138,7 +138,7 @@ def get_hydrometeors(static_data, shape):
 
     rain_shape = static_data / "LiquidSphere.xml"
     rain_shape_meta = static_data / "LiquidSphere.meta.xml"
-    rain_covariance = a_priori.Diagonal(100e-6**2, mask=rain_mask, mask_value=1e-12)
+    rain_covariance = a_priori.Diagonal(500e-6**2, mask=rain_mask, mask_value=1e-12)
     rain_dm_a_priori = a_priori.FixedAPriori(
         "rain_dm", 500e-6, rain_covariance, mask=rain_mask, mask_value=1e-8
     )
@@ -217,7 +217,8 @@ class RadarRetrieval:
         input_data.add(ObservationError(sensors))
 
         self.retrieval = CloudRetrieval(
-            hydrometeors, sensors, input_data, data_path=static_data_path
+            hydrometeors, sensors, input_data, data_path=static_data_path,
+            include_cloud_water=True
         )
 
         def radar_only(run):
