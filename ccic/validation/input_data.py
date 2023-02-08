@@ -151,6 +151,7 @@ class CloudnetRadar:
         snr = np.nan_to_num(radar_data.SNR.data, -20)
         snr = resample_time_and_height(time_bins, range_bins, time, height, snr)
         nedt = np.sqrt(snr - z)
+        nedt[z < -100] = 1.0
 
         time = time_bins[:-1] + 0.5 * (time_bins[1:] - time_bins[:-1])
         radar_range = 0.5 * (range_bins[1:] + range_bins[:-1])
@@ -613,8 +614,8 @@ class RetrievalInput(Fascod):
             time=date,
             method="nearest",
             kwargs={"fill_value": 0}
-        )
-        return nedt
+        ).data
+        return np.maximum(nedt, 0.5)
 
     def get_temperature(self, date):
         """Get temperature in the atmospheric column above the radar."""
