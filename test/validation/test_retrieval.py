@@ -9,7 +9,11 @@ import pytest
 import xarray as xr
 
 from ccic.validation.retrieval import RadarRetrieval
-from ccic.validation.input_data import RetrievalInput, cloudnet_punta_arenas
+from ccic.validation.input_data import (
+    RetrievalInput,
+    cloudnet_punta_arenas,
+    arm_manacapuru
+)
 
 TEST_DATA = os.environ.get("CCIC_TEST_DATA", None)
 NEEDS_TEST_DATA = pytest.mark.skipif(
@@ -39,4 +43,25 @@ def test_retrieval_cloudnet():
     assert "radar_reflectivity" in results
     assert "radar_reflectivity_fitted" in results
 
+
+def test_retrieval_arm():
+    """Test running the retrieval for the Cloudnet radar in Punta Arenas."""
+    retrieval_input = RetrievalInput(
+        arm_manacapuru,
+        VALIDATION_DATA / "manacapuru",
+        VALIDATION_DATA / "era5"
+    )
+    retrieval = RadarRetrieval(
+        cloudnet_punta_arenas,
+        retrieval_input,
+        Path(TEST_DATA) / "validation" / "data",
+        "8-ColumnAggregate"
+    )
+    results = retrieval.process(
+        np.datetime64("2014-12-10T10:00:00"),
+        np.timedelta64(8 * 60 * 60, "s")
+    )
+
+    assert "radar_reflectivity" in results
+    assert "radar_reflectivity_fitted" in results
 
