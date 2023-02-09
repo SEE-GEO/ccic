@@ -20,7 +20,7 @@ from artssat.retrieval import a_priori
 from mcrf.retrieval import CloudRetrieval
 from mcrf.hydrometeors import Hydrometeor
 from mcrf.psds import D14NDmLiquid, D14NDmIce
-from mcrf.liras.common import n0_a_priori, dm_a_priori, rh_a_priori, ice_mask, rain_mask
+from mcrf.liras.common import n0_a_priori, rh_a_priori, ice_mask, rain_mask
 from mcrf.faam_combined import ObservationError
 from pansat.time import to_datetime
 
@@ -88,6 +88,24 @@ def rwc(n0, dm):
     return np.pi * 1000.0 * dm**4 * n0 / 4**4
 
 
+def dm_a_priori(t):
+    """
+    Functional relation for of the a priori mean of :math:`D_m`
+    using the DARDAR :math:`N_0^*` a priori and a fixed water
+    content of :math:`10^{-7}` kg m:math:`^{-3}`.
+
+    Args:
+        t: Array containing the temperature profile.
+
+    Returns:
+        A priori for :math:`D_m`
+    """
+    n0 = 10**n0_a_priori(t)
+    iwc = 1e-7
+    dm = (4.0**4 * iwc / (np.pi * 917.0) / n0)**0.25
+    return dm
+
+
 def get_hydrometeors(static_data, shape):
     """
     Get hydrometeors for retrieval.
@@ -103,7 +121,8 @@ def get_hydrometeors(static_data, shape):
     ice_shape = static_data / f"{shape}.xml"
     ice_shape_meta = static_data / f"{shape}.meta.xml"
 
-    ice_covariance = a_priori.Diagonal(500e-6**2, mask=ice_mask, mask_value=1e-12)
+    ice_mask = a_priori.FreezingLevel(lower_inclusive=True, invert=False)
+    ice_covariance = a_priori.Diagonal(1e-3**2, mask=ice_mask, mask_value=1e-12)
     ice_covariance = a_priori.SpatialCorrelation(ice_covariance, 1e3, mask=ice_mask)
     ice_dm_a_priori = a_priori.FunctionalAPriori(
         "ice_dm",
@@ -114,7 +133,7 @@ def get_hydrometeors(static_data, shape):
         mask_value=1e-8,
     )
 
-    ice_covariance = a_priori.Diagonal(1e-6, mask=ice_mask, mask_value=1e-12)
+    ice_covariance = a_priori.Diagonal(1e-6 ** 2, mask=ice_mask, mask_value=1e-12)
     ice_covariance = a_priori.SpatialCorrelation(ice_covariance, 2e3, mask=ice_mask)
     ice_n0_a_priori = a_priori.FunctionalAPriori(
         "ice_n0",
@@ -134,13 +153,14 @@ def get_hydrometeors(static_data, shape):
 
     ice.transformations = [Log10(), Identity()]
     # Lower limits for N_0^* and m in transformed space.
-    ice.limits_low = [2, 1e-8]
+    ice.limits_low = [2, 1e-9]
 
     rain_shape = static_data / "LiquidSphere.xml"
     rain_shape_meta = static_data / "LiquidSphere.meta.xml"
+    rain_mask = a_priori.FreezingLevel(lower_inclusive=False, invert=True)
     rain_covariance = a_priori.Diagonal(500e-6**2, mask=rain_mask, mask_value=1e-12)
     rain_dm_a_priori = a_priori.FixedAPriori(
-        "rain_dm", 500e-6, rain_covariance, mask=rain_mask, mask_value=1e-8
+        "rain_dm", 1e-3, rain_covariance, mask=rain_mask, mask_value=1e-8
     )
     rain_covariance = a_priori.Diagonal(1e-6, mask=rain_mask, mask_value=1e-12)
     rain_n0_a_priori = a_priori.FixedAPriori(
@@ -154,7 +174,7 @@ def get_hydrometeors(static_data, shape):
         str(rain_shape_meta),
     )
     rain.transformations = [Log10(), Identity()]
-    rain.limits_low = [2, 1e-8]
+    rain.limits_low = [2, 1e-9]
 
     return [rain, ice]
 
@@ -182,12 +202,15 @@ class GroundRadar(ActiveSensor):
         return 0.5 * np.ones(self.range_bins.size - 1)
 
 
+
 # Supported Cloudnet radars.
 RADARS = {
     "palaiseau": GroundRadar(95e9),
     "schneefernerhaus": GroundRadar(35e9),
     "punta-arenas": GroundRadar(35e9),
+    "manacapuru": GroundRadar(95e9)
 }
+RADARS["manacapuru"].y_min = -25
 
 
 class RadarRetrieval:

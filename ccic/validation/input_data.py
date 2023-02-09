@@ -90,6 +90,7 @@ class CloudnetRadar:
         self.elevation = elevation
         self.product = CloudnetProduct("radar", "Radar L1B data", location)
         self.iwc_product = CloudnetProduct("iwc", "IWC product", location)
+        self.y_min = -40
 
     def has_data(self, path, date):
         """
@@ -240,14 +241,21 @@ class CloudnetRadar:
         product.download(start, end, destination=destination)
 
 
+cloudnet_palaiseau = CloudnetRadar("palaiseau", "basta", 2.212, 47.72, 156.0)
+cloudnet_galati = CloudnetRadar("galati", "basta", 28.037, 45.435, 40.0)
+cloudnet_punta_arenas = CloudnetRadar("punta-arenas", "mira", -70.883, -53.135, 9)
+
+
 class ARMRadar:
     """
     Class to load input data from the ARM WACR radar.
     """
     def __init__(self, longitude, latitude, elevation):
+        self.location = "manacapuru"
         self.longitude = longitude
         self.latitude = latitude
         self.elevation = elevation
+        self.y_min = -25
 
     def has_data(self, path, date):
         """
@@ -289,85 +297,32 @@ class ARMRadar:
         tmpl = f"**/maowacrM1.a1.{date_str}*.nc"
         radar_file = sorted(list(path.glob(tmpl)))[-1]
 
-        # Resample data
-        time = radar_data.time.data.astype("datetime64[s]")
-        time_bins = np.arange(
-            time[0],
-            time[-1] + np.timedelta64(1, "s"),
-            np.timedelta64(5 * 60, "s")
-        )
-        height = radar_data.height.data
-        range_bins = np.arange(height[0], height[-1], 100)
-
-        refl = radar_data.reflectivity.data
-        z = 10 ** (np.nan_to_num(refl, -30) / 10)
-        z = resample_time_and_height(time_bins, range_bins, time, height, z)
-        z = 10 * np.log10(z)
-
-        time = time_bins[:-1] + 0.5 * (time_bins[1:] - time_bins[:-1])
-        radar_range = 0.5 * (range_bins[1:] + range_bins[:-1])
-        results = xr.Dataset({
-            "time": (("time", ), time),
-            "range": (("range",), radar_range),
-            "radar_reflectivity": (("time", "range"), z),
-            "range_bins": (("range_bins",), range_bins)
-        })
-
-        tmpl = f"**/{pydate.strftime('%Y%m%d')}_{self.location}*iwc*.nc"
-        iwc_files = list(path.glob(tmpl))
-        if len(iwc_files) > 0:
-            iwc_data = xr.load_dataset(iwc_files[0])
-            time = iwc_data.time.data
-            height = iwc_data.height.data
-            iwc = np.nan_to_num(iwc_data.iwc_inc_rain.data, 0.0)
-            iwc = resample_time_and_height(
-                time_bins, range_bins, time, height, iwc
+        with xr.open_dataset(radar_file) as radar_data:
+            # Resample data
+            time = radar_data.time.data.astype("datetime64[s]")
+            time_bins = np.arange(
+                time[0],
+                time[-1] + np.timedelta64(1, "s"),
+                np.timedelta64(5 * 60, "s")
             )
-            # Resample reliable retrieval flag to reliably IWC values.
-            reliability = (iwc_data.iwc_retrieval_status.data <= 3).astype(np.float64)
-            reliability = resample_time_and_height(
-                time_bins, range_bins, time, height, reliability
-            )
-            results["iwc"] = (("time", "range"), iwc)
-            results["iwc"].attrs = {
-                "units": "kg m-3",
-                "long_name": "Ice water content",
-                "comment": "Resampled Cloudnet IWC. ",
-                "ancillary_variables": "iwc_reliability"
-            }
-            results["iwc_reliability"] = (("time", "range"), reliability)
-            results["iwc_reliability"].attrs = {
-                "long_name": "Reliability of ice water content retrieval.",
-                "comment":
-                """
-                The reliability encodes the fraction of Cloudnet IWC pixels
-                with retrieval status 'reliable' that were used to calculate
-                the resampled IWC. Values
-                """
-            }
+            height = radar_data.height.data
+            range_bins = np.arange(height[0], height[-1], 100)
 
+            refl = radar_data.reflectivity.data
+            z = 10 ** (np.nan_to_num(refl, self.y_min) / 10)
+            z = resample_time_and_height(time_bins, range_bins, time, height, z)
+            z = 10 * np.log10(z)
+
+            time = time_bins[:-1] + 0.5 * (time_bins[1:] - time_bins[:-1])
+            radar_range = 0.5 * (range_bins[1:] + range_bins[:-1])
+            results = xr.Dataset({
+                "time": (("time", ), time),
+                "range": (("range",), radar_range),
+                "radar_reflectivity": (("time", "range"), z),
+                "range_bins": (("range_bins",), range_bins)
+            })
         return results
 
-    def download_radar_data(self, date, destination):
-        """
-        Download Radar L1B and IWC data for a given day.
-
-        Args:
-            date: Date specifying the day for which to download the data.
-            destination: Path in which to store the downloaded data.
-        """
-        end = to_datetime(date)
-        start = end - timedelta(days=1)
-        self.product.download(
-            start,
-            end,
-            destination=destination,
-        )
-        self.iwc_product.download(
-            start,
-            end,
-            destination=destination,
-        )
 
     def download_era5_data(self, date, destination):
         """
@@ -382,16 +337,22 @@ class ARMRadar:
         end = start + timedelta(days=1)
         lon = self.longitude
         lat = self.latitude
+
+        variables = [
+            'temperature',
+            'relative_humidity',
+            'geopotential',
+            'specific_cloud_liquid_water_content'
+        ]
         product = ERA5Hourly(
             'pressure',
-            ['temperature', 'relative_humidity', 'geopotential', 'specific_cloud_liquid_water_content'],
+            variables,
             [lat - 0.5, lat + 0.5, lon - 0.5, lon + 0.5]
         )
         product.download(start, end, destination=destination)
 
-cloudnet_palaiseau = CloudnetRadar("palaiseau", "basta", 2.212, 47.72, 156.0)
-cloudnet_galati = CloudnetRadar("galati", "basta", 28.037, 45.435, 40.0)
-cloudnet_punta_arenas = CloudnetRadar("punta-arenas", "mira", -70.883, -53.135, 9)
+
+arm_manacapuru = ARMRadar(60.598100, 3.212970, 250.0)
 
 
 class RetrievalInput(Fascod):
@@ -527,7 +488,7 @@ class RetrievalInput(Fascod):
             method="nearest",
             kwargs={"fill_value": "extrapolate"}
         ).data
-        return np.maximum(-40, dbz)
+        return np.maximum(self.radar.y_min, dbz)
 
     def get_ice_dm_x0(self, date):
         """
@@ -546,6 +507,7 @@ class RetrievalInput(Fascod):
         iwc = cloudnet_iwc(dbz_i, t)
         dm = (256 * iwc / (n0 * np.pi * 917.0)) ** (1 / 4)
         dm[n0 < 10 ** 5] = 1e-8
+        dm[dbz_i <= self.radar.y_min] = 1e-8
         return dm
 
     def get_rain_dm_x0(self, date):
@@ -610,12 +572,8 @@ class RetrievalInput(Fascod):
         Return nedt for radar observations.
         """
         self._load_data(date)
-        nedt = self._data.nedt.interp(
-            time=date,
-            method="nearest",
-            kwargs={"fill_value": 0}
-        ).data
-        return np.maximum(nedt, 0.5)
+        range_bins = self.get_radar_range_bins(date)
+        return np.ones(range_bins.size - 1)
 
     def get_temperature(self, date):
         """Get temperature in the atmospheric column above the radar."""
