@@ -6,8 +6,9 @@ Implements an interface to run mcrf radar-only retrievals.
 """
 from contextlib import contextmanager
 import io
-from pathlib import Path
+import logging
 import os
+from pathlib import Path
 import sys
 import tempfile
 
@@ -406,5 +407,13 @@ def process_day(
                 output_data_path / output_filename, group=ice_shape, mode="a"
             )
 
-    iwc_data = input_data.get_iwc_data(date, timestep)
-    iwc_data.to_netcdf(output_data_path / output_filename, group="cloudnet", mode="a")
+    try:
+        iwc_data = input_data.get_iwc_data(date, timestep)
+        iwc_data.to_netcdf(output_data_path / output_filename, group="cloudnet", mode="a")
+    except KeyError:
+        logger = logging.getLogger(__name__)
+        logger.warning(
+            "No IWC reference data for retrieval %s on %s",
+            radar.location,
+            date
+        )
