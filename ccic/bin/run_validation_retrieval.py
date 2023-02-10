@@ -115,7 +115,8 @@ def add_parser(subparsers):
 
 def download_data(
         download_queue,
-        processing_queue
+        processing_queue,
+        n_workers=1
 ):
     """
     Downloads data for a given day.
@@ -144,7 +145,8 @@ def download_data(
             processing_queue.put((input_data, date))
         except Exception as exc:
             logger.exception(exc)
-    processing_queue.put(None)
+    for _ in range(n_workers):
+        processing_queue.put(None)
 
 
 def process_files(
@@ -238,8 +240,15 @@ def run(args):
     download_queue = manager.Queue()
     processing_queue = manager.Queue(4)
 
+
+    logging.basicConfig(level="INFO", force=True)
+
     args = (download_queue, processing_queue)
-    download_process = Process(target=download_data, args=args)
+    download_process = Process(
+        target=download_data,
+        args=args,
+        kwargs={"n_workers": n_workers}
+    )
     args = (processing_queue, radar, static_data_path, ice_shapes, output_path)
     processing_processes = [
         Process(target=process_files, args=args) for _ in range(n_workers)
