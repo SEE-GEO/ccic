@@ -151,7 +151,7 @@ class GridSat:
         if roi is not None:
             input_data = extract_roi(input_data, roi, min_size=256)
         xs = []
-        for name in ["vschn", "irwvp", "irwin_cdr"]:
+        for name in ["irwin_cdr"]:
             xs.append(input_data[name].data[0])
         x = NORMALIZER(np.stack(xs))
         return torch.tensor(x[None]).to(torch.float32)

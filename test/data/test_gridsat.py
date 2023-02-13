@@ -75,7 +75,7 @@ def test_get_retrieval_input():
     x = input_file.get_retrieval_input()
     assert x.ndim == 4
     assert x.shape[0] == 1
-    assert x.shape[1] == 3
+    assert x.shape[1] == 1
     assert (x >= -1.5).all()
     assert (x <= 1.0).all()
 

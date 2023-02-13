@@ -385,12 +385,9 @@ def get_output_filename(input_file, date, retrieval_settings):
     return f"ccic_{file_type}_{date_str}.{suffix}"
 
 
-REGRESSION_TARGETS = ["iwp", "iwp_rand", "iwc"]
-SCALAR_TARGETS = ["iwp", "iwp_rand"]
-THRESHOLDS = {"iwp": 1e-3, "iwp_rand": 1e-3, "iwc": 1e-3}
-
-# Maps NN target names to output names.
-OUTPUT_NAMES = {"iwp": "tiwp_fpavg", "iwp_rand": "tiwp", "iwc": "tiwc"}
+REGRESSION_TARGETS = ["tiwp", "tiwp_fpavg", "tiwc"]
+SCALAR_TARGETS = ["tiwp", "tiwp_fpavg"]
+THRESHOLDS = {"tiwp": 1e-3, "tiwp_fpavg": 1e-3, "tiwc": 1e-3}
 
 
 def process_regression_target(
@@ -496,9 +493,9 @@ def process_input(mrnn, x, retrieval_settings=None):
     targets = retrieval_settings.targets
     if targets is None:
         targets = [
-            "iwp",
-            "iwp_rand",
-            "iwc",
+            "tiwp",
+            "tiwp_fpavg",
+            "tiwc",
             "cloud_prob_2d",
             "cloud_prob_3d",
             "cloud_type",
@@ -583,16 +580,16 @@ def process_input(mrnn, x, retrieval_settings=None):
             dims = ("time", "latitude", "longitude", "altitude")
             mean = np.transpose(mean, [0, 2, 3, 1])
 
-        results[OUTPUT_NAMES[target]] = (dims, mean)
+        results[target] = (dims, mean)
 
     dims = ("time", "latitude", "longitude")
     for target, p_non_zero in p_non_zeros.items():
         smpls = tiler.assemble(p_non_zero)
-        results["p_" + OUTPUT_NAMES[target]] = (dims, smpls)
+        results["p_" + target] = (dims, smpls)
 
     for target, log_std_dev in log_std_devs.items():
         log_std_dev = tiler.assemble(log_std_dev)
-        results[OUTPUT_NAMES[target] + "_log_std_dev"] = (dims, log_std_dev)
+        results[target + "_log_std_dev"] = (dims, log_std_dev)
 
     dims = ("time", "latitude", "longitude")
     if len(cloud_prob_2d) > 0:
@@ -709,7 +706,7 @@ def add_static_cf_attributes(dataset):
         dataset["p_tiwp_fpavg"].attrs["units"] = "1"
 
     if "tiwc" in dataset:
-        dataset["tiwc"].attrs["units"] = "kg m-3"
+        dataset["tiwc"].attrs["units"] = "g m-3"
         dataset["tiwc"].attrs["long_name"] = "Concentration of frozen hydrometeors"
 
     if "cloud_prob_2d" in dataset:
