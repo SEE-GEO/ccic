@@ -352,7 +352,7 @@ class ARMRadar:
         product.download(start, end, destination=destination)
 
 
-arm_manacapuru = ARMRadar(60.598100, 3.212970, 250.0)
+arm_manacapuru = ARMRadar(-60.598100, 3.212970, 250.0)
 
 
 class RetrievalInput(Fascod):
