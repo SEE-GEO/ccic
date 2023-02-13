@@ -355,9 +355,9 @@ def run(args):
 
         # Retrieval settings
         valid_targets = [
-            "iwp",
-            "iwp_rand",
-            "iwc",
+            "tiwp",
+            "tiwp_fpavg",
+            "tiwc",
             "cloud_type",
             "cloud_prob_2d",
             "cloud_prob_3d",
