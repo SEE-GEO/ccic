@@ -10,6 +10,7 @@ Note: the resulting dataframe has not been cleaned on purpose.
 import glob
 import os
 
+import numpy as np
 import pandas as pd
 
 orders = {
@@ -99,6 +100,11 @@ df_all_orders = pd.concat(
     [data['df'] for data in orders.values()],
     ignore_index=True
 )
+
+# Remove invalid numbers
+df_all_orders['TWC_gm3'] = np.where(df_all_orders['TWC_gm3'].isin(['#VALEUR!', 'FAUX']), np.nan, df_all_orders.TWC_gm3.values).astype(float)
+df_all_orders = df_all_orders.drop(index=df_all_orders.index[((df_all_orders.TWC_gm3 < 0) | np.isnan(df_all_orders.TWC_gm3))])
+
 
 # and write to file
 df_all_orders.to_csv('HAICHIWC_TWC.csv', index=False)
