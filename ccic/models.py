@@ -12,8 +12,8 @@ from quantnn.models.pytorch.fully_connected import MLP
 import quantnn.models.pytorch.torchvision as blocks
 
 
-SCALAR_VARIABLES = ["iwp", "cloud_mask", "iwp_rand"]
-PROFILE_VARIABLES = ["iwc", "cloud_class"]
+SCALAR_VARIABLES = ["tiwp", "tiwp_favg", "cloud_mask"]
+PROFILE_VARIABLES = ["tiwc", "cloud_class"]
 
 
 class CCICModel(nn.Module):
@@ -24,23 +24,33 @@ class CCICModel(nn.Module):
     skip connections, and a head for every output variables.
     """
 
-    def __init__(self, n_stages, features, n_quantiles, n_blocks=2):
+    def __init__(
+            self,
+            n_stages,
+            features,
+            n_quantiles,
+            n_blocks=2,
+            all_channels=False
+    ):
         """
         Args:
             n_stages: The number of stages in the encoder and decoder.
             features: The number of features at the highest resolution.
             n_quantiles: The number of quantiles to predict.
             n_blocks: The number of blocks in each stage.
+            all_channels: If set to 'True' the network will expect three input
+                 channels, which are available only for the Gridsat dataset.
         """
         super().__init__()
+        self.all_channels = all_channels
 
         self.n_quantiles = n_quantiles
-        n_channels_in = 3
+        n_channels_in = 3 if self.all_channels else 1
 
         block_factory = blocks.ConvNextBlockFactory()
         norm_factory = block_factory.layer_norm
 
-        self.stem = block_factory(n_channels_in, features)
+        self.stem = nn.Conv2d(n_channels_in, features, 3, padding=1)
         self.encoder = SpatialEncoder(
             channels=features,
             stages=[n_blocks] * n_stages,
@@ -67,9 +77,9 @@ class CCICModel(nn.Module):
                 norm_factory=norm_factory,
         )
 
-        self.heads["iwc"] = head_factory(20 * self.n_quantiles // 4)
-        self.heads["iwp"] = head_factory(self.n_quantiles)
-        self.heads["iwp_rand"] = head_factory(self.n_quantiles)
+        self.heads["tiwc"] = head_factory(20 * self.n_quantiles // 4)
+        self.heads["tiwp"] = head_factory(self.n_quantiles)
+        self.heads["tiwp_fpavg"] = head_factory(self.n_quantiles)
         self.heads["cloud_mask"] = head_factory(1)
         self.heads["cloud_class"] = head_factory(20 * 9)
 
@@ -82,14 +92,14 @@ class CCICModel(nn.Module):
 
         output = {}
 
-        output["iwp"] = self.heads["iwp"](y)
-        output["iwp_rand"] = self.heads["iwp_rand"](y)
+        output["tiwp"] = self.heads["tiwp"](y)
+        output["tiwp_fpavg"] = self.heads["tiwp_fpavg"](y)
         output["cloud_mask"] = self.heads["cloud_mask"](y)
 
         shape = y.shape
         profile_shape = [shape[0], self.n_quantiles // 4, 20, shape[-2], shape[-1]]
-        head = self.heads["iwc"]
-        output["iwc"] = head(y).reshape(profile_shape)
+        head = self.heads["tiwc"]
+        output["tiwc"] = head(y).reshape(profile_shape)
 
         profile_shape = [shape[0], 9, 20, shape[-2], shape[-1]]
         head = self.heads["cloud_class"]
