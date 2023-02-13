@@ -248,7 +248,6 @@ def test_processing_logger(tmp_path):
         res = cursor.execute("SELECT log FROM files")
         entry = res.fetchone()
         assert entry is not None
-        print(len(entry[0]))
         assert len(entry[0]) > 0
 
 

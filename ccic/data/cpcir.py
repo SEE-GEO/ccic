@@ -286,7 +286,7 @@ class CPCIR:
 
         xs = []
         for i in range(2):
-            x_i = np.nan * np.ones((3, m, n))
+            x_i = np.nan * np.ones((1, m, n))
             x_i[-1] = tbs[i]
             xs.append(NORMALIZER(x_i))
         return torch.tensor(np.stack(xs)).to(torch.float32)
