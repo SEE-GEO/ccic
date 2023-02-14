@@ -11,7 +11,7 @@ import xarray as xr
 from ccic.validation.input_data import (
     CloudnetRadar,
     RetrievalInput,
-    cloudnet_palaiseau
+    cloudnet_punta_arenas
 )
 
 TEST_DATA = os.environ.get("CCIC_TEST_DATA", None)
@@ -26,9 +26,9 @@ def test_cloudnet_radar():
     """
     Ensure that the loading of Cloudnet radar data works as expected.
     """
-    data = cloudnet_palaiseau.load_data(
+    data = cloudnet_punta_arenas.load_data(
         VALIDATION_DATA / "cloudnet",
-        np.datetime64("2021-01-02T14:00:00")
+        np.datetime64("2020-03-15T14:00:00")
     )
     assert data is not None
     assert "iwc" in data
@@ -40,17 +40,18 @@ def test_retrieval_input():
     Ensure that the loading of Cloudnet radar data works as expected.
     """
     retrieval_input = RetrievalInput(
-        cloudnet_palaiseau,
+        cloudnet_punta_arenas,
         VALIDATION_DATA / "cloudnet",
         VALIDATION_DATA / "era5"
     )
-    date = np.datetime64("2021-01-02T10:00:00")
+    date = np.datetime64("2020-03-15T10:00:00")
     y = retrieval_input.get_y_radar(date)
     range_bins = retrieval_input.get_radar_range_bins(date)
     assert y is not None
     assert y.size == range_bins.size - 1
 
     p = retrieval_input.get_pressure(date)
+    print(p)
     assert np.any(p > 800e2)
 
     t = retrieval_input.get_temperature(date)
@@ -74,7 +75,7 @@ def test_download_cloudnet_data(tmp_path):
     """
     Test download of Cloudnet data for a given location.
     """
-    date = np.datetime64("2023-01-01T00:00:00")
-    cloudnet_palaiseau.download_radar_data(date, tmp_path)
+    date = np.datetime64("2020-03-01T10:00:00")
+    cloudnet_punta_arenas.download_radar_data(date, tmp_path)
 
     assert len(list(tmp_path.glob("*.nc"))) == 2
