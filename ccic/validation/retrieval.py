@@ -190,11 +190,11 @@ class GroundRadar(ActiveSensor):
         Args: The frequency of the sensors in GHz
         """
         super().__init__(
-            name="radar", f_grid=frequency, range_bins=None, stokes_dimension=1
+            name="radar", f_grid=frequency, range_bins=None, stokes_dimension=4
         )
         self.sensor_line_of_sight = np.array([0.0])
-        self.instrument_pol = [1]
-        self.instrument_pol_array = [[1]]
+        self.instrument_pol = [6]
+        self.instrument_pol_array = [[6]]
         self.extinction_scaling = 1.0
         self.y_min = -40.0
 
