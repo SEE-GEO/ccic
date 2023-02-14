@@ -1,6 +1,7 @@
 from netCDF4 import Dataset
 import numpy as np
 import xarray as xr
+from scipy.stats import binned_statistic
 
 
 def calculate_water_paths(dataset):
@@ -18,10 +19,11 @@ def calculate_water_paths(dataset):
     dims = dataset.iwc.dims[:-1]
     dataset["iwp"] = (dims, iwp)
 
-    rwc = dataset.rwc.data
-    iwp = np.trapz(rwc, x=z)
-    dims = dataset.rwc.dims[:-1]
-    dataset["rwp"] = (dims, iwp)
+    if "rwc" in dataset:
+        rwc = dataset.rwc.data
+        iwp = np.trapz(rwc, x=z)
+        dims = dataset.rwc.dims[:-1]
+        dataset["rwp"] = (dims, iwp)
 
 
 def load_radar_results(files):
@@ -76,5 +78,28 @@ def load_ccic_results(files, longitude, latitude):
 
     results = xr.concat(results, dim="time")
     return results
+
+
+def calculate_daily_cycle(data, longitude=None, variable="iwp"):
+
+    hours = data.time.dt.hour.data.astype(np.float64)
+    iwp = data[variable].data
+    valid = iwp >= 0.0
+
+    hours = hours[valid]
+    iwp = iwp[valid]
+
+    if longitude is not None:
+        delta = 12.0 / 180 * longitude
+        hours += delta
+    hours[hours > 23.5] -= 24.0
+    hours[hours < -0.5] += 24.0
+
+    bins = np.linspace(-0.5, 23.5, 25)
+    mean_iwp = binned_statistic(hours, iwp, bins=bins)[0]
+
+    bin_centers = 0.5 * (bins[1:] + bins[:-1])
+    return bin_centers, mean_iwp
+
 
 
