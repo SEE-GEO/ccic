@@ -266,20 +266,27 @@ class CCICDataset:
             y["cloud_mask"] = torch.tensor(cloud_mask.copy())
             y["cloud_class"] = torch.tensor(cloud_class.copy())
 
+            # Include latitude and longitude in inference mode.
+            if self.inference:
+                latitude = data.latitude.data
+                longitude = data.longitude.data
+                longitude, latitude = np.meshgrid(latitude, longitude)
+                y["latitude"] = torch.tensor(latitude.astype(np.float32))
+                y["longitude"] = torch.tensor(longitude.astype(np.float32))
+
             input_size = self.input_size
             if input_size is None:
                 input_size = 256
-            
+
             if not self.inference:
                 x, y = apply_transformations(x, y, self.rng, input_size=input_size)
+            else:
+                x = tf.center_crop(x, (input_size, input_size))
+                y = {key: tf.center_crop(y[key], (input_size, input_size)) for key in y}
 
             # Ensure there's a minimum of valid training data in the sample.
             valid_output = (y["tiwp"] >= 0.0).sum()
             valid_input = (x >= -1.4).sum()
-
-            valid_output_iwc = (y["tiwc"] >= 0.0).sum()
-            valid_output_cm = (y["cloud_mask"] >= 0.0).sum()
-
 
             if (valid_output < 50) or (valid_input < 50):
                 if not self.inference:
@@ -287,7 +294,7 @@ class CCICDataset:
                     return self[new_index]
                 else:
                     # Replace inputs and outputs with invalid values to flag it
-                    y["twip"] = torch.full_like(y["twip"], MASK_VALUE)
+                    y["tiwp"] = torch.full_like(y["tiwp"], MASK_VALUE)
                     x = torch.full_like(x, MASK_VALUE)
 
             return x, y
