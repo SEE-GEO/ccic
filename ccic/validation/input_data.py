@@ -17,6 +17,7 @@ import numpy as np
 from pansat.time import to_datetime
 from pansat.products.reanalysis.era5 import ERA5Hourly
 from pansat.products.ground_based.cloudnet import CloudnetProduct
+from pansat.time import to_datetime64
 
 import xarray as xr
 
@@ -38,44 +39,21 @@ def cloudnet_iwc(dbz, temp):
     return (10 ** log_iwc) / 1e3
 
 
-def resample_time_and_height(
-        time_bins,
-        height_bins,
-        time,
-        height,
-        input_data
-):
-    """
-    Resample data along time and height.
+ERA5_PRODUCT = ERA5Hourly(
+    'pressure',
+    ['temperature', 'relative_humidity', 'geopotential', 'specific_cloud_liquid_water_content'],
+    [lat - 0.5, lat + 0.5, lon - 0.5, lon + 0.5]
+)
 
-    Args:
-        time_bins: Bin boundaries of the time to resample the data to.
-        height_bins: Bin boundaries of the heights to resample the data to.
-        time: 1D array of size 'n_times' containing the times at which the
-            input data was sampled.
-        height: 1D array of size 'n_heights' containing the heights at which the
-            input data was sampled.
-        data: 2D array of shape '(n_times, n_heights) containing the input
-            data to resample.
+def era5_file_in_range(path, start_time, end_time):
+    files = sorted(list(path.glob("reanalysis-era5*.nc")))
+    files_within = []
+    for filename in files:
+        time = to_datetime64(ERA5_PRODUCT.filename_to_date(filename.name))
+        delta = start_time
+        if delta < 36
 
-    Return:
-        A 2D array of shape time_bins.size - 1 x height_bins.size - 1.
-    """
-    time, height = np.meshgrid(time, height, indexing="ij")
-    time = time.astype(time_bins.dtype)
-    height = height.astype(height_bins.dtype)
-    tot = np.histogram2d(
-        time.ravel(),
-        height.ravel(),
-        bins=(time_bins, height_bins),
-        weights=input_data.ravel()
-    )[0]
-    cts = np.histogram2d(
-        time.ravel(),
-        height.ravel(),
-        bins=(time_bins, height_bins),
-    )[0]
-    return tot / cts
+
 
 
 class CloudnetRadar:
@@ -293,16 +271,17 @@ class ARMRadar:
 
         with xr.open_dataset(radar_file) as radar_data:
 
-            # Use only data received in copolarization.
+            # Use only reflectivities received in copolarization.
             copol = radar_data.polarization == 0
             radar_data = radar_data[{"time": copol}]
+            print("SELECTING COPOL")
 
             # Resample data
             time = radar_data.time.data.astype("datetime64[s]")
             time_bins = np.arange(
                 time[0],
                 time[-1] + np.timedelta64(1, "s"),
-                np.timedelta64(5 * 60, "s")
+                np.timedelta64(30, "s")
             )
             height = radar_data.height.data
             range_bins = np.arange(height[0], height[-1], 100)
@@ -397,34 +376,17 @@ class RetrievalInput(Fascod):
         Args:
             date: The date for which to load the data.
         """
-        # Need to load data if it's from another day or no data has been
-        # loaded yet.
-        if self._data is not None:
-            data_day = self._data.time.astype("datetime64[D]")
-            date_day = date.astype("datetime64[D]")
-            d_t = np.abs(data_day - date_day).max()
-        else:
-            d_t = 0
-        if self._data is None or d_t > 0:
+        if self._data is None:
             radar_data = self.radar.load_data(
                 self.radar_data_path,
                 date,
             )
-
             pydate = to_datetime(date)
             tmpl = f"**/*era5*{pydate.strftime('%Y%m%d')}*.nc"
             era5_files = sorted(list(self.era5_data_path.glob(tmpl)))
             era5_data = []
             for filename in era5_files:
                 data = xr.load_dataset(filename)[{"level": slice(None, None, -1)}]
-                data = data.interp(
-                    {
-                        "latitude": self.radar.latitude,
-                        "longitude": self.radar.longitude,
-                    },
-                    method="nearest",
-                    kwargs={"fill_value": "extrapolate"}
-                )
                 data.coords["altitude"] = (("level",), data.z[0].data / 9.81)
                 data = data.swap_dims({"level": "altitude"})
                 altitudes = np.arange(
@@ -435,8 +397,19 @@ class RetrievalInput(Fascod):
                 data["p"] = (("altitude",), np.log(data.level.data))
                 data = data.interp(altitude=altitudes, kwargs={"fill_value": "extrapolate"})
                 era5_data.append(data)
+
             era5_data = xr.concat(era5_data, dim="time")
             era5_data.p.data = np.exp(era5_data.p.data)
+
+            data = data.interp(
+                {
+                    "latitude": radar_data.latitude,
+                    "longitude": radar_data.longitude,
+                    "time": radar_data.time
+                },
+                method="nearest",
+                kwargs={"fill_value": "extrapolate"}
+            )
 
             era5_data = era5_data.interp(
                 time=radar_data.time,
