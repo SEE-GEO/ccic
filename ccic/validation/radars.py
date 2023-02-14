@@ -13,6 +13,7 @@ import numpy as np
 from pansat.download.providers.cloudnet import CloudnetProvider
 from pansat.products.ground_based.cloudnet import CloudnetProduct
 from pansat.time import to_datetime, to_datetime64
+from scipy.stats import binned_statistic, binned_statistic_2d
 import xarray as xr
 
 
@@ -159,12 +160,12 @@ class CloudnetRadar(CloudRadar):
         lat = self.latitude
         return [lat - 0.5, lat + 0.5, lon - 0.5, lon + 0.5]
 
-    def load_data(self, path, filename):
+    def load_data(self, path, filename, *args):
         """
         Load radar data from given data into xarray.Dataset
 
-        Resamples the data to a temporal resolution of 5 minutes and a
-        vertical resolution of 200m.
+        Resamples the data to a temporal resolution of 1 minute and a
+        vertical resolution of 100m.
 
         Args:
             path: The path containing the Cloudnet data.
@@ -188,7 +189,7 @@ class CloudnetRadar(CloudRadar):
         range_bins = np.arange(height[0], height[-1], 100)
 
         refl = radar_data.Zh.data
-        z = np.nan_to_num(10 ** (refl / 10), -40)
+        z = np.nan_to_num(10 ** (refl / 10), copy=True, nan=self.y_min)
         z = resample_time_and_height(time_bins, range_bins, time, height, z)
         z = 10 * np.log10(z)
 
@@ -207,7 +208,7 @@ class CloudnetRadar(CloudRadar):
             iwc_data = xr.load_dataset(iwc_files[0])
             time = iwc_data.time.data
             height = iwc_data.height.data
-            iwc = np.nan_to_num(iwc_data.iwc_inc_rain.data, 0.0)
+            iwc = np.nan_to_num(iwc_data.iwc_inc_rain.data, copy=True)
             iwc = resample_time_and_height(
                 time_bins, range_bins, time, height, iwc
             )
@@ -309,11 +310,11 @@ class ARMRadar(CloudRadar):
         lat = self.latitude
         return [lat - 0.5, lat + 0.5, lon - 0.5, lon + 0.5]
 
-    def load_data(self, path, filename):
+    def load_data(self, path, filename, *args):
         """
         Load radar data from ARM WACR observation file into xarray.Dataset
 
-        Resamples the data to a temporal resolution of 5 minutes and a vertical
+        Resamples the data to a temporal resolution of 1 minute and a vertical
         resolution of 100m.
 
         Args:
@@ -338,7 +339,7 @@ class ARMRadar(CloudRadar):
             range_bins = np.arange(height[0], height[-1], 100)
 
             refl = radar_data.reflectivity.data
-            z = 10 ** (np.nan_to_num(refl, self.y_min) / 10)
+            z = 10 ** (np.nan_to_num(refl, copy=True, nan=self.y_min) / 10)
             z = resample_time_and_height(time_bins, range_bins, time, height, z)
             z = 10 * np.log10(z)
 
@@ -381,3 +382,156 @@ class ARMRadar(CloudRadar):
 
 
 arm_manacapuru = ARMRadar(-60.598100, -3.212970, 95e9, -25)
+
+
+class NASACRS(CloudRadar):
+    """
+    Class to load input data from the NASA cloud radar system.
+    """
+    def __init__(self, dem):
+        """
+        Args:
+            dem: Filename of an NetCDF file containing surface elevation data
+                for the domain of the field campaign.
+        """
+        # 95 GHz radar, air borne
+        super().__init__(95e9, -30, 180)
+        self.instrument_pol = [0]
+        self.instrument_pol_array = [[0]]
+        self.dem = dem
+
+    def get_files(self, path, date):
+        """
+        Get files for a given date.
+
+        Args:
+            date: A numpy.datetime64 object specifying the day.
+
+        Return:
+            A list of the available input files for the given day.
+        """
+        pydate = to_datetime(date)
+        templ = f"**/olympex_CRS_{pydate.strftime('%Y%m%d')}*.nc"
+        files = sorted(list(Path(path).glob(templ)))
+        return files
+
+    def get_start_and_end_time(self, path, filename):
+        """
+        Get start and end time from a Cloudnet filename.
+
+        Args:
+            filename: The filename for which to determine start and end
+                times.
+        """
+        parts = Path(filename).stem.split("-")
+        start_time = parts[0].split("_")[2:]
+        start_time = datetime.strptime("".join(start_time), "%Y%m%d%H%M%S")
+        end_time = parts[1].split("_")[:2]
+        end_time = datetime.strptime("".join(end_time), "%Y%m%d%H%M%S")
+        return to_datetime64(start_time), to_datetime64(end_time)
+
+    def download_file(self, *args):
+        """
+        No download option is available for ARM radars.
+        """
+        raise Exception(
+            "NASA CRS radar does not support on-the-fly downloads."
+        )
+
+    def get_roi(self, path, filename):
+        """
+        Get geographical bounding box around radar.
+        """
+        with xr.open_dataset(path / filename) as data:
+            lat_min = data.latitude.data.min()
+            lat_max = data.latitude.data.max()
+            lon_min = data.lonitude.data.min()
+            lon_max = data.lonitude.data.max()
+        return [lat_min, lat_max, lon_min, lon_max,]
+
+    def load_data(self, path, filename, static_data_path):
+        """
+        Load radar data from NASA CRS observation file into xarray.Dataset
+
+        Resamples the data to a temporal resolution of 1 minute and a vertical
+        resolution of 100m.
+
+        Args:
+            path: The path containing the CRS diles.
+            filename: The name of the file from which to load the data.
+            static_data_path: Path to the folder containing the surface elevation
+                map for the campaign.
+
+        Return:
+            An 'xarray.Dataset' containing the resampled radar data.
+        """
+        path = Path(path)
+        radar_file = path / filename
+
+        start_time, _ = self.get_start_and_end_time(path, filename)
+
+        dem = xr.load_dataset(Path(static_data_path) / self.dem)
+
+        with xr.open_dataset(radar_file) as radar_data:
+
+            # Resample data
+            latitude = radar_data.lat
+            longitude = radar_data.lon
+            # Elevation data may be missing over ocean. Fill with
+            # 0.
+            z_surf = dem.elevation.interp(
+                latitude=latitude,
+                longitude=longitude,
+                method="nearest",
+                kwargs={"fill_value": 0}
+            )
+
+            time = start_time + (radar_data.timed.data * 3600e9).astype("timedelta64[ns]")
+            time_bins = np.arange(
+                time[0],
+                time[-1] + np.timedelta64(1, "s"),
+                np.timedelta64(60, "s")
+            )
+            height = (
+                radar_data.altitude -
+                radar_data.range -
+                z_surf
+            ).data
+            time = np.broadcast_to(time[..., None], height.shape).copy()
+
+            # Discard lowest kilometer to get rid of ground clutter.
+            range_bins = np.arange(500, height[:, 0].min() - 500, 50)
+
+            refl = radar_data.zku.data
+
+
+            z = 10 ** (np.nan_to_num(refl, copy=self.y_min, nan=self.y_min) / 10)
+
+            excessive_roll = np.abs(radar_data["roll"].data) > 5
+            height[excessive_roll] = np.nan
+
+            z = binned_statistic_2d(
+                time.ravel().astype(np.float64),
+                height.ravel(),
+                z.ravel(),
+                bins=(time_bins.astype(np.float64), range_bins)
+            )[0]
+            z = 10 * np.log10(z)
+
+            latitude = binned_statistic(time.ravel(), latitude.data, bins=time_bins)[0]
+            longitude = binned_statistic(time.ravel(), longitude.data, bins=time_bins)[0]
+
+            time = time_bins[:-1] + 0.5 * (time_bins[1:] - time_bins[:-1])
+            radar_range = 0.5 * (range_bins[1:] + range_bins[:-1])
+            results = xr.Dataset({
+                "time": (("time", ), time),
+                "range": (("range",), radar_range),
+                "radar_reflectivity": (("time", "range"), z),
+                "range_bins": (("range_bins",), range_bins),
+                "latitude": (("time",), latitude),
+                "longitude": (("time",), longitude)
+            })
+        return results
+
+
+crs_olympex = NASACRS("elevation_olympex.nc")

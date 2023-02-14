@@ -10,7 +10,8 @@ import xarray as xr
 
 from ccic.validation.radars import (
     cloudnet_punta_arenas,
-    arm_manacapuru
+    arm_manacapuru,
+    crs_olympex
 )
 
 
@@ -55,5 +56,22 @@ def test_arm_radar():
     assert end_time < np.datetime64("2014-12-11T00:00:00")
 
     # Try loading data.
-    path = TEST_DATA / "validation" / "manacapuru"
     arm_manacapuru.load_data(path, files[0])
+
+
+@NEEDS_TEST_DATA
+def test_nasa_crs():
+    date = np.datetime64("2015-12-03T00:00:00")
+    path = TEST_DATA / "validation" / "olympex"
+
+    # Check that the correct number of files is found.
+    files = crs_olympex.get_files(path, date)
+    assert len(files) == 3
+
+    # Check that start and end time are right.
+    start_time, end_time = crs_olympex.get_start_and_end_time(path, files[0])
+    assert start_time >= np.datetime64("2015-12-03T14:28:55")
+    assert end_time <= np.datetime64("2015-12-03T14:58:50")
+
+    # Try loading data.
+    crs_olympex.load_data(path, files[0], TEST_DATA / "validation")
