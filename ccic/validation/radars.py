@@ -380,4 +380,4 @@ class ARMRadar(CloudRadar):
         product.download(start, end, destination=destination)
 
 
-arm_manacapuru = ARMRadar(-60.598100, 3.212970, 95e9, -25)
+arm_manacapuru = ARMRadar(-60.598100, -3.212970, 95e9, -25)

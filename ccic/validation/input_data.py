@@ -117,7 +117,7 @@ class CloudnetRadar:
         Load radar data from given data into xarray.Dataset
 
         This function also resamples the data to a temporal resolution
-        of 5 minutes and a vertical resolution of 900m.
+        of 5 minutes and a vertical resolution of 200m.
 
         Args:
             path: The path containing the Cloudnet data.
@@ -149,18 +149,12 @@ class CloudnetRadar:
         z = resample_time_and_height(time_bins, range_bins, time, height, z)
         z = 10 * np.log10(z)
 
-        snr = np.nan_to_num(radar_data.SNR.data, -20)
-        snr = resample_time_and_height(time_bins, range_bins, time, height, snr)
-        nedt = np.sqrt(snr - z)
-        nedt[z < -100] = 1.0
-
         time = time_bins[:-1] + 0.5 * (time_bins[1:] - time_bins[:-1])
         radar_range = 0.5 * (range_bins[1:] + range_bins[:-1])
         results = xr.Dataset({
             "time": (("time", ), time),
             "range": (("range",), radar_range),
             "radar_reflectivity": (("time", "range"), z),
-            "nedt": (("time", "range"), nedt),
             "range_bins": (("range_bins",), range_bins)
         })
 
@@ -298,6 +292,11 @@ class ARMRadar:
         radar_file = sorted(list(path.glob(tmpl)))[-1]
 
         with xr.open_dataset(radar_file) as radar_data:
+
+            # Use only data received in copolarization.
+            copol = radar_data.polarization == 0
+            radar_data = radar_data[{"time": copol}]
+
             # Resample data
             time = radar_data.time.data.astype("datetime64[s]")
             time_bins = np.arange(
@@ -352,7 +351,7 @@ class ARMRadar:
         product.download(start, end, destination=destination)
 
 
-arm_manacapuru = ARMRadar(-60.598100, 3.212970, 250.0)
+arm_manacapuru = ARMRadar(-60.598100, -3.212970, 250.0)
 
 
 class RetrievalInput(Fascod):
@@ -418,10 +417,14 @@ class RetrievalInput(Fascod):
             era5_data = []
             for filename in era5_files:
                 data = xr.load_dataset(filename)[{"level": slice(None, None, -1)}]
-                data = data.interp({
-                    "latitude": self.radar.latitude,
-                    "longitude": self.radar.longitude,
-                }, method="nearest")
+                data = data.interp(
+                    {
+                        "latitude": self.radar.latitude,
+                        "longitude": self.radar.longitude,
+                    },
+                    method="nearest",
+                    kwargs={"fill_value": "extrapolate"}
+                )
                 data.coords["altitude"] = (("level",), data.z[0].data / 9.81)
                 data = data.swap_dims({"level": "altitude"})
                 altitudes = np.arange(
