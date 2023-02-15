@@ -11,6 +11,8 @@ import xarray as xr
 from ccic.validation.retrieval import RadarRetrieval
 from ccic.validation.input_data import (
     RetrievalInput,
+)
+from ccic.validation.radars import (
     cloudnet_punta_arenas,
     arm_manacapuru
 )
@@ -24,44 +26,43 @@ VALIDATION_DATA = Path(TEST_DATA) / "validation"
 
 def test_retrieval_cloudnet():
     """Test running the retrieval for the Cloudnet radar in Punta Arenas."""
+    date = np.datetime64("2020-03-15T10:00:00")
+    radar_data_path = VALIDATION_DATA / "cloudnet"
+    radar_files = cloudnet_punta_arenas.get_files(radar_data_path, date)
     retrieval_input = RetrievalInput(
         cloudnet_punta_arenas,
-        VALIDATION_DATA / "cloudnet",
-        VALIDATION_DATA / "era5"
-    )
-    retrieval = RadarRetrieval(
-        cloudnet_punta_arenas,
-        retrieval_input,
+        radar_data_path,
+        radar_files[0],
+        VALIDATION_DATA / "era5",
         Path(TEST_DATA) / "validation" / "data",
-        "8-ColumnAggregate"
     )
+    retrieval = RadarRetrieval()
     results = retrieval.process(
-        np.datetime64("2020-03-15T10:00:00"),
-        np.timedelta64(8 * 60 * 60, "s")
+        retrieval_input,
+        np.timedelta64(8 * 60 * 60, "s"),
+        "LargePlateAggregate"
     )
-
     assert "radar_reflectivity" in results
     assert "radar_reflectivity_fitted" in results
 
 
 def test_retrieval_arm():
-    """Test running the retrieval for the Cloudnet radar in Punta Arenas."""
+    """Test running the retrieval for the ARM WACR radar in Manacapuru."""
+    date = np.datetime64("2014-12-10T10:00:00")
+    radar_data_path = VALIDATION_DATA / "manacapuru"
+    radar_files = arm_manacapuru.get_files(radar_data_path, date)
     retrieval_input = RetrievalInput(
         arm_manacapuru,
-        VALIDATION_DATA / "manacapuru",
-        VALIDATION_DATA / "era5"
-    )
-    retrieval = RadarRetrieval(
-        cloudnet_punta_arenas,
-        retrieval_input,
+        radar_data_path,
+        radar_files[0],
+        VALIDATION_DATA / "era5",
         Path(TEST_DATA) / "validation" / "data",
-        "8-ColumnAggregate"
     )
+    retrieval = RadarRetrieval()
     results = retrieval.process(
-        np.datetime64("2014-12-10T10:00:00"),
-        np.timedelta64(8 * 60 * 60, "s")
+        retrieval_input,
+        np.timedelta64(8 * 60 * 60, "s"),
+        "LargePlateAggregate"
     )
-
     assert "radar_reflectivity" in results
     assert "radar_reflectivity_fitted" in results
-

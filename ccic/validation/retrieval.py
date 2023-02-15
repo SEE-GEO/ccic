@@ -219,7 +219,7 @@ class RadarRetrieval:
     Simple interface to run artssat/mcrf retrievals.
     """
 
-    def __init__(self, radar, input_data, static_data_path, ice_shape):
+    def __init__(self):
         """
         Args:
             radar: Object representing the Cloudnet radar for which to
@@ -228,20 +228,21 @@ class RadarRetrieval:
                 input data.
             static_data_path: Path to the static retrieval data.
         """
-        static_data_path = Path(static_data_path)
-        hydrometeors = get_hydrometeors(static_data_path, ice_shape)
 
-        self.input_data = input_data
+    def setup_retrieval(self, input_data, ice_shape):
+
+        hydrometeors = get_hydrometeors(input_data.static_data_path, ice_shape)
+
         input_data.add(hydrometeors[0].a_priori[0])
         input_data.add(hydrometeors[0].a_priori[1])
         input_data.add(hydrometeors[1].a_priori[0])
         input_data.add(hydrometeors[1].a_priori[1])
 
-        sensors = [RADARS[radar.location]]
+        sensors = [input_data.radar]
         input_data.add(ObservationError(sensors))
 
         self.retrieval = CloudRetrieval(
-            hydrometeors, sensors, input_data, data_path=static_data_path,
+            hydrometeors, sensors, input_data, data_path=input_data.static_data_path,
             include_cloud_water=True
         )
 
@@ -255,8 +256,9 @@ class RadarRetrieval:
             run.settings["lm_ga_settings"] = np.array([200.0, 3.0, 2.0, 10e3, 5.0, 5.0])
 
         self.retrieval.simulation.retrieval.callbacks = [("Radar only", radar_only)]
+        self.retrieval.simulation.setup()
 
-    def process(self, date, time_interval):
+    def process(self, input_data, time_interval, ice_shape):
         """
         Process day of radar observations.
 
@@ -268,8 +270,7 @@ class RadarRetrieval:
         Return:
             An xarray Dataset containing the retrieval results.
         """
-        start = date.astype("datetime64[D]").astype("datetime64[s]")
-        end = start + np.timedelta64(1, "D").astype("timedelta64[s]")
+        start, end = input_data.get_start_and_end_time()
         times = np.arange(start, end, time_interval)
 
         results = {}
@@ -284,9 +285,8 @@ class RadarRetrieval:
         ys = []
         y_fs = []
 
+        self.setup_retrieval(input_data, ice_shape)
         simulation = self.retrieval.simulation
-
-        simulation.setup()
 
         for time in times:
             simulation.run(time)
@@ -309,13 +309,13 @@ class RadarRetrieval:
 
             diagnostics.append(results_t["diagnostics"][0])
 
-        radar_bins = self.input_data.get_radar_range_bins(times[0])
+        radar_bins = input_data.get_radar_range_bins(times[0])
         radar_bins = 0.5 * (radar_bins[1:] + radar_bins[:-1])
 
         results = xr.Dataset(
             {
                 "time": (("time",), times),
-                "altitude": (("altitude",), self.input_data.get_altitude(times[0])),
+                "altitude": (("altitude",), input_data.get_altitude(times[0])),
                 "iwc": (("time", "altitude"), np.stack(iwcs)),
                 "iwc_dm": (("time", "altitude"), np.stack(iwcs_d_m)),
                 "iwc_n0": (("time", "altitude"), np.stack(iwcs_n_0)),
@@ -398,14 +398,14 @@ def process_day(
     output_data_path = Path(output_data_path)
     output_filename = f"{radar.location}_{date_str}.nc"
 
+    retrieval = RadarRetrieval()
     for ice_shape in ice_shapes:
-        retrieval = RadarRetrieval(radar, input_data, static_data_path, ice_shape)
         output = io.StringIO()
-        with capture_stdout(output):
-            results = retrieval.process(date, timestep)
-            results.to_netcdf(
-                output_data_path / output_filename, group=ice_shape, mode="a"
-            )
+        #with capture_stdout(output):
+        results = retrieval.process(input_data, timestep, shape)
+        results.to_netcdf(
+            output_data_path / output_filename, group=ice_shape, mode="a"
+        )
 
     try:
         iwc_data = input_data.get_iwc_data(date, timestep)

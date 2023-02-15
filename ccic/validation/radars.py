@@ -188,21 +188,25 @@ class CloudnetRadar(CloudRadar):
         height = radar_data.height.data
         range_bins = np.arange(height[0], height[-1], 100)
 
-        refl = radar_data.Zh.data
-        z = np.nan_to_num(10 ** (refl / 10), copy=True, nan=self.y_min)
+        refl = np.nan_to_num(radar_data.Zh.data, copy=True, nan=self.y_min)
+        z = 10 ** (refl / 10)
         z = resample_time_and_height(time_bins, range_bins, time, height, z)
         z = 10 * np.log10(z)
 
         time = time_bins[:-1] + 0.5 * (time_bins[1:] - time_bins[:-1])
         radar_range = 0.5 * (range_bins[1:] + range_bins[:-1])
+        sensor_position = range_bins[0] * np.ones(time.size)
         results = xr.Dataset({
             "time": (("time", ), time),
             "range": (("range",), radar_range),
             "radar_reflectivity": (("time", "range"), z),
-            "range_bins": (("range_bins",), range_bins)
+            "range_bins": (("range_bins",), range_bins),
+            "latitude": (("latitude",), [self.latitude]),
+            "longitude": (("longitude",), [self.longitude]),
+            "sensor_position": (("time",), sensor_position)
         })
 
-        tmpl = "**/" + "_".join(filename.split("_")[:2]) + "_iwc-Z-T-method.nc"
+        tmpl = "**/" + "_".join(filename.stem.split("_")[:2]) + "_iwc-Z-T-method.nc"
         iwc_files = list(path.glob(tmpl))
         if len(iwc_files) > 0:
             iwc_data = xr.load_dataset(iwc_files[0])
@@ -290,7 +294,7 @@ class ARMRadar(CloudRadar):
         """
         with xr.open_dataset(Path(path) / filename) as data:
             start_time = data.time[0].data
-            end_time =data.time[-1].data
+            end_time = data.time[-1].data
         return start_time, end_time
 
 
@@ -338,18 +342,22 @@ class ARMRadar(CloudRadar):
             height = radar_data.height.data
             range_bins = np.arange(height[0], height[-1], 100)
 
-            refl = radar_data.reflectivity.data
-            z = 10 ** (np.nan_to_num(refl, copy=True, nan=self.y_min) / 10)
+            refl = np.nan_to_num(radar_data.reflectivity.data, copy=True, nan=self.y_min)
+            z = 10 ** (refl / 10)
             z = resample_time_and_height(time_bins, range_bins, time, height, z)
             z = 10 * np.log10(z)
 
             time = time_bins[:-1] + 0.5 * (time_bins[1:] - time_bins[:-1])
             radar_range = 0.5 * (range_bins[1:] + range_bins[:-1])
+            sensor_position = range_bins[0] * np.ones(time.size)
             results = xr.Dataset({
                 "time": (("time", ), time),
                 "range": (("range",), radar_range),
                 "radar_reflectivity": (("time", "range"), z),
-                "range_bins": (("range_bins",), range_bins)
+                "range_bins": (("range_bins",), range_bins),
+                "latitude": (("latitude",), [self.latitude]),
+                "longitude": (("longitude",), [self.longitude]),
+                "sensor_position": (("time",), sensor_position)
             })
         return results
 
@@ -443,10 +451,10 @@ class NASACRS(CloudRadar):
         Get geographical bounding box around radar.
         """
         with xr.open_dataset(path / filename) as data:
-            lat_min = data.latitude.data.min()
-            lat_max = data.latitude.data.max()
-            lon_min = data.lonitude.data.min()
-            lon_max = data.lonitude.data.max()
+            lat_min = data.lat.data.min()
+            lat_max = data.lat.data.max()
+            lon_min = data.lon.data.min()
+            lon_max = data.lon.data.max()
         return [lat_min, lat_max, lon_min, lon_max,]
 
     def load_data(self, path, filename, static_data_path):
@@ -502,10 +510,8 @@ class NASACRS(CloudRadar):
             # Discard lowest kilometer to get rid of ground clutter.
             range_bins = np.arange(500, height[:, 0].min() - 500, 50)
 
-            refl = radar_data.zku.data
-
-
-            z = 10 ** (np.nan_to_num(refl, copy=self.y_min, nan=self.y_min) / 10)
+            refl = np.nan_to_num(radar_data.zku.data, copy=self.y_min, nan=self.y_min)
+            z = 10 ** (refl / 10)
 
             excessive_roll = np.abs(radar_data["roll"].data) > 5
             height[excessive_roll] = np.nan
@@ -518,8 +524,22 @@ class NASACRS(CloudRadar):
             )[0]
             z = 10 * np.log10(z)
 
-            latitude = binned_statistic(time.ravel(), latitude.data, bins=time_bins)[0]
-            longitude = binned_statistic(time.ravel(), longitude.data, bins=time_bins)[0]
+            time_f = time[:, 0].astype(np.float64)
+
+            latitude = binned_statistic(
+                time_f,
+                latitude.data,
+                bins=time_bins.astype(np.float64))[0]
+            longitude = binned_statistic(
+                time_f,
+                longitude.data.astype(np.float64),
+                bins=time_bins.astype(np.float64)
+            )[0]
+            sensor_position = binned_statistic(
+                time_f,
+                radar_data.altitude.data,
+                bins=time_bins.astype(np.float64)
+            )[0]
 
             time = time_bins[:-1] + 0.5 * (time_bins[1:] - time_bins[:-1])
             radar_range = 0.5 * (range_bins[1:] + range_bins[:-1])
@@ -529,7 +549,8 @@ class NASACRS(CloudRadar):
                 "radar_reflectivity": (("time", "range"), z),
                 "range_bins": (("range_bins",), range_bins),
                 "latitude": (("time",), latitude),
-                "longitude": (("time",), longitude)
+                "longitude": (("time",), longitude),
+                "sensor_position": (("time",), sensor_position)
             })
         return results
 
