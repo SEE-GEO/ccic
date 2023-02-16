@@ -106,6 +106,11 @@ class CloudnetRadar(CloudRadar):
         self.iwc_product = CloudnetProduct("iwc", "IWC product", location)
         self.provider = CloudnetProvider(self.product)
 
+    @property
+    def instrument_name(self):
+        """The radar name is used to label retrieval results."""
+        return f"cloudnet_{self.location}"
+
     def get_files(self, path, date):
         """
         Get files for a given date.
@@ -264,10 +269,16 @@ class ARMRadar(CloudRadar):
     """
     Class to load input data from the ARM WACR radar.
     """
-    def __init__(self, longitude, latitude, frequency, sensitivity):
+    def __init__(self, campaign, longitude, latitude, frequency, sensitivity):
         super().__init__(frequency, sensitivity, 0)
+        self.campaign = campaign
         self.longitude = longitude
         self.latitude = latitude
+
+    @property
+    def instrument_name(self):
+        """The radar name is used to label retrieval results."""
+        return f"arm_{self.campaign}"
 
     def get_files(self, path, date):
         """
@@ -282,7 +293,7 @@ class ARMRadar(CloudRadar):
         pydate = to_datetime(date)
         templ = f"**/maowacrM1.a1.{pydate.strftime('%Y%m%d')}*.nc"
         files = sorted(list(Path(path).glob(templ)))
-        return files
+        return [path.name for path in files]
 
     def get_start_and_end_time(self, path, filename):
         """
@@ -389,14 +400,14 @@ class ARMRadar(CloudRadar):
         product.download(start, end, destination=destination)
 
 
-arm_manacapuru = ARMRadar(-60.598100, -3.212970, 95e9, -25)
+arm_manacapuru = ARMRadar("manacapuru", -60.598100, -3.212970, 95e9, -25)
 
 
 class NASACRS(CloudRadar):
     """
     Class to load input data from the NASA cloud radar system.
     """
-    def __init__(self, dem):
+    def __init__(self, campaign, dem):
         """
         Args:
             dem: Filename of an NetCDF file containing surface elevation data
@@ -404,9 +415,15 @@ class NASACRS(CloudRadar):
         """
         # 95 GHz radar, air borne
         super().__init__(95e9, -30, 180)
-        self.instrument_pol = [0]
-        self.instrument_pol_array = [[0]]
+        self.campaign = campaign
+        self.instrument_pol = [1]
+        self.instrument_pol_array = [[1]]
         self.dem = dem
+
+    @property
+    def instrument_name(self):
+        """The radar name is used to label retrieval results."""
+        return f"crs_{self.campaign}"
 
     def get_files(self, path, date):
         """
@@ -421,7 +438,7 @@ class NASACRS(CloudRadar):
         pydate = to_datetime(date)
         templ = f"**/olympex_CRS_{pydate.strftime('%Y%m%d')}*.nc"
         files = sorted(list(Path(path).glob(templ)))
-        return files
+        return [path.name for path in files]
 
     def get_start_and_end_time(self, path, filename):
         """
@@ -494,7 +511,9 @@ class NASACRS(CloudRadar):
                 kwargs={"fill_value": 0}
             )
 
-            time = start_time + (radar_data.timed.data * 3600e9).astype("timedelta64[ns]")
+            # timd is in hours since 0 UTC
+            start = start_time.astype("datetime64[D]").astype("datetime64[ns]")
+            time = start + (radar_data.timed.data * 3600e9).astype("timedelta64[ns]")
             time_bins = np.arange(
                 time[0],
                 time[-1] + np.timedelta64(1, "s"),
@@ -555,4 +574,4 @@ class NASACRS(CloudRadar):
         return results
 
 
-crs_olympex = NASACRS("elevation_olympex.nc")
+crs_olympex = NASACRS("olympex", "elevation_olympex.nc")

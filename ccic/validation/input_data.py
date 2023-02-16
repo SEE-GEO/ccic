@@ -132,6 +132,10 @@ class RetrievalInput(Fascod):
                 data = xr.load_dataset(filename)[{"level": slice(None, None, -1)}]
                 era5_data.append(data)
 
+            if len(era5_data) == 1:
+                data_copy = era5_data[0].assign({"time": era5_data[0].time + np.timedelta64(1, "h")})
+                era5_data.append(data_copy)
+
             self.era5_data = xr.concat(era5_data, dim="time")
 
     def _interpolate_pressure(self, time):
@@ -149,6 +153,7 @@ class RetrievalInput(Fascod):
             if latitude.ndim > 0:
                 latitude = latitude[0]
                 longitude = longitude[0]
+
             era5_data = self.era5_data.interp(
                 time=time,
                 latitude=latitude,
@@ -226,7 +231,7 @@ class RetrievalInput(Fascod):
                 destination=self.era5_data_path)
 
         if not (self.radar_data_path / self.radar_file).exists():
-            self.radar.download_file(self.radar_data_path, self.radar_fkle)
+            self.radar.download_file(self.radar_data_path, self.radar_file)
 
 
     def get_start_and_end_time(self):

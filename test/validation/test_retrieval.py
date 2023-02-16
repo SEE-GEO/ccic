@@ -14,7 +14,8 @@ from ccic.validation.input_data import (
 )
 from ccic.validation.radars import (
     cloudnet_punta_arenas,
-    arm_manacapuru
+    arm_manacapuru,
+    crs_olympex
 )
 
 TEST_DATA = os.environ.get("CCIC_TEST_DATA", None)
@@ -53,6 +54,28 @@ def test_retrieval_arm():
     radar_files = arm_manacapuru.get_files(radar_data_path, date)
     retrieval_input = RetrievalInput(
         arm_manacapuru,
+        radar_data_path,
+        radar_files[0],
+        VALIDATION_DATA / "era5",
+        Path(TEST_DATA) / "validation" / "data",
+    )
+    retrieval = RadarRetrieval()
+    results = retrieval.process(
+        retrieval_input,
+        np.timedelta64(8 * 60 * 60, "s"),
+        "LargePlateAggregate"
+    )
+    assert "radar_reflectivity" in results
+    assert "radar_reflectivity_fitted" in results
+
+
+def test_retrieval_olympex():
+    """Test running the retrieval for the CRS radar during Olympex campaign."""
+    date = np.datetime64("2015-12-03T10:00:00")
+    radar_data_path = VALIDATION_DATA / "olympex"
+    radar_files = crs_olympex.get_files(radar_data_path, date)
+    retrieval_input = RetrievalInput(
+        crs_olympex,
         radar_data_path,
         radar_files[0],
         VALIDATION_DATA / "era5",

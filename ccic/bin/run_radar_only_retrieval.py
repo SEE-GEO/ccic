@@ -35,18 +35,24 @@ def add_parser(subparsers):
         ),
     )
     parser.add_argument(
-        "type",
-        metavar="type",
+        "instrument",
+        metavar="name",
         type=str,
-        help="The type of retrieval to run. Should be one of ['cloudnet']",
+        help=("The name of the radar instrument.")
     )
     parser.add_argument(
-        "location",
-        metavar="location/campaign",
+        "observations",
+        metavar="observations",
         type=str,
-        help=("The name of the location or campaign for which to run the "
-        "retrieval.")
+        help=("Folder containing the input observations.")
     )
+    parser.add_argument(
+        "era5_data",
+        metavar="era5_data",
+        type=str,
+        help=("Folder containing the ERA5 data.")
+    )
+
     parser.add_argument(
         "year",
         metavar="year",
@@ -68,7 +74,7 @@ def add_parser(subparsers):
     )
     parser.add_argument(
         "output_path",
-        metavar="path",
+        metavar="results",
         type=str,
         help="The path at which the retrieval results will be stored.",
     )
@@ -111,6 +117,16 @@ def add_parser(subparsers):
             "processing."
         )
     )
+    parser.add_argument(
+        "--time_step",
+        metavar="mins",
+        type=int,
+        default=10,
+        help=(
+            "Temporal sampling of the radar-only retrievals."
+        )
+    )
+
     parser.set_defaults(func=run)
 
 def download_data(
@@ -136,12 +152,12 @@ def download_data(
             break
         input_data, date = task
         try:
-            if not input_data.has_data(date):
+            if not input_data.has_data():
                 logger.info(
                     "Downloading input data for %s",
                     date
                 )
-                input_data.download_data(date)
+                input_data.download_data()
             processing_queue.put((input_data, date))
         except Exception as exc:
             logger.exception(exc)
@@ -151,10 +167,9 @@ def download_data(
 
 def process_files(
         processing_queue,
-        radar,
-        static_data_path,
         ice_shapes,
-        output_path
+        output_path,
+        time_step
 ):
     """
     Processes input data from the processing queue
@@ -178,18 +193,16 @@ def process_files(
 
         try:
             logger.info(
-                "Starting %s(%s) radar-only retrieval for '%s'.",
+                "Starting %s radar-only retrieval for '%s'.",
                 type(input_data.radar).__name__,
-                input_data.radar.location,
                 date
             )
             process_day(
                 date,
-                radar,
                 input_data,
-                static_data_path,
                 ice_shapes,
-                output_path
+                output_path,
+                time_step
             )
         except Exception as exc:
             logger.exception(exc)
@@ -204,19 +217,19 @@ def run(args):
     """
     from ccic.validation.input_data import RetrievalInput
 
-    rtype = Path(args.type)
+    instrument = args.instrument
+    module = importlib.import_module("ccic.validation.radars")
+    radar = getattr(module, instrument)
 
-    location = args.location
-    module = importlib.import_module("ccic.validation.input_data")
-    radar = getattr(module, location)
-    input_path = args.input_path
-    input_data = RetrievalInput(
-        radar,
-        input_path,
-        input_path,
-    )
+    # Input data paths.
+    radar_data_path = Path(args.observations)
+    if not radar_data_path.exists():
+        radar_data_path.mkdir(parents=True, exist_ok=True)
+    era5_data_path = Path(args.era5_data)
+    if not era5_data_path.exists():
+        era5_data_path.mkdir(parents=True, exist_ok=True)
 
-    # Determine input data.
+    # Determine days for which to run the retrieval.
     year = args.year
     month = args.month
     days = args.days
@@ -230,16 +243,16 @@ def run(args):
     # Output path
     output_path = Path(args.output_path)
 
-    static_data_path = args.static_data
+    static_data_path = Path(args.static_data)
     ice_shapes = args.ice_shapes
     n_workers = args.n_workers
+    time_step = np.timedelta64(args.time_step * 60, "s")
 
     # Use managed queue to pass files between download threads
     # and processing processes.
     manager = Manager()
     download_queue = manager.Queue()
     processing_queue = manager.Queue(4)
-
 
     logging.basicConfig(level="INFO", force=True)
 
@@ -249,12 +262,21 @@ def run(args):
         args=args,
         kwargs={"n_workers": n_workers}
     )
-    args = (processing_queue, radar, static_data_path, ice_shapes, output_path)
+    args = (processing_queue, ice_shapes, output_path, time_step)
     processing_processes = [
         Process(target=process_files, args=args) for _ in range(n_workers)
     ]
 
     for date in dates:
+        files = radar.get_files(radar_data_path, date)
+        for input_file in files:
+            input_data = RetrievalInput(
+                radar,
+                radar_data_path,
+                input_file,
+                era5_data_path,
+                static_data_path
+            )
         download_queue.put((input_data, date))
     download_queue.put(None)
 
