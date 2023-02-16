@@ -277,7 +277,7 @@ def run(args):
                 era5_data_path,
                 static_data_path
             )
-        download_queue.put((input_data, date))
+            download_queue.put((input_data, date))
     download_queue.put(None)
 
     download_process.start()
