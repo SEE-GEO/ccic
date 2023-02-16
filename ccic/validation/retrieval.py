@@ -292,6 +292,11 @@ class RadarRetrieval:
             simulation.run(time)
             results_t = simulation.retrieval.get_results()
 
+            if results_t["yf_radar"][0].size == 0:
+                results_t["yf_radar"][0] = np.nan * np.zeros_like(
+                    results_t["y_radar"][0]
+                )
+
             d_m = results_t["ice_dm"][0]
             n_0 = results_t["ice_n0"][0]
             iwcs.append(iwc(n_0, d_m))
@@ -373,47 +378,47 @@ class RadarRetrieval:
 
 def process_day(
     date,
-    radar,
     input_data,
-    static_data_path,
     ice_shapes,
     output_data_path,
-    timestep=np.timedelta64(10 * 60, "s"),
+    time_step=np.timedelta64(10 * 60, "s"),
 ):
     """
     Run retrieval for a day of input data.
 
     Args:
         date: A numpy datetime64 object defining the day for which to run the retrieval.
-        radar: A radar object defining the radar for which the retrieval is run.
         input_data: An input_data that provides the retrieval input data.
         static_data_path: Path containing the static retrieval data.
         ice_shapes: List containing the names of the particle shapes to run the retrieval with.
         output_data_path: The path to which to write the output data.
-        timestep: Timestep defining how many retrievals to run for the given day.
+        time_step: Time step defining how many retrievals to run for the given day.
 
     """
     py_date = to_datetime(date)
-    date_str = py_date.strftime("%Y_%m_%d")
+
+    start_time, end_time = input_data.get_start_and_end_time()
+    start_time_str = to_datetime(start_time).strftime("%Y%m%d%H%M")
+    end_time_str = to_datetime(end_time).strftime("%Y%m%d%H%M")
     output_data_path = Path(output_data_path)
-    output_filename = f"{radar.location}_{date_str}.nc"
+    output_filename = f"{input_data.radar.instrument_name}_{start_time_str}_{end_time_str}.nc"
 
     retrieval = RadarRetrieval()
     for ice_shape in ice_shapes:
         output = io.StringIO()
-        #with capture_stdout(output):
-        results = retrieval.process(input_data, timestep, shape)
-        results.to_netcdf(
-            output_data_path / output_filename, group=ice_shape, mode="a"
-        )
+        with capture_stdout(output):
+            results = retrieval.process(input_data, time_step, ice_shape)
+            results.to_netcdf(
+                output_data_path / output_filename, group=ice_shape, mode="a"
+            )
 
     try:
-        iwc_data = input_data.get_iwc_data(date, timestep)
+        iwc_data = input_data.get_iwc_data(date, time_step)
         iwc_data.to_netcdf(output_data_path / output_filename, group="cloudnet", mode="a")
     except KeyError:
         logger = logging.getLogger(__name__)
         logger.warning(
             "No IWC reference data for retrieval %s on %s",
-            radar.location,
+            input_data.radar.instrument_name,
             date
         )
