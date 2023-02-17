@@ -767,13 +767,13 @@ def get_encodings_zarr(variable_names):
         },
         "cloud_prob_2d": {
             "compressor": compressor,
-            "scale_factor": 250,
+            "scale_factor": 1 / 250,
             "_FillValue": 255,
             "dtype": "uint8",
         },
         "cloud_prob_3d": {
             "compressor": compressor,
-            "scale_factor": 250,
+            "scale_factor": 1 / 250,
             "_FillValue": 255,
             "dtype": "uint8",
         },
