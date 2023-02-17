@@ -80,7 +80,7 @@ def add_parser(subparsers):
         ),
     )
     parser.add_argument(
-        "--targets", metavar="target", type=str, nargs="+", default=["iwp", "iwp_rand"]
+        "--targets", metavar="target", type=str, nargs="+", default=["tiwp", "tiwp_fpavg"]
     )
     parser.add_argument(
         "--tile_size",
