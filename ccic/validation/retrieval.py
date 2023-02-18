@@ -218,17 +218,6 @@ class RadarRetrieval:
     """
     Simple interface to run artssat/mcrf retrievals.
     """
-
-    def __init__(self):
-        """
-        Args:
-            radar: Object representing the Cloudnet radar for which to
-                run the retrieval.
-            input_data: Input data object providing access to the retrieval
-                input data.
-            static_data_path: Path to the static retrieval data.
-        """
-
     def setup_retrieval(self, input_data, ice_shape):
 
         hydrometeors = get_hydrometeors(input_data.static_data_path, ice_shape)
@@ -246,16 +235,12 @@ class RadarRetrieval:
             include_cloud_water=True
         )
 
-        def radar_only(run):
-            """
-            Callback for radar-only retrieval settings.
-            """
-            run.settings["max_iter"] = 10
-            run.settings["stop_dx"] = 1e-2
-            run.settings["method"] = "lm"
-            run.settings["lm_ga_settings"] = np.array([200.0, 3.0, 2.0, 10e3, 5.0, 5.0])
-
-        self.retrieval.simulation.retrieval.callbacks = [("Radar only", radar_only)]
+        self.retrieval.simulation.retrieval.callbacks = []
+        retrieval_settings = self.retrieval.simulation.retrieval.settings
+        retrieval_settings["max_iter"] = 10
+        retrieval_settings["stop_dx"] = 1e-2
+        retrieval_settings["method"] = "lm"
+        retrieval_settings["lm_ga_settings"] = np.array([200.0, 3.0, 2.0, 10e3, 5.0, 5.0])
         self.retrieval.simulation.setup()
 
     def process(self, input_data, time_interval, ice_shape):
@@ -275,11 +260,19 @@ class RadarRetrieval:
 
         results = {}
         iwcs = []
-        iwcs_n_0 = []
-        iwcs_d_m = []
+        iwcs_n0 = []
+        iwcs_n0_xa = []
+        iwcs_dm = []
+        iwcs_dm_xa = []
         rwcs = []
-        rwcs_n_0 = []
-        rwcs_d_m = []
+        rwcs_n0 = []
+        rwcs_n0_xa = []
+        rwcs_dm = []
+        rwcs_dm_xa = []
+        lcwcs = []
+        temps = []
+        press = []
+        h2o = []
         diagnostics = []
 
         ys = []
@@ -288,7 +281,9 @@ class RadarRetrieval:
         self.setup_retrieval(input_data, ice_shape)
         simulation = self.retrieval.simulation
 
+
         for time in times:
+
             simulation.run(time)
             results_t = simulation.retrieval.get_results()
 
@@ -297,17 +292,26 @@ class RadarRetrieval:
                     results_t["y_radar"][0]
                 )
 
-            d_m = results_t["ice_dm"][0]
-            n_0 = results_t["ice_n0"][0]
-            iwcs.append(iwc(n_0, d_m))
-            iwcs_n_0.append(n_0)
-            iwcs_d_m.append(d_m)
+            dm = results_t["ice_dm"][0]
+            n0 = results_t["ice_n0"][0]
+            iwcs.append(iwc(n0, dm))
+            iwcs_n0.append(n0)
+            iwcs_dm.append(dm)
+            iwcs_n0_xa.append(input_data.get_ice_n0_xa(time))
+            iwcs_dm_xa.append(input_data.get_ice_dm_xa(time))
 
-            d_m = results_t["rain_dm"][0]
-            n_0 = results_t["rain_n0"][0]
-            rwcs.append(rwc(n_0, d_m))
-            rwcs_n_0.append(n_0)
-            rwcs_d_m.append(d_m)
+            dm = results_t["rain_dm"][0]
+            n0 = results_t["rain_n0"][0]
+            rwcs.append(rwc(n0, dm))
+            rwcs_n0.append(n0)
+            rwcs_dm.append(dm)
+            rwcs_n0_xa.append(input_data.get_rain_n0_xa(time))
+            rwcs_dm_xa.append(input_data.get_rain_dm_xa(time))
+
+            lcwcs.append(input_data.get_cloud_water(time))
+            press.append(input_data.get_pressure(time))
+            temps.append(input_data.get_temperature(time))
+            h2o.append(input_data.get_H2O(time))
 
             ys.append(results_t["y_radar"][0])
             y_fs.append(results_t["yf_radar"][0])
@@ -322,11 +326,19 @@ class RadarRetrieval:
                 "time": (("time",), times),
                 "altitude": (("altitude",), input_data.get_altitude(times[0])),
                 "iwc": (("time", "altitude"), np.stack(iwcs)),
-                "iwc_dm": (("time", "altitude"), np.stack(iwcs_d_m)),
-                "iwc_n0": (("time", "altitude"), np.stack(iwcs_n_0)),
+                "iwc_dm": (("time", "altitude"), np.stack(iwcs_dm)),
+                "iwc_dm_xa": (("time", "altitude"), np.stack(iwcs_dm_xa)),
+                "iwc_n0": (("time", "altitude"), np.stack(iwcs_n0)),
+                "iwc_n0_xa": (("time", "altitude"), np.stack(iwcs_n0_xa)),
                 "rwc": (("time", "altitude"), np.stack(rwcs)),
-                "rwc_dm": (("time", "altitude"), np.stack(rwcs_d_m)),
-                "rwc_n0": (("time", "altitude"), np.stack(rwcs_n_0)),
+                "rwc_dm": (("time", "altitude"), np.stack(rwcs_dm)),
+                "rwc_dm_xa": (("time", "altitude"), np.stack(rwcs_dm_xa)),
+                "rwc_n0": (("time", "altitude"), np.stack(rwcs_n0)),
+                "rwc_n0_xa": (("time", "altitude"), np.stack(rwcs_n0_xa)),
+                "lcwc": (("time", "altitude"), np.stack(lcwcs)),
+                "temperature": (("time", "altitude"), np.stack(temps)),
+                "pressure": (("time", "altitude"), np.stack(press)),
+                "h2o": (("time", "altitude"), np.stack(h2o)),
                 "oem_diagnostics": (("time", "diagnostics"), np.stack(diagnostics)),
                 "radar_bins": (("radar_bins",), radar_bins),
                 "radar_reflectivity": (("time", "radar_bins"), np.stack(ys)),
@@ -403,14 +415,15 @@ def process_day(
     output_data_path = Path(output_data_path)
     output_filename = f"{input_data.radar.instrument_name}_{start_time_str}_{end_time_str}.nc"
 
-    retrieval = RadarRetrieval()
     for ice_shape in ice_shapes:
+
+        retrieval = RadarRetrieval()
         output = io.StringIO()
-        with capture_stdout(output):
-            results = retrieval.process(input_data, time_step, ice_shape)
-            results.to_netcdf(
-                output_data_path / output_filename, group=ice_shape, mode="a"
-            )
+        #with capture_stdout(output):
+        results = retrieval.process(input_data, time_step, ice_shape)
+        results.to_netcdf(
+            output_data_path / output_filename, group=ice_shape, mode="a"
+        )
 
     try:
         iwc_data = input_data.get_iwc_data(date, time_step)
