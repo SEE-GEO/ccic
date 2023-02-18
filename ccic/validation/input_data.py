@@ -44,7 +44,7 @@ ERA5_PRODUCT = ERA5Hourly(
     ['temperature', 'relative_humidity', 'geopotential', 'specific_cloud_liquid_water_content'],
 )
 
-def era5_files_in_range(path, start_time, end_time):
+def era5_files_in_range(path, roi, start_time, end_time):
     """
     Return a list of ERA5 files within an hour of a
     given time interval.
@@ -58,14 +58,15 @@ def era5_files_in_range(path, start_time, end_time):
         A list of pathlib.Path object pointing to the ERA5 files within
         the specified interval.
     """
-    files = sorted(list(path.glob("reanalysis-era5*.nc")))
+    roi_str = "-".join(np.array(roi).astype(str))
+    files = sorted(list(path.glob(f"reanalysis-era5*{roi_str}*.nc")))
     files_within = []
     for filename in files:
         time = to_datetime64(ERA5_PRODUCT.filename_to_date(filename.name))
         delta_start = time - start_time
         delta_end = time - end_time
-        if ((delta_start > -np.timedelta64(3600, "s")) and
-            (delta_end < np.timedelta64(3600, "s"))):
+        if ((delta_start.astype("timedelta64[s]") > -np.timedelta64(3600, "s")) and
+            (delta_end.astype("timedelta64[s]") < np.timedelta64(3600, "s"))):
             files_within.append(filename)
     return files_within
 
@@ -126,14 +127,22 @@ class RetrievalInput(Fascod):
                 self.radar_data_path,
                 self.radar_file
             )
-            era5_files = era5_files_in_range(self.era5_data_path, start_time, end_time)
+            roi = self.radar.get_roi(self.radar_data_path, self.radar_file)
+            era5_files = era5_files_in_range(
+                self.era5_data_path,
+                roi,
+                start_time,
+                end_time
+                )
             era5_data = []
             for filename in era5_files:
                 data = xr.load_dataset(filename)[{"level": slice(None, None, -1)}]
                 era5_data.append(data)
 
             if len(era5_data) == 1:
-                data_copy = era5_data[0].assign({"time": era5_data[0].time + np.timedelta64(1, "h")})
+                data_copy = era5_data[0].assign({
+                    "time": era5_data[0].time + np.timedelta64(1, "h")
+                })
                 era5_data.append(data_copy)
 
             self.era5_data = xr.concat(era5_data, dim="time")
@@ -168,7 +177,7 @@ class RetrievalInput(Fascod):
             )
             era5_data = era5_data.swap_dims({"level": "altitude"})
             era5_data["level"] = np.log(era5_data["level"])
-            altitude = np.linspace(0, 20, 101) * 1e3
+            altitude = np.arange(0, 20e3, 100)
             era5_data = era5_data.interp(
                 altitude=altitude,
                 method="linear",
@@ -198,7 +207,8 @@ class RetrievalInput(Fascod):
             self.radar_data_path,
             self.radar_file
         )
-        era5_files = era5_files_in_range(self.era5_data_path, start_time, end_time)
+        roi = self.radar.get_roi(self.radar_data_path, self.radar_file)
+        era5_files = era5_files_in_range(self.era5_data_path, roi, start_time, end_time)
         has_era5 = len(era5_files) > 0
         return has_era5 and (self.radar_data_path / self.radar_file).exists()
 
@@ -214,7 +224,8 @@ class RetrievalInput(Fascod):
             self.radar_data_path,
             self.radar_file
         )
-        era5_files = era5_files_in_range(self.era5_data_path, start_time, end_time)
+        roi = self.radar.get_roi(self.radar_data_path, self.radar_file)
+        era5_files = era5_files_in_range(self.era5_data_path, roi, start_time, end_time)
         has_era5 = len(era5_files) > 0
         if not has_era5:
             roi = self.radar.get_roi(self.radar_data_path, self.radar_file)
@@ -231,7 +242,7 @@ class RetrievalInput(Fascod):
                 destination=self.era5_data_path)
 
         if not (self.radar_data_path / self.radar_file).exists():
-            self.radar.download_file(self.radar_data_path, self.radar_file)
+            self.radar.download_file(self.radar_file, self.radar_data_path)
 
 
     def get_start_and_end_time(self):
