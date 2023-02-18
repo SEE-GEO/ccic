@@ -42,3 +42,9 @@ def test_forward():
     assert y_pred["cloud_mask"].shape[1] == 1
     assert "cloud_class" in y_pred
     assert y_pred["cloud_class"].shape[1] == 9
+    assert not "encodings" in y_pred
+
+    with torch.no_grad():
+        y_pred = model(x, return_encodings=True)
+        assert "encodings" in y_pred
+

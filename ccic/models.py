@@ -83,14 +83,22 @@ class CCICModel(nn.Module):
         self.heads["cloud_mask"] = head_factory(1)
         self.heads["cloud_class"] = head_factory(20 * 9)
 
-    def forward(self, x):
+    def forward(self, x, return_encodings=False):
         """
         Propagate input through network.
-        """
-        y = self.encoder(self.stem(x), return_skips=True)
-        y = self.decoder(y)
 
+        Args:
+            x: A torch.tensor containing the input to feed through the
+                network.
+            return_encodings: If set to true, the output from the encoder
+                is included in the output.
+        """
         output = {}
+        y = self.encoder(self.stem(x), return_skips=True)
+
+        if return_encodings:
+            output["encodings"] = y[-1]
+        y = self.decoder(y)
 
         output["tiwp"] = self.heads["tiwp"](y)
         output["tiwp_fpavg"] = self.heads["tiwp_fpavg"](y)
