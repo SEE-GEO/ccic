@@ -155,7 +155,14 @@ class CloudnetRadar(CloudRadar):
         destination = Path(destination)
         if not destination.exists():
             destination.mkdir(exist_ok=True, parents=True)
-        self.provider.download_file(filename, destination)
+        self.provider.download_file(filename.name, destination / filename)
+
+        start, end = self.get_start_and_end_time(destination, filename)
+        pydate = to_datetime(start)
+        day = pydate.timetuple().tm_yday
+        iwc_files = self.provider.get_files_by_day(pydate.year, day)
+        for filename in iwc_files:
+            self.provider.download_file(filename, destination / filename)
 
     def get_roi(self, *args):
         """
@@ -191,7 +198,7 @@ class CloudnetRadar(CloudRadar):
             np.timedelta64(5 * 60, "s")
         )
         height = radar_data.height.data
-        range_bins = np.arange(height[0], height[-1], 100)
+        range_bins = np.arange(height[0], height[-1], 66)
 
         refl = np.nan_to_num(radar_data.Zh.data, copy=True, nan=self.y_min)
         z = 10 ** (refl / 10)
@@ -351,7 +358,7 @@ class ARMRadar(CloudRadar):
                 np.timedelta64(5 * 60, "s")
             )
             height = radar_data.height.data
-            range_bins = np.arange(height[0], height[-1], 100)
+            range_bins = np.arange(height[0], height[-1], 66)
 
             refl = np.nan_to_num(radar_data.reflectivity.data, copy=True, nan=self.y_min)
             z = 10 ** (refl / 10)
@@ -472,6 +479,14 @@ class NASACRS(CloudRadar):
             lat_max = data.lat.data.max()
             lon_min = data.lon.data.min()
             lon_max = data.lon.data.max()
+
+        # At least two ERA5 grid points needed for interpolation.
+        if lat_max - lat_min < 0.4:
+            lat_max += 0.1
+            lat_min -= 0.1
+        if lon_max - lon_min < 0.4:
+            lon_max += 0.1
+            lat_min -= 0.1
         return [lat_min, lat_max, lon_min, lon_max,]
 
     def load_data(self, path, filename, static_data_path):
@@ -499,6 +514,10 @@ class NASACRS(CloudRadar):
 
         with xr.open_dataset(radar_file) as radar_data:
 
+            # Sanity check data
+            valid = radar_data.altitude.data >= 0.0
+            radar_data = radar_data[{"timed": valid}]
+
             # Resample data
             latitude = radar_data.lat
             longitude = radar_data.lon
@@ -512,12 +531,12 @@ class NASACRS(CloudRadar):
             )
 
             # timd is in hours since 0 UTC
-            start = start_time.astype("datetime64[D]").astype("datetime64[ns]")
-            time = start + (radar_data.timed.data * 3600e9).astype("timedelta64[ns]")
+            start = start_time.astype("datetime64[D]").astype("datetime64[s]")
+            time = start + (radar_data.timed.data * 3600e9).astype("timedelta64[s]")
             time_bins = np.arange(
                 time[0],
                 time[-1] + np.timedelta64(1, "s"),
-                np.timedelta64(60, "s")
+                np.timedelta64(20, "s")
             )
             height = (
                 radar_data.altitude -
@@ -526,8 +545,8 @@ class NASACRS(CloudRadar):
             ).data
             time = np.broadcast_to(time[..., None], height.shape).copy()
 
-            # Discard lowest kilometer to get rid of ground clutter.
-            range_bins = np.arange(500, height[:, 0].min() - 500, 50)
+            # Discard lowest 500m to get rid of ground clutter.
+            range_bins = np.arange(500, height[:, 0].min() - 500, 66)
 
             refl = np.nan_to_num(radar_data.zku.data, copy=self.y_min, nan=self.y_min)
             z = 10 ** (refl / 10)
