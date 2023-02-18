@@ -119,9 +119,9 @@ def add_parser(subparsers):
     )
     parser.add_argument(
         "--time_step",
-        metavar="mins",
+        metavar="s",
         type=int,
-        default=10,
+        default=300,
         help=(
             "Temporal sampling of the radar-only retrievals."
         )
@@ -195,7 +195,7 @@ def process_files(
             logger.info(
                 "Starting %s radar-only retrieval for '%s'.",
                 type(input_data.radar).__name__,
-                date
+                input_data.radar_file
             )
             process_day(
                 date,
@@ -246,7 +246,7 @@ def run(args):
     static_data_path = Path(args.static_data)
     ice_shapes = args.ice_shapes
     n_workers = args.n_workers
-    time_step = np.timedelta64(args.time_step * 60, "s")
+    time_step = np.timedelta64(args.time_step, "s")
 
     # Use managed queue to pass files between download threads
     # and processing processes.
