@@ -168,6 +168,11 @@ def process_dataset(mrnn, data_loader, device="cpu"):
             for key in y_pred:
                 y_k = y[key]
                 y_pred_k = y_pred[key]
+
+                transform = mrnn.transformation[key]
+                if transform is not None:
+                    y_pred_k = transform.invert(y_pred_k)
+
                 if valid.ndim == y_k.ndim:
                     y[key] = y_k[valid]
                     y_pred_k = torch.permute(y_pred_k, (1, 0, 2, 3))
@@ -316,7 +321,6 @@ def process_dataset(mrnn, data_loader, device="cpu"):
     dataset.cloud_class_true.encoding = enc_class
     dataset.cloud_prob.encoding = enc_prob
     dataset.cloud_prob_true.encoding = enc_class
-    dataset.scene.encoding = enc_class
     dataset.encodings.encoding = enc_float
 
     return dataset
