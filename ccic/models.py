@@ -97,7 +97,7 @@ class CCICModel(nn.Module):
         y = self.encoder(self.stem(x), return_skips=True)
 
         if return_encodings:
-            output["encodings"] = y
+            output["encodings"] = y[-1]
         y = self.decoder(y)
 
         output["tiwp"] = self.heads["tiwp"](y)

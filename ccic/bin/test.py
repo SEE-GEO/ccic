@@ -2,7 +2,8 @@
 ccic.bin.test
 =============
 
-Implements a command line interface for running the CCIC model on test data.
+Implements a command line interface for running the CCIC neural network
+ on test data.
 """
 import logging
 from pathlib import Path
@@ -32,10 +33,12 @@ def add_parser(subparsers):
     """
     parser = subparsers.add_parser(
         "test",
-        help="Test the network.",
+        help="Evaluate retrieval network on test data.",
         description=(
             """
-            Test the network.
+            Applies a given CCIC neural network model to input data in the
+            format used for the training data. Produces outputs containing
+            the retrieval results combined with the reference values.
             """
         ),
     )
@@ -105,7 +108,6 @@ def process_dataset(mrnn, data_loader, device="cpu"):
 
     tiwc_mean = []
     tiwc_sample = []
-    tiwc_log_std_dev = []
     tiwc_true = []
 
     cloud_class_prob = []
@@ -117,6 +119,9 @@ def process_dataset(mrnn, data_loader, device="cpu"):
     scene = []
     latitude = []
     longitude = []
+    encodings = []
+    enc_inds = []
+    enc_inds = []
 
     mrnn.model.eval()
     mrnn.model.to(device)
@@ -132,16 +137,34 @@ def process_dataset(mrnn, data_loader, device="cpu"):
     with torch.no_grad():
         for x, y in tqdm.tqdm(data_loader, ncols=80):
 
-            if batch_index > 1000:
-                break
-
             x = x.to(device)
             y = {key: y[key].to(device) for key in y}
 
-            y_pred = mrnn.model(x)
+            y_pred = mrnn.model(x, return_encodings=True)
 
             # Extract valid pixels
             valid = y["tiwp"] > MASK_VALUE
+
+            enc = y_pred.pop("encodings")
+            ds_fac = valid.shape[-1] // enc.shape[-1]
+            new_shape = (
+                valid.shape[0],
+                valid.shape[1] // ds_fac,
+                ds_fac,
+                valid.shape[2] // ds_fac,
+                ds_fac
+            )
+            valid_ds = valid.reshape(new_shape).any(2).any(-1)
+            enc = torch.permute(enc, (1, 0, 2, 3))
+            encodings.append(torch.transpose(enc[..., valid_ds], 0, 1).cpu().numpy())
+
+            batch_inds, row_inds, col_inds = np.where(valid.cpu().numpy())
+            row_inds = row_inds // ds_fac
+            col_inds = col_inds // ds_fac
+            enc = enc.cpu().numpy()
+            inds = np.arange(enc[:, 0].size).reshape(enc[:, 0].shape)
+            enc_inds.append(inds[batch_inds, row_inds, col_inds])
+
             for key in y_pred:
                 y_k = y[key]
                 y_pred_k = y_pred[key]
@@ -162,6 +185,15 @@ def process_dataset(mrnn, data_loader, device="cpu"):
                 mrnn.sample_posterior(y_pred=y_pred["tiwp"], key="tiwp").cpu()[0]
             )
             tiwp_true.append(y["tiwp"].cpu().numpy())
+            tiwp_log_std_dev.append(
+                mrnn.posterior_std_dev(
+                    y_pred=torch.log10(y_pred["tiwp"]),
+                    key="tiwp"
+                )
+                .cpu()
+                .float()
+                .numpy()
+            )
 
             tiwp_fpavg_mean.append(
                 mrnn.posterior_mean(y_pred=y_pred["tiwp_fpavg"], key="tiwp_fpavg").cpu()
@@ -170,6 +202,14 @@ def process_dataset(mrnn, data_loader, device="cpu"):
                 mrnn.sample_posterior(y_pred=y_pred["tiwp_fpavg"], key="tiwp_fpavg").cpu()[0]
             )
             tiwp_fpavg_true.append(y["tiwp_fpavg"].cpu().numpy())
+            tiwp_fpavg_log_std_dev.append(
+                mrnn.posterior_std_dev(
+                    y_pred=torch.log10(y_pred["tiwp_fpavg"]),
+                    key="tiwp_fpavg")
+                .cpu()
+                .float()
+                .numpy()
+            )
 
             tiwc_mean.append(
                 torch.transpose(
@@ -209,9 +249,11 @@ def process_dataset(mrnn, data_loader, device="cpu"):
     tiwp_mean = np.concatenate([tensor.numpy() for tensor in tiwp_mean])
     tiwp_sample = np.concatenate([tensor.numpy() for tensor in tiwp_sample])
     tiwp_true = np.concatenate(tiwp_true)
+    tiwp_log_std_dev = np.concatenate(tiwp_log_std_dev)
     tiwp_fpavg_mean = np.concatenate([tensor.numpy() for tensor in tiwp_fpavg_mean])
     tiwp_fpavg_sample = np.concatenate([tensor.numpy() for tensor in tiwp_fpavg_sample])
     tiwp_fpavg_true = np.concatenate(tiwp_fpavg_true)
+    tiwp_fpavg_log_std_dev = np.concatenate(tiwp_fpavg_log_std_dev)
     tiwc_mean = np.concatenate([tensor.numpy() for tensor in tiwc_mean])
     tiwc_sample = np.concatenate([tensor.numpy() for tensor in tiwc_sample])
     tiwc_true = np.concatenate(tiwc_true)
@@ -220,6 +262,8 @@ def process_dataset(mrnn, data_loader, device="cpu"):
     cloud_prob = np.concatenate(cloud_prob)
     cloud_true = np.concatenate(cloud_true)
     scene = np.concatenate(scene)
+    encodings = np.concatenate(encodings)
+    enc_inds = np.concatenate(enc_inds)
 
     levels = (np.arange(20) + 0.5) * 1e3
     dataset = xr.Dataset({
@@ -227,18 +271,54 @@ def process_dataset(mrnn, data_loader, device="cpu"):
         "tiwp_mean": (("samples",), tiwp_mean),
         "tiwp_sample": (("samples",), tiwp_sample),
         "tiwp_true": (("samples",), tiwp_true),
+        "tiwp_log_std_dev": (("samples",), tiwp_log_std_dev),
         "tiwp_fpavg_mean": (("samples",), tiwp_fpavg_mean),
         "tiwp_fpavg_sample": (("samples",), tiwp_fpavg_sample),
         "tiwp_fpavg_true": (("samples",), tiwp_fpavg_true),
-        "tiwc": (("samples", "levels"), tiwc_mean),
+        "tiwp_fpavg_log_std_dev": (("samples",), tiwp_fpavg_log_std_dev),
+        "tiwc_mean": (("samples", "levels"), tiwc_mean),
         "tiwc_sample": (("samples", "levels"), tiwc_sample),
         "tiwc_true": (("samples", "levels"), tiwc_true),
         "cloud_class_prob": (("samples", "levels", "classes",), cloud_class_prob),
         "cloud_class_true": (("samples", "levels"), cloud_class_true),
         "cloud_prob": (("samples",), cloud_prob),
-        "cloud_true": (("samples",), cloud_true),
-        "scene": (("scene",), scene)
+        "cloud_prob_true": (("samples",), cloud_true),
+        "scene": (("samples",), scene),
+        "encodings": ((f"samples_{ds_fac}", "features"), encodings),
+        "encoding_indices": (("samples",), enc_inds)
     })
+
+    enc_float = {"dtype": "float32", "zlib": True}
+    dataset.tiwp_mean.encoding = enc_float
+    dataset.tiwp_sample.encoding = enc_float
+    dataset.tiwp_true.encoding = enc_float
+    dataset.tiwp_log_std_dev.encoding = enc_float
+    dataset.tiwp_fpavg_mean.encoding = enc_float
+    dataset.tiwp_fpavg_sample.encoding = enc_float
+    dataset.tiwp_fpavg_true.encoding = enc_float
+    dataset.tiwp_fpavg_log_std_dev.encoding = enc_float
+    dataset.tiwc_mean.encoding = enc_float
+    dataset.tiwc_sample.encoding = enc_float
+    dataset.tiwc_true.encoding = enc_float
+
+    enc_prob = {
+        "dtype": "uint8",
+        "scale_factor": 1 / 250,
+        "_FillValue": 255,
+        "zlib":True
+    }
+    enc_class = {
+        "dtype": "uint8",
+        "_FillValue": 255,
+    }
+
+    dataset.cloud_class_prob.encoding = enc_prob
+    dataset.cloud_class_true.encoding = enc_class
+    dataset.cloud_prob.encoding = enc_prob
+    dataset.cloud_prob_true.encoding = enc_class
+    dataset.scene.encoding = enc_class
+    dataset.encodings.encoding = enc_float
+
     return dataset
 
 
@@ -278,4 +358,4 @@ def run(args):
 
     results = process_dataset(mrnn, test_loader, device="cuda")
 
-    results.to_netcdf(args.ouput_file)
+    results.to_netcdf(args.output_file)
