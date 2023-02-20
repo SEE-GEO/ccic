@@ -607,7 +607,7 @@ def process_input(mrnn, x, retrieval_settings=None):
         cloud_type = tiler.assemble(cloud_type)
         cloud_type = np.transpose(cloud_type, [0, 3, 4, 2, 1])
         results["cloud_type"] = (dims, cloud_type)
-    results["altitude"] = (("altitude,",), np.arange(20) * 1e3 + 500.0)
+    results["altitude"] = (("altitude",), np.arange(20) * 1e3 + 500.0)
 
     return results
 
