@@ -252,9 +252,9 @@ def process_dataset(mrnn, data_loader, device="cpu"):
             scene.append(batch_index + np.where(valid.cpu().numpy())[0])
             batch_index += x.shape[0]
 
-            latitude.append(y["latitude"].cpu().numpy())
-            longitude.append(y["longitude"].cpu().numpy())
-            granule.append(y["granule"].cpu().numpy())
+            latitude.append(y["latitude"][valid].cpu().numpy())
+            longitude.append(y["longitude"][valid].cpu().numpy())
+            granule.append(y["granule"][valid].cpu().numpy())
 
     tiwp_mean = np.concatenate([tensor.numpy() for tensor in tiwp_mean])
     tiwp_sample = np.concatenate([tensor.numpy() for tensor in tiwp_sample])
