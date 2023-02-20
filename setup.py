@@ -29,7 +29,11 @@ setup(
         "Source": "https://github.com/see-geo/ccic/",
     },
     include_package_data=True,
-    package_data={},
+    package_data={
+        "ccic" : [
+            "files/ccic.mplstyle"
+        ]
+    },
     entry_points = {
         'console_scripts': ['ccic=ccic.bin:ccic'],
     },
