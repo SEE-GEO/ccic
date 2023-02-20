@@ -17,11 +17,12 @@ import numpy as np
 from pansat.time import to_datetime
 from scipy.ndimage.morphology import binary_closing
 import torch
+from torch import nn
 import xarray as xr
 import zarr
 
 from ccic import __version__
-from ccic.tiler import Tiler
+from ccic.tiler import Tiler, calculate_padding
 from ccic.data.cpcir import CPCIR
 from ccic.data.gridsat import GridSat
 from ccic.data.utils import extract_roi
@@ -536,11 +537,29 @@ def process_input(mrnn, x, retrieval_settings=None):
 
                 # Use torch autocast for mixed precision.
                 x_t = x_t.to(device)
+
+                if (x_t.shape[-2] % 32 > 0) or (x_t.shape[-1] % 32 > 0):
+                    padding = calculate_padding(x_t, 32)
+                    x_t = nn.functional.pad(x_t, padding, mode="reflect")
+                    slices = [
+                        slice(padding[2], x_t.shape[-2] - padding[3]),
+                        slice(padding[0], x_t.shape[-1] - padding[1])
+                    ]
+                else:
+                    slices = None
+
                 if precision == 16:
                     with torch.autocast(device_type=device):
                         y_pred = mrnn.predict(x_t)
                 else:
                     y_pred = mrnn.predict(x_t)
+
+                # Remove padding if has been applied.
+                if slices is not None:
+                    x_t = x_t[..., slices[0], slices[1]]
+                    y_pred = {
+                        key: val[..., slices[0], slices[1]] for key, val in y_pred.items()
+                    }
 
                 invalid = get_invalid_mask(x_t)
 
