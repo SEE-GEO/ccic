@@ -1,3 +1,4 @@
+from math import ceil
 import numpy as np
 
 
@@ -39,7 +40,6 @@ class Tiler:
         M: The number of tiles along the first image dimension (rows).
         N: The number of tiles along the second image dimension (columns).
     """
-
     def __init__(self, x, tile_size=512, overlap=32):
         """
         Args:
@@ -47,9 +47,8 @@ class Tiler:
             tile_size: The size of a single tile.
             overlap: The overlap between two subsequent tiles.
         """
-
         self.x = x
-        _, _, m, n = x.shape
+        *_, m, n = x.shape
         self.m = m
         self.n = n
 
@@ -59,6 +58,12 @@ class Tiler:
             tile_size = tile_size * 2
         self.tile_size = (min(m, tile_size[0]), min(n, tile_size[1]))
         self.overlap = overlap
+
+        min_len = min(self.tile_size[0], self.tile_size[1])
+        if overlap > min_len // 2:
+            raise ValueError(
+                "Overlap must not exceed the half of the tile size."
+            )
 
         i_start, i_clip = get_start_and_clips(self.m, tile_size[0], overlap)
         self.i_start = i_start
@@ -203,3 +208,32 @@ class Tiler:
 
     def __repr__(self):
         return f"Tiler(tile_size={self.tile_size}, overlap={self.overlap})"
+
+
+def calculate_padding(tensor, multiple_of=32):
+    """
+    Calculate torch padding dimensions required to pad the input tensor
+    to a multiple of 32.
+
+    Args:
+        tensor: The tensor to pad.
+        multiple_of: Integer of which the spatial dimensions of 'tensor'
+            should be a multiple of.
+
+    Return
+        A tuple ``(p_l_n, p_r_n, p_l_m, p_r_m)`` containing the
+        left and right padding  for the second to last dimension
+        (``p_l_m, p_r_m``) and for the last dimension (``p_l_n, p_r_n``).
+    """
+    shape = tensor.shape
+
+    n = shape[-1]
+    d_n = ceil(n / multiple_of) * multiple_of - n
+    p_l_n = d_n // 2
+    p_r_n = d_n - p_l_n
+
+    m = shape[-2]
+    d_m = ceil(m / multiple_of) * multiple_of - m
+    p_l_m = d_m // 2
+    p_r_m = d_m - p_l_m
+    return (p_l_n, p_r_n, p_l_m, p_r_m)
