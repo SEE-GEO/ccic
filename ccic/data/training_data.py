@@ -270,9 +270,11 @@ class CCICDataset:
             if self.inference:
                 latitude = data.latitude.data
                 longitude = data.longitude.data
-                longitude, latitude = np.meshgrid(latitude, longitude)
+                longitude, latitude = np.meshgrid(longitude, latitude)
                 y["latitude"] = torch.tensor(latitude.astype(np.float32))
                 y["longitude"] = torch.tensor(longitude.astype(np.float32))
+                granule = np.ones_like(latitude) * int(data.attrs["granule"])
+                y["granule"] = torch.tensor(granule.astype(np.int64))
 
             input_size = self.input_size
             if input_size is None:

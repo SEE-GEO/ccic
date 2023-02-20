@@ -119,6 +119,7 @@ def process_dataset(mrnn, data_loader, device="cpu"):
     scene = []
     latitude = []
     longitude = []
+    granule = []
     encodings = []
     enc_inds = []
     enc_inds = []
@@ -251,6 +252,10 @@ def process_dataset(mrnn, data_loader, device="cpu"):
             scene.append(batch_index + np.where(valid.cpu().numpy())[0])
             batch_index += x.shape[0]
 
+            latitude.append(y["latitude"].cpu().numpy())
+            longitude.append(y["longitude"].cpu().numpy())
+            granule.append(y["granule"].cpu().numpy())
+
     tiwp_mean = np.concatenate([tensor.numpy() for tensor in tiwp_mean])
     tiwp_sample = np.concatenate([tensor.numpy() for tensor in tiwp_sample])
     tiwp_true = np.concatenate(tiwp_true)
@@ -269,6 +274,9 @@ def process_dataset(mrnn, data_loader, device="cpu"):
     scene = np.concatenate(scene)
     encodings = np.concatenate(encodings)
     enc_inds = np.concatenate(enc_inds)
+    latitude = np.concatenate(latitude)
+    longitude = np.concatenate(longitude)
+    granule = np.concatenate(granule)
 
     levels = (np.arange(20) + 0.5) * 1e3
     dataset = xr.Dataset({
@@ -290,7 +298,10 @@ def process_dataset(mrnn, data_loader, device="cpu"):
         "cloud_prob_true": (("samples",), cloud_true),
         "scene": (("samples",), scene),
         "encodings": ((f"samples_{ds_fac}", "features"), encodings),
-        "encoding_indices": (("samples",), enc_inds)
+        "encoding_indices": (("samples",), enc_inds),
+        "longitude": (("samples",), longitude),
+        "latitude": (("samples",), latitude),
+        "granule": (("samples",), granule),
     })
 
     enc_float = {"dtype": "float32", "zlib": True}
