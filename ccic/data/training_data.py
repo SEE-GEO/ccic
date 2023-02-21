@@ -48,7 +48,7 @@ def replace_zeros(data, low, high, rng):
     data = data.copy()
     mask = (data >= 0.0) * (data < high)
     low = np.log10(low)
-    high = np.log10(high)
+    high = np.log10(high) - 1.0
     n_valid = mask.sum()
     data[mask] = 10 ** rng.uniform(low, high, size=n_valid)
     return data
@@ -255,7 +255,7 @@ class CCICDataset:
             data["tiwp"] = data["tiwp"] * 1e-3
             tiwp_fpavg = load_output_data(data, "tiwp_fpavg", 1e-6, 1e-3, self.rng)
             tiwp = load_output_data(data, "tiwp", 1e-6, 1e-3, self.rng)
-            tiwc = load_output_data(data, "tiwc", 1e-6, 1e-3, self.rng)
+            tiwc = load_output_data(data, "tiwc", 1e-10, 1e-7, self.rng)
             cloud_class = load_output_data(data, "cloud_class").astype(np.int64)
             cloud_mask = load_output_data(data, "cloud_mask").astype(np.int64)
 
