@@ -260,6 +260,9 @@ class RetrievalInput(Fascod):
         """
         self._interpolate_pressure(time)
         dbz = self._data.radar_reflectivity.data
+        if np.any(np.isnan(dbz)) and np.any(np.isfinite(dbz)):
+            ind = np.where(np.isnan(dbz))[0][0]
+            dbz = dbz[:ind]
         return np.maximum(self.radar.y_min, dbz)
 
     def get_ice_dm_x0(self, date):
@@ -332,8 +335,9 @@ class RetrievalInput(Fascod):
         """
         Return range bins of radar as center points between radar measurements.
         """
-        self._interpolate_pressure(time)
-        return self._data.range_bins.data
+        dbz = self.get_radar_reflectivity(time)
+        range_bins = self._data.range_bins.data
+        return range_bins[:dbz.size + 1]
 
     def get_y_radar_nedt(self, time):
         """
@@ -391,22 +395,17 @@ class RetrievalInput(Fascod):
             given day.
         """
         self._interpolate_pressure(time)
-        start = time.astype("datetime64[D]").astype("datetime64[s]")
-        end = start + np.timedelta64(1, "D").astype("timedelta64[s]")
-        times = np.arange(
-            start,
-            end,
-            timestep
-        )
-        self._interpolate_pressure(time)
-        data = self._data[["iwc", "iwc_reliability"]]
-        z = self.get_altitude(date)
+        start, end = self.get_start_and_end_time()
+        times = np.arange(start, end, timestep)
+
+        data = self.radar_data[["iwc", "iwc_reliability"]]
+        z = self.get_altitude(time)
+        if "range" in data:
+            data = data.rename({"range": "altitude"})
         data = data.interp(
             time=times,
-            range=z,
+            altitude=z,
             method="nearest",
-            kwargs={"fill_value": 0}
-        ).rename({
-            "range": "altitude"
-        })
+        )
         return data
+

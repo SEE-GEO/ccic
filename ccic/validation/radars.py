@@ -736,7 +736,6 @@ class Basta(CloudRadar):
             if self.los > 0.0:
                 height = (altitude[:, None] - radar_data.height_2D.data * 1e3)
                 clutter_limit = altitude - z_surf.data - 1e3
-                print(clutter_limit.mean())
                 height[height >= clutter_limit[:, None]] = np.nan
             else:
                 height = (radar_data.height_2D.data * 1e3 - altitude[:, None])
@@ -787,23 +786,33 @@ class Basta(CloudRadar):
                 bins=time_bins.astype(np.float64)
             )[0]
 
+            # IWC
+            atm_bins = np.linspace(0, 20, 101)
+            iwc = radar_data.iwc_ret.data
+            iwc = binned_statistic_2d(
+                time.ravel().astype(np.float64),
+                radar_data.height_2D.data.ravel(),
+                iwc.ravel(),
+                bins=(time_bins.astype(np.float64), atm_bins)
+                )[0]
+            altitude = 0.5 * (atm_bins[1:] + atm_bins[:-1]) * 1e3
+
             time = time_bins[:-1] + 0.5 * (time_bins[1:] - time_bins[:-1])
             radar_range = 0.5 * (range_bins[1:] + range_bins[:-1])
-
-            if self.los > 0.0:
-                range_bins = altitude_binned[:, None] - range_bins[None, :]
-            else:
-                range_bins = altitude_binned[:, None] + range_bins[None, :]
 
             results = xr.Dataset({
                 "time": (("time", ), time),
                 "range": (("range",), radar_range),
                 "radar_reflectivity": (("time", "range"), z),
-                "range_bins": (("time", "bins",), range_bins),
+                "range_bins": (("bins",), range_bins),
                 "latitude": (("time",), latitude),
                 "longitude": (("time",), longitude),
-                "sensor_position": (("time",), sensor_position)
+                "sensor_position": (("time",), sensor_position),
+                "altitude": (("altitude",), altitude),
+                "iwc": (("time", "altitude"), iwc),
+                "iwc_reliability": (("time", "altitude"), np.ones_like(iwc)),
             })
+
         return results
 
 basta_haic_up = Basta("haic", 0.0, "elevation_haic.nc")

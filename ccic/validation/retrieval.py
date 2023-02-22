@@ -319,6 +319,23 @@ class RadarRetrieval:
             diagnostics.append(results_t["diagnostics"][0])
 
         radar_bins = input_data.get_radar_range_bins(times[0])
+
+        # Expand observation vector if required.
+        n_bins = np.array([y.size for y in ys])
+        ys_new = []
+        y_fs_new = []
+        if n_bins.min() != n_bins.max():
+            for index in range(len(ys)):
+                y_padded = np.nan * np.zeros(n_bins.max())
+                y_padded[:n_bins[index]] = ys[index]
+                ys_new.append(y_padded)
+                y_padded = np.nan * np.zeros(n_bins.max())
+                y_padded[:n_bins[index]] = y_fs[index]
+                y_fs_new.append(y_padded)
+            ys = ys_new
+            y_fs = y_fs_new
+            radar_bins = (np.arange(n_bins.max() + 1) *
+                          np.abs(radar_bins[1] - radar_bins[0]))
         radar_bins = 0.5 * (radar_bins[1:] + radar_bins[:-1])
 
         results = xr.Dataset(
