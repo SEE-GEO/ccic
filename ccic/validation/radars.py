@@ -218,7 +218,7 @@ class CloudnetRadar(CloudRadar):
             "sensor_position": (("time",), sensor_position)
         })
 
-        tmpl = "**/" + "_".join(filename.stem.split("_")[:2]) + "_iwc-Z-T-method.nc"
+        tmpl = "**/" + "_".join(filename.split("_")[:2]) + "_iwc-Z-T-method.nc"
         iwc_files = list(path.glob(tmpl))
         if len(iwc_files) > 0:
             iwc_data = xr.load_dataset(iwc_files[0])
@@ -464,7 +464,7 @@ class NASACRS(CloudRadar):
 
     def download_file(self, *args):
         """
-        No download option is available for ARM radars.
+        No download option is available for NASA CRS radars.
         """
         raise Exception(
             "NASA CRS radar does not support on-the-fly downloads."
@@ -532,7 +532,7 @@ class NASACRS(CloudRadar):
 
             # timd is in hours since 0 UTC
             start = start_time.astype("datetime64[D]").astype("datetime64[s]")
-            time = start + (radar_data.timed.data * 3600e9).astype("timedelta64[s]")
+            time = start + (radar_data.timed.data * 3600).astype("timedelta64[s]")
             time_bins = np.arange(
                 time[0],
                 time[-1] + np.timedelta64(1, "s"),
@@ -594,3 +594,217 @@ class NASACRS(CloudRadar):
 
 
 crs_olympex = NASACRS("olympex", "elevation_olympex.nc")
+
+
+class Basta(CloudRadar):
+    """
+    Class to load input data from the airborne BASTA cloud radar.
+    """
+    def __init__(self, campaign, los, dem):
+        """
+        Args:
+            campaign: Campaign identifier
+            los: The zenith angle of the line of sight: 180 for down-looking,
+                 0 for up-looking.
+            dem: Filename of an NetCDF file containing surface elevation data
+                for the domain of the field campaign.
+        """
+        if not los in [0.0, 180.0]:
+            raise ValueError("BASTA line-of-sight (LOS) must be 0 or 180.")
+
+        super().__init__(95e9, -40, los)
+        self.los = los
+        self.campaign = campaign
+        self.instrument_pol = [1]
+        self.instrument_pol_array = [[1]]
+        self.dem = dem
+
+    @property
+    def instrument_name(self):
+        """The radar name is used to label retrieval results."""
+        return f"basta_{self.campaign}"
+
+    def get_files(self, path, date):
+        """
+        Get files for a given date.
+
+        Args:
+            date: A numpy.datetime64 object specifying the day.
+
+        Return:
+            A list of the available input files for the given day.
+        """
+        pydate = to_datetime(date)
+        templ = f"**/HAIC_DARWIN_{pydate.strftime('%Y%m%d')}*.nc"
+        files = sorted(list(Path(path).glob(templ)))
+        return [path.name for path in files]
+
+    def get_start_and_end_time(self, path, filename):
+        """
+        Get start and end time from a Cloudnet filename.
+
+        Args:
+            filename: The filename for which to determine start and end
+                times.
+        """
+        parts = Path(filename).stem.split("_")
+        start_day = to_datetime64(datetime.strptime(parts[2], "%Y%m%d"))
+        start_day = start_day.astype("datetime64[s]")
+        with xr.open_dataset(path / filename) as data:
+            start_time = start_day + np.timedelta64(int(data.time[0] * 3600), "s")
+            end_time = start_day + np.timedelta64(int(data.time[-1] * 3600), "s")
+        return start_time, end_time
+
+    def download_file(self, *args):
+        """
+        No download option is available for BASTA data.
+        """
+        raise Exception(
+            "BASTA S radar does not support on-the-fly downloads."
+        )
+
+    def get_roi(self, path, filename):
+        """
+        Get geographical bounding box around radar.
+        """
+        with xr.open_dataset(path / filename) as data:
+            lat_min = data.latitude.data.min()
+            lat_max = data.latitude.data.max()
+            lon_min = data.longitude.data.min()
+            lon_max = data.longitude.data.max()
+
+        # At least two ERA5 grid points needed for interpolation.
+        if lat_max - lat_min < 0.4:
+            lat_max += 0.1
+            lat_min -= 0.1
+        if lon_max - lon_min < 0.4:
+            lon_max += 0.1
+            lat_min -= 0.1
+        return [lat_min, lat_max, lon_min, lon_max,]
+
+    def load_data(self, path, filename, static_data_path):
+        """
+        Load radar data from NASA CRS observation file into xarray.Dataset
+
+        Resamples the data to a temporal resolution of 1 minute and a vertical
+        resolution of 100m.
+
+        Args:
+            path: The path containing the CRS diles.
+            filename: The name of the file from which to load the data.
+            static_data_path: Path to the folder containing the surface elevation
+                map for the campaign.
+
+        Return:
+            An 'xarray.Dataset' containing the resampled radar data.
+        """
+        path = Path(path)
+        radar_file = path / filename
+
+        start_time, _ = self.get_start_and_end_time(path, filename)
+
+        dem = xr.load_dataset(Path(static_data_path) / self.dem)
+
+        with xr.open_dataset(radar_file) as radar_data:
+
+            # Sanity check data
+            valid = radar_data.altitude.data >= 0.0
+            radar_data = radar_data[{"time": valid}]
+
+            # Resample data
+            latitude = radar_data.latitude
+            longitude = radar_data.longitude
+            # Elevation data may be missing over ocean. Fill with
+            # 0.
+            dem.elevation.data[:] = np.nan_to_num(dem.elevation.data, True, 0.0)
+            z_surf = dem.elevation.interp(
+                latitude=latitude,
+                longitude=longitude,
+                method="nearest",
+                kwargs={"fill_value": 0}
+            )
+            altitude = radar_data.altitude.data * 1e3
+
+            # timd is in hours since 0 UTC
+            start = start_time.astype("datetime64[D]").astype("datetime64[s]")
+            time = start + (radar_data.time.data * 3600).astype("timedelta64[s]")
+            time_bins = np.arange(
+                time[0],
+                time[-1] + np.timedelta64(1, "s"),
+                np.timedelta64(20, "s")
+            )
+            if self.los > 0.0:
+                height = (altitude[:, None] - radar_data.height_2D.data * 1e3)
+                clutter_limit = altitude - z_surf.data - 1e3
+                print(clutter_limit.mean())
+                height[height >= clutter_limit[:, None]] = np.nan
+            else:
+                height = (radar_data.height_2D.data * 1e3 - altitude[:, None])
+                atm_limit = 20e3 - altitude - 500
+                height[height >= atm_limit[:, None]] = np.nan
+            time = np.broadcast_to(time[..., None], height.shape).copy()
+
+            # Discard lowest 500m to get rid of ground clutter.
+            range_bins = np.arange(0, 10e3, 100)
+
+            refl = np.nan_to_num(
+                radar_data.Z_vertical.data,
+                copy=self.y_min,
+                nan=self.y_min
+            )
+            z = 10 ** (refl / 10)
+
+            excessive_roll = np.abs(radar_data["roll"].data) > 5
+            height[excessive_roll] = np.nan
+
+            z = binned_statistic_2d(
+                time.ravel().astype(np.float64),
+                height.ravel(),
+                z.ravel(),
+                bins=(time_bins.astype(np.float64), range_bins)
+            )[0]
+            z = 10 * np.log10(z)
+
+            time_f = time[:, 0].astype(np.float64)
+
+            latitude = binned_statistic(
+                time_f,
+                latitude.data,
+                bins=time_bins.astype(np.float64))[0]
+            longitude = binned_statistic(
+                time_f,
+                longitude.data.astype(np.float64),
+                bins=time_bins.astype(np.float64)
+            )[0]
+            altitude_binned = binned_statistic(
+                time_f,
+                altitude.astype(np.float64),
+                bins=time_bins.astype(np.float64)
+            )[0]
+            sensor_position = binned_statistic(
+                time_f,
+                altitude,
+                bins=time_bins.astype(np.float64)
+            )[0]
+
+            time = time_bins[:-1] + 0.5 * (time_bins[1:] - time_bins[:-1])
+            radar_range = 0.5 * (range_bins[1:] + range_bins[:-1])
+
+            if self.los > 0.0:
+                range_bins = altitude_binned[:, None] - range_bins[None, :]
+            else:
+                range_bins = altitude_binned[:, None] + range_bins[None, :]
+
+            results = xr.Dataset({
+                "time": (("time", ), time),
+                "range": (("range",), radar_range),
+                "radar_reflectivity": (("time", "range"), z),
+                "range_bins": (("time", "bins",), range_bins),
+                "latitude": (("time",), latitude),
+                "longitude": (("time",), longitude),
+                "sensor_position": (("time",), sensor_position)
+            })
+        return results
+
+basta_haic_up = Basta("haic", 0.0, "elevation_haic.nc")
+basta_haic_down = Basta("haic", 180.0, "elevation_haic.nc")

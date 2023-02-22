@@ -11,7 +11,9 @@ import xarray as xr
 from ccic.validation.radars import (
     cloudnet_punta_arenas,
     arm_manacapuru,
-    crs_olympex
+    crs_olympex,
+    basta_haic_up,
+    basta_haic_down
 )
 
 
@@ -75,3 +77,21 @@ def test_nasa_crs():
 
     # Try loading data.
     crs_olympex.load_data(path, files[0], TEST_DATA / "validation")
+
+
+@NEEDS_TEST_DATA
+def test_basta_haic():
+    date = np.datetime64("2014-01-16T00:00:00")
+    path = TEST_DATA / "validation" / "haic"
+
+    for radar in [basta_haic_up, basta_haic_down]:
+        files = radar.get_files(path, date)
+        assert len(files) == 2
+
+        # Check that start and end time are right.
+        start_time, end_time = radar.get_start_and_end_time(path, files[0])
+        assert start_time >= np.datetime64("2014-01-16T02:00:00")
+        assert end_time <= np.datetime64("2014-01-16T05:03:00")
+
+        # Try loading data.
+        radar.load_data(path, files[0], TEST_DATA / "validation")
