@@ -261,8 +261,8 @@ class RetrievalInput(Fascod):
         self._interpolate_pressure(time)
         dbz = self._data.radar_reflectivity.data
         if np.any(np.isnan(dbz)) and np.any(np.isfinite(dbz)):
-            ind = np.where(np.isnan(dbz))[0][0]
-            dbz = dbz[:ind]
+            start, end = np.where(np.isfinite(dbz))[0][[0, -1]]
+            dbz = dbz[start:end]
         return np.maximum(self.radar.y_min, dbz)
 
     def get_ice_dm_x0(self, date):
@@ -297,6 +297,7 @@ class RetrievalInput(Fascod):
         z = self.get_altitude(date)
         bins = self.get_radar_range_bins(date)
         centers = 0.5 * (bins[1:] + bins[:-1])
+        print(dbz)
         dbz_i = np.interp(z, centers, dbz, left=-40, right=-40)
 
         iwc = cloudnet_iwc(dbz_i, t)
@@ -335,9 +336,13 @@ class RetrievalInput(Fascod):
         """
         Return range bins of radar as center points between radar measurements.
         """
-        dbz = self.get_radar_reflectivity(time)
+        self._interpolate_pressure(time)
+        dbz = self._data.radar_reflectivity.data
         range_bins = self._data.range_bins.data
-        return range_bins[:dbz.size + 1]
+        if np.any(np.isnan(dbz)) and np.any(np.isfinite(dbz)):
+            start, end = np.where(np.isfinite(dbz))[0][[0, -1]]
+            range_bins = range_bins[start:end + 1]
+        return range_bins
 
     def get_y_radar_nedt(self, time):
         """
@@ -401,10 +406,10 @@ class RetrievalInput(Fascod):
         data = self.radar_data[["iwc", "iwc_reliability"]]
         z = self.get_altitude(time)
         if "range" in data:
-            data = data.rename({"range": "altitude"})
+            data = data.rename({"range": "iwc_altitude"})
         data = data.interp(
             time=times,
-            altitude=z,
+            iwc_altitude=z,
             method="nearest",
         )
         return data
