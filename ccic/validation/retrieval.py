@@ -436,12 +436,14 @@ def process_day(
 
         retrieval = RadarRetrieval()
         output = io.StringIO()
-        #with capture_stdout(output):
-        results = retrieval.process(input_data, time_step, ice_shape)
-        results.to_netcdf(
-            output_data_path / output_filename, group=ice_shape, mode="a"
-        )
+        with capture_stdout(output):
+            results = retrieval.process(input_data, time_step, ice_shape)
+            results.to_netcdf(
+                output_data_path / output_filename, group=ice_shape, mode="a"
+            )
 
+    iwc_data = input_data.get_iwc_data(date, time_step)
+    iwc_data.to_netcdf(output_data_path / output_filename, group="cloudnet", mode="a")
     try:
         iwc_data = input_data.get_iwc_data(date, time_step)
         iwc_data.to_netcdf(output_data_path / output_filename, group="cloudnet", mode="a")
