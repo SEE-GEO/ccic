@@ -552,8 +552,13 @@ class NASACRS(CloudRadar):
             refl = np.nan_to_num(radar_data.zku.data, copy=self.y_min, nan=self.y_min)
             z = 10 ** (refl / 10)
 
-            excessive_roll = np.abs(radar_data["roll"].data) > 5
-            height[excessive_roll] = np.nan
+            # Criterion to identify observations during which the aircraft was
+            # not horizontal. Roughly corresponds to a limit of +/- 5 deg.
+            misaligned = np.any(
+                np.abs(np.cos(np.deg2rad(data.elevation_hor_vertical))) > 0.075,
+                1
+            )
+            height[misaligned] = np.nan
 
             z = binned_statistic_2d(
                 time.ravel().astype(np.float64),
