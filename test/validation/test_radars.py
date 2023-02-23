@@ -94,4 +94,12 @@ def test_basta_haic():
         assert end_time <= np.datetime64("2014-01-16T05:03:00")
 
         # Try loading data.
-        radar.load_data(path, files[0], TEST_DATA / "validation")
+        data = radar.load_data(
+            path,
+            files[0], TEST_DATA / "validation" / "data"
+        )
+
+        date = np.datetime64("2014-01-16T03:00:00")
+        range_bins = data.range_bins.interp(time=date)
+
+        assert np.all(np.diff(range_bins.data) >= 0.0)

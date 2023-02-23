@@ -218,7 +218,8 @@ class CloudnetRadar(CloudRadar):
             "sensor_position": (("time",), sensor_position)
         })
 
-        tmpl = "**/" + "_".join(filename.split("_")[:2]) + "_iwc-Z-T-method.nc"
+        parts = Path(filename).stem.split("_")[:2]
+        tmpl = "**/" + "_".join(parts) + "_iwc-Z-T-method.nc"
         iwc_files = list(path.glob(tmpl))
         if len(iwc_files) > 0:
             iwc_data = xr.load_dataset(iwc_files[0])
@@ -800,17 +801,26 @@ class Basta(CloudRadar):
             time = time_bins[:-1] + 0.5 * (time_bins[1:] - time_bins[:-1])
             radar_range = 0.5 * (range_bins[1:] + range_bins[:-1])
 
+            if self.los > 0:
+                range_bins = altitude_binned[:, None] - range_bins[None, :]
+                range_bins = np.flip(range_bins, 1)
+                radar_range = np.flip(radar_range, 0)
+                z = np.flip(z, 1)
+
+            else:
+                range_bins = altitude_binned[:, None] + range_bins[None, :]
+
             results = xr.Dataset({
                 "time": (("time", ), time),
                 "range": (("range",), radar_range),
                 "radar_reflectivity": (("time", "range"), z),
-                "range_bins": (("bins",), range_bins),
+                "range_bins": (("time", "bins",), range_bins),
                 "latitude": (("time",), latitude),
                 "longitude": (("time",), longitude),
                 "sensor_position": (("time",), sensor_position),
-                "altitude": (("altitude",), altitude),
-                "iwc": (("time", "altitude"), iwc),
-                "iwc_reliability": (("time", "altitude"), np.ones_like(iwc)),
+                "iwc_altitude": (("iwc_altitude",), altitude),
+                "iwc": (("time", "iwc_altitude"), iwc),
+                "iwc_reliability": (("time", "iwc_altitude"), np.ones_like(iwc)),
             })
 
         return results
