@@ -172,7 +172,11 @@ class CloudnetRadar(CloudRadar):
         lat = self.latitude
         return [lat - 0.5, lat + 0.5, lon - 0.5, lon + 0.5]
 
-    def load_data(self, path, filename, *args):
+    def load_data(self,
+                  path,
+                  filename,
+                  *args,
+                  vertical_resolution=100.0):
         """
         Load radar data from given data into xarray.Dataset
 
@@ -182,6 +186,8 @@ class CloudnetRadar(CloudRadar):
         Args:
             path: The path containing the Cloudnet data.
             filename: The filename of the specific file to load.
+            vertical_resolution: The vertical resolution to which the radar
+            observations will be resampled.
 
         Return:
             An 'xarray.Dataset' containing the resampled radar data.
@@ -198,7 +204,7 @@ class CloudnetRadar(CloudRadar):
             np.timedelta64(5 * 60, "s")
         )
         height = radar_data.height.data
-        range_bins = np.arange(height[0], height[-1], 66)
+        range_bins = np.arange(height[0], height[-1], vertical_resolution)
 
         refl = np.nan_to_num(radar_data.Zh.data, copy=True, nan=self.y_min)
         z = 10 ** (refl / 10)
@@ -333,7 +339,7 @@ class ARMRadar(CloudRadar):
         lat = self.latitude
         return [lat - 0.5, lat + 0.5, lon - 0.5, lon + 0.5]
 
-    def load_data(self, path, filename, *args):
+    def load_data(self, path, filename, *args, vertical_resolution=100.0):
         """
         Load radar data from ARM WACR observation file into xarray.Dataset
 
@@ -343,6 +349,8 @@ class ARMRadar(CloudRadar):
         Args:
             path: The path containing the ARM radar data.
             filename: The name of the file from which to load the data.
+            vertical_resolution: The vertical resolution to which the radar
+            observations will be resampled.
 
         Return:
             An 'xarray.Dataset' containing the resampled radar data.
@@ -359,7 +367,7 @@ class ARMRadar(CloudRadar):
                 np.timedelta64(5 * 60, "s")
             )
             height = radar_data.height.data
-            range_bins = np.arange(height[0], height[-1], 66)
+            range_bins = np.arange(height[0], height[-1], vertical_resolution)
 
             refl = np.nan_to_num(radar_data.reflectivity.data, copy=True, nan=self.y_min)
             z = 10 ** (refl / 10)
@@ -490,7 +498,13 @@ class NASACRS(CloudRadar):
             lat_min -= 0.1
         return [lat_min, lat_max, lon_min, lon_max,]
 
-    def load_data(self, path, filename, static_data_path):
+    def load_data(
+            self,
+            path,
+            filename,
+            static_data_path,
+            vertical_resolution=100
+    ):
         """
         Load radar data from NASA CRS observation file into xarray.Dataset
 
@@ -502,6 +516,8 @@ class NASACRS(CloudRadar):
             filename: The name of the file from which to load the data.
             static_data_path: Path to the folder containing the surface elevation
                 map for the campaign.
+            vertical_resolution: The vertical resolution to which the radar
+            observations will be resampled.
 
         Return:
             An 'xarray.Dataset' containing the resampled radar data.
@@ -547,18 +563,13 @@ class NASACRS(CloudRadar):
             time = np.broadcast_to(time[..., None], height.shape).copy()
 
             # Discard lowest 500m to get rid of ground clutter.
-            range_bins = np.arange(500, height[:, 0].min() - 500, 66)
+            range_bins = np.arange(500, height[:, 0].min() - 500, vertical_resolution)
 
             refl = np.nan_to_num(radar_data.zku.data, copy=self.y_min, nan=self.y_min)
             z = 10 ** (refl / 10)
 
-            # Criterion to identify observations during which the aircraft was
-            # not horizontal. Roughly corresponds to a limit of +/- 5 deg.
-            misaligned = np.any(
-                np.abs(np.cos(np.deg2rad(data.elevation_hor_vertical))) > 0.075,
-                1
-            )
-            height[misaligned] = np.nan
+            excessive_roll = np.abs(radar_data["roll"].data) > 5
+            height[excessive_roll] = np.nan
 
             z = binned_statistic_2d(
                 time.ravel().astype(np.float64),
@@ -688,7 +699,11 @@ class Basta(CloudRadar):
             lat_min -= 0.1
         return [lat_min, lat_max, lon_min, lon_max,]
 
-    def load_data(self, path, filename, static_data_path):
+    def load_data(self,
+                  path,
+                  filename,
+                  static_data_path,
+                  vertical_resolution=100.0):
         """
         Load radar data from NASA CRS observation file into xarray.Dataset
 
@@ -700,6 +715,8 @@ class Basta(CloudRadar):
             filename: The name of the file from which to load the data.
             static_data_path: Path to the folder containing the surface elevation
                 map for the campaign.
+            vertical_resolution: The vertical resolution to which the
+                observations will be resampled.
 
         Return:
             An 'xarray.Dataset' containing the resampled radar data.
@@ -750,7 +767,7 @@ class Basta(CloudRadar):
             time = np.broadcast_to(time[..., None], height.shape).copy()
 
             # Discard lowest 500m to get rid of ground clutter.
-            range_bins = np.arange(0, 10e3, 100)
+            range_bins = np.arange(0, 10e3, vertical_resolution)
 
             refl = np.nan_to_num(
                 radar_data.Z_vertical.data,
@@ -759,8 +776,11 @@ class Basta(CloudRadar):
             )
             z = 10 ** (refl / 10)
 
-            excessive_roll = np.abs(radar_data["roll"].data) > 5
-            height[excessive_roll] = np.nan
+            misaligned = np.any(
+                np.abs(np.cos(np.deg2rad(radar_data.elevation_hor_vertical))) > 0.075,
+                1
+            )
+            height[misaligned] = np.nan
 
             z = binned_statistic_2d(
                 time.ravel().astype(np.float64),

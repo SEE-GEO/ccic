@@ -126,7 +126,24 @@ def add_parser(subparsers):
             "Temporal sampling of the radar-only retrievals."
         )
     )
-
+    parser.add_argument(
+        "--retrieval_resolution",
+        matavar="m",
+        type=float,
+        default=133.0,
+        help=(
+            "Vertical resolution of the retrieval."
+        )
+    )
+    parser.add_argument(
+        "--radar_resolution",
+        matavar="m",
+        type=float,
+        default=100.0,
+        help=(
+            "Vertical resolution to which the input observations will be resampled."
+        )
+    )
     parser.set_defaults(func=run)
 
 def download_data(
@@ -275,7 +292,9 @@ def run(args):
                 radar_data_path,
                 input_file,
                 era5_data_path,
-                static_data_path
+                static_data_path,
+                vertical_resolution=args.retrieval_resolution,
+                radar_resolution=args.radar_resolution,
             )
             download_queue.put((input_data, date))
     download_queue.put(None)
