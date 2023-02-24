@@ -124,7 +124,7 @@ def get_hydrometeors(static_data, shape):
 
     ice_mask = a_priori.FreezingLevel(lower_inclusive=True, invert=False)
     ice_covariance = a_priori.Diagonal(1e-3**2, mask=ice_mask, mask_value=1e-12)
-    ice_covariance = a_priori.SpatialCorrelation(ice_covariance, 1e3, mask=ice_mask)
+    ice_covariance = a_priori.SpatialCorrelation(ice_covariance, 200e3, mask=ice_mask)
     ice_dm_a_priori = a_priori.FunctionalAPriori(
         "ice_dm",
         "temperature",
@@ -135,7 +135,7 @@ def get_hydrometeors(static_data, shape):
     )
 
     ice_covariance = a_priori.Diagonal(1e-6 ** 2, mask=ice_mask, mask_value=1e-12)
-    ice_covariance = a_priori.SpatialCorrelation(ice_covariance, 2e3, mask=ice_mask)
+    ice_covariance = a_priori.SpatialCorrelation(ice_covariance, 200e3, mask=ice_mask)
     ice_n0_a_priori = a_priori.FunctionalAPriori(
         "ice_n0",
         "temperature",

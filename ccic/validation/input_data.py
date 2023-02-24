@@ -83,6 +83,8 @@ class RetrievalInput(Fascod):
             radar_file,
             era5_data_path,
             static_data_path,
+            vertical_resolution=133.0,
+            radar_resolution=100.0
     ):
         """
         Args:
@@ -93,6 +95,7 @@ class RetrievalInput(Fascod):
                 observations
             era5_data_path: The path containing the ERA5 data.
             static_data_path: The path containing the static retrieval data.
+            vertical_resolution: The vertical resolution of the retrieval.
         """
         super().__init__("midlatitude", "summer")
         self.radar = radar
@@ -100,6 +103,8 @@ class RetrievalInput(Fascod):
         self.radar_file = Path(radar_file)
         self.era5_data_path = Path(era5_data_path)
         self.static_data_path = static_data_path
+        self.vertical_resolution = vertical_resolution
+        self.radar_resolution = radar_resolution
         self._data = None
         self.era5_data = None
         self.radar_data = None
@@ -119,7 +124,8 @@ class RetrievalInput(Fascod):
             radar_data = self.radar.load_data(
                 self.radar_data_path,
                 self.radar_file,
-                self.static_data_path
+                self.static_data_path,
+                vertical_resolution=self.radar_resolution
             )
             self.radar_data = radar_data
 
@@ -177,7 +183,7 @@ class RetrievalInput(Fascod):
             )
             era5_data = era5_data.swap_dims({"level": "altitude"})
             era5_data["level"] = np.log(era5_data["level"])
-            altitude = np.arange(0, 20e3, 100)
+            altitude = np.arange(0, 20e3, self.vertical_resolution)
             era5_data = era5_data.interp(
                 altitude=altitude,
                 method="linear",
