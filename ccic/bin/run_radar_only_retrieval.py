@@ -128,18 +128,18 @@ def add_parser(subparsers):
     )
     parser.add_argument(
         "--retrieval_resolution",
-        matavar="m",
+        metavar="m",
         type=float,
-        default=133.0,
+        default=200.0,
         help=(
             "Vertical resolution of the retrieval."
         )
     )
     parser.add_argument(
         "--radar_resolution",
-        matavar="m",
+        metavar="m",
         type=float,
-        default=100.0,
+        default=133.0,
         help=(
             "Vertical resolution to which the input observations will be resampled."
         )
@@ -271,6 +271,9 @@ def run(args):
     download_queue = manager.Queue()
     processing_queue = manager.Queue(4)
 
+    retrieval_resolution = args.retrieval_resolution
+    radar_resolution = args.radar_resolution
+
     logging.basicConfig(level="INFO", force=True)
 
     args = (download_queue, processing_queue)
@@ -293,8 +296,8 @@ def run(args):
                 input_file,
                 era5_data_path,
                 static_data_path,
-                vertical_resolution=args.retrieval_resolution,
-                radar_resolution=args.radar_resolution,
+                vertical_resolution=retrieval_resolution,
+                radar_resolution=radar_resolution,
             )
             download_queue.put((input_data, date))
     download_queue.put(None)
