@@ -322,7 +322,7 @@ class RetrievalInput(Fascod):
 
         rwc = np.log10(cloudnet_iwc(dbz_i, t))
         rwc[dbz_i < self.radar.y_min] = -9
-        rwc[t < 273] = -12
+        rwc[t < 274] = -12
         return rwc
 
     def get_cloud_water(self, time):
