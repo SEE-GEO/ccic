@@ -131,9 +131,11 @@ def get_hydrometeors(static_data, shape, ice_psd="d14"):
         mask=rain_mask,
         mask_value=-12
     )
+    psd = AB12()
+    psd.t_min = 273.0
     rain = Hydrometeor(
         "rain",
-        AB12(),
+        psd,
         [rain_a_priori],
         str(rain_shape),
         str(rain_shape_meta),
