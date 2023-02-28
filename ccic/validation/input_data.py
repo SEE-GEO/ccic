@@ -291,25 +291,39 @@ class RetrievalInput(Fascod):
         dm[dbz_i <= self.radar.y_min] = 1e-8
         return dm
 
-    def get_rain_dm_x0(self, date):
+    def get_ice_mass_density_x0(self, date):
+        """
+        First guess for mass density of frozen
+        hydrometeors.
+        """
+        dbz = self.get_radar_reflectivity(date)
+        t = self.get_temperature(date)
+        z = self.get_altitude(date)
+        bins = self.get_radar_range_bins(date)
+        centers = 0.5 * (bins[1:] + bins[:-1])
+        dbz_i = np.interp(z, centers, dbz, left=-40, right=-40)
+
+        iwc = np.log10(cloudnet_iwc(dbz_i, t))
+        iwc[dbz_i <= self.radar.y_min] = -9
+        iwc[t > 273] = -12
+        return iwc
+
+    def get_rain_mass_density_x0(self, date):
         """
         First guess for $D_m$ parameter of the distribution of liquid
         hydrometeors.
         """
-        n0 = 10 ** self.get_rain_n0_xa(date)
         t = self.get_temperature(date)
-
         dbz = self.get_radar_reflectivity(date)
         z = self.get_altitude(date)
         bins = self.get_radar_range_bins(date)
         centers = 0.5 * (bins[1:] + bins[:-1])
-        print(dbz)
         dbz_i = np.interp(z, centers, dbz, left=-40, right=-40)
 
-        iwc = cloudnet_iwc(dbz_i, t)
-        dm = (16 * iwc / (n0 * np.pi * 1000.0)) ** (1 / 4)
-        dm[n0 < 10 ** 3] = 1e-8
-        return dm
+        rwc = np.log10(cloudnet_iwc(dbz_i, t))
+        rwc[dbz_i < self.radar.y_min] = -9
+        rwc[t < 273] = -12
+        return rwc
 
     def get_cloud_water(self, time):
         """
