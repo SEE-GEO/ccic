@@ -18,10 +18,11 @@ import xarray as xr
 from artssat.jacobian import Log10, Identity
 from artssat.sensor import ActiveSensor
 from artssat.retrieval import a_priori
+from artssat.scattering.psd.f07 import F07
+from artssat.scattering.psd import D14M, AB12
+from mcrf.psds import D14NDmLiquid
 from mcrf.retrieval import CloudRetrieval
 from mcrf.hydrometeors import Hydrometeor
-from mcrf.psds import D14NDmLiquid, D14NDmIce
-from mcrf.liras.common import n0_a_priori, rh_a_priori, ice_mask, rain_mask
 from mcrf.faam_combined import ObservationError
 from pansat.time import to_datetime
 
@@ -59,36 +60,6 @@ def capture_stdout(stream):
         os.close(stdout_fd_copy)
 
 
-def iwc(n0, dm):
-    """
-    Calculate ice-water content from D14 PSD moments.
-
-    Args:
-        n0: Array containing the :math:`N_0^*` values of the PSD.
-        dm: Array containing the :math:`D_m` values of the PSD.
-
-    Return:
-        Array containing the corresponding ice water content in
-        :math:`kg/m^3`.
-    """
-    return np.pi * 917.0 * dm**4 * n0 / 4**4
-
-
-def rwc(n0, dm):
-    """
-    Calculate rain-water content from D14 PSD moments.
-
-    Args:
-        n0: Array containing the :math:`N_0^*` values of the PSD.
-        dm: Array containing the :math:`D_m` values of the PSD.
-
-    Return:
-        Array containing the corresponding rain water content in
-        :math:`kg/m^3`.
-    """
-    return np.pi * 1000.0 * dm**4 * n0 / 4**4
-
-
 def dm_a_priori(t):
     """
     Functional relation for of the a priori mean of :math:`D_m`
@@ -107,7 +78,7 @@ def dm_a_priori(t):
     return dm
 
 
-def get_hydrometeors(static_data, shape):
+def get_hydrometeors(static_data, shape, ice_psd="d14"):
     """
     Get hydrometeors for retrieval.
 
@@ -122,60 +93,53 @@ def get_hydrometeors(static_data, shape):
     ice_shape = static_data / f"{shape}.xml"
     ice_shape_meta = static_data / f"{shape}.meta.xml"
 
-    ice_mask = a_priori.FreezingLevel(lower_inclusive=True, invert=False)
-    ice_covariance = a_priori.Diagonal(1e-3**2, mask=ice_mask, mask_value=1e-12)
-    ice_covariance = a_priori.SpatialCorrelation(ice_covariance, 200e3, mask=ice_mask)
-    ice_dm_a_priori = a_priori.FunctionalAPriori(
-        "ice_dm",
-        "temperature",
-        dm_a_priori,
-        ice_covariance,
-        mask=ice_mask,
-        mask_value=1e-8,
-    )
+    if ice_psd == "d14":
+        psd = D14M(-0.26, 1.75, 917.0)
+    else:
+        psd = F07(),
+    psd.t_max = 274.0
 
-    ice_covariance = a_priori.Diagonal(1e-6 ** 2, mask=ice_mask, mask_value=1e-12)
-    ice_covariance = a_priori.SpatialCorrelation(ice_covariance, 200e3, mask=ice_mask)
-    ice_n0_a_priori = a_priori.FunctionalAPriori(
-        "ice_n0",
-        "temperature",
-        n0_a_priori,
-        ice_covariance,
+    ice_mask = a_priori.FreezingLevel(lower_inclusive=True, invert=False)
+    ice_covariance = a_priori.Diagonal(6, mask=ice_mask, mask_value=1e-12)
+    ice_covariance = a_priori.SpatialCorrelation(ice_covariance, 200.0, mask=ice_mask)
+    ice_a_priori = a_priori.FixedAPriori(
+        "ice_mass_density",
+        -9,
         mask=ice_mask,
-        mask_value=4,
+        covariance=ice_covariance,
+        mask_value=-12
     )
     ice = Hydrometeor(
         "ice",
-        D14NDmIce(),
-        [ice_n0_a_priori, ice_dm_a_priori],
+        psd,
+        [ice_a_priori],
         str(ice_shape),
         str(ice_shape_meta),
     )
-
-    ice.transformations = [Log10(), Identity()]
-    # Lower limits for N_0^* and m in transformed space.
-    ice.limits_low = [2, 1e-9]
+    ice.transformations = [Log10()]
+    ice.limits_low = [-12]
 
     rain_shape = static_data / "LiquidSphere.xml"
     rain_shape_meta = static_data / "LiquidSphere.meta.xml"
+
     rain_mask = a_priori.FreezingLevel(lower_inclusive=False, invert=True)
-    rain_covariance = a_priori.Diagonal(500e-6**2, mask=rain_mask, mask_value=1e-12)
-    rain_dm_a_priori = a_priori.FixedAPriori(
-        "rain_dm", 1e-3, rain_covariance, mask=rain_mask, mask_value=1e-8
-    )
-    rain_covariance = a_priori.Diagonal(1e-6, mask=rain_mask, mask_value=1e-12)
-    rain_n0_a_priori = a_priori.FixedAPriori(
-        "rain_n0", 7, rain_covariance, mask=rain_mask, mask_value=2
+    rain_covariance = a_priori.Diagonal(6, mask=rain_mask, mask_value=1e-12)
+    rain_a_priori = a_priori.FixedAPriori(
+        "rain_mass_density",
+        -9,
+        rain_covariance,
+        mask=rain_mask,
+        mask_value=-12
     )
     rain = Hydrometeor(
         "rain",
-        D14NDmLiquid(),
-        [rain_n0_a_priori, rain_dm_a_priori],
+        AB12(),
+        [rain_a_priori],
         str(rain_shape),
         str(rain_shape_meta),
     )
-    rain.transformations = [Log10(), Identity()]
-    rain.limits_low = [2, 1e-9]
+    rain.transformations = [Log10()]
+    rain.limits_low = [-12]
 
     return [rain, ice]
 
@@ -220,12 +184,10 @@ class RadarRetrieval:
     """
     def setup_retrieval(self, input_data, ice_shape):
 
-        hydrometeors = get_hydrometeors(input_data.static_data_path, ice_shape)
-
-        input_data.add(hydrometeors[0].a_priori[0])
-        input_data.add(hydrometeors[0].a_priori[1])
-        input_data.add(hydrometeors[1].a_priori[0])
-        input_data.add(hydrometeors[1].a_priori[1])
+        hydrometeors = get_hydrometeors(input_data.static_data_path, ice_shape, ice_psd="d14")
+        for hydrometeor in hydrometeors:
+            for prior in hydrometeor.a_priori:
+                input_data.add(prior)
 
         sensors = [input_data.radar]
         input_data.add(ObservationError(sensors))
@@ -262,18 +224,15 @@ class RadarRetrieval:
         iwcs = []
         iwcs_n0 = []
         iwcs_n0_xa = []
-        iwcs_dm = []
-        iwcs_dm_xa = []
         rwcs = []
         rwcs_n0 = []
         rwcs_n0_xa = []
-        rwcs_dm = []
-        rwcs_dm_xa = []
         lcwcs = []
         temps = []
         press = []
         h2o = []
         diagnostics = []
+        sensor_pos = []
 
         ys = []
         y_fs = []
@@ -292,21 +251,10 @@ class RadarRetrieval:
                     results_t["y_radar"][0]
                 )
 
-            dm = results_t["ice_dm"][0]
-            n0 = results_t["ice_n0"][0]
-            iwcs.append(iwc(n0, dm))
-            iwcs_n0.append(n0)
-            iwcs_dm.append(dm)
-            iwcs_n0_xa.append(input_data.get_ice_n0_xa(time))
-            iwcs_dm_xa.append(input_data.get_ice_dm_xa(time))
-
-            dm = results_t["rain_dm"][0]
-            n0 = results_t["rain_n0"][0]
-            rwcs.append(rwc(n0, dm))
-            rwcs_n0.append(n0)
-            rwcs_dm.append(dm)
-            rwcs_n0_xa.append(input_data.get_rain_n0_xa(time))
-            rwcs_dm_xa.append(input_data.get_rain_dm_xa(time))
+            iwc = results_t["ice_mass_density"][0]
+            iwcs.append(iwc)
+            rwc = results_t["rain_mass_density"][0]
+            rwcs.append(rwc)
 
             lcwcs.append(input_data.get_cloud_water(time))
             press.append(input_data.get_pressure(time))
@@ -317,6 +265,7 @@ class RadarRetrieval:
             y_fs.append(results_t["yf_radar"][0])
 
             diagnostics.append(results_t["diagnostics"][0])
+            sensor_pos.append(input_data.get_radar_sensor_position(time)[0, 0])
 
         radar_bins = input_data.get_radar_range_bins(times[0])
 
@@ -343,15 +292,7 @@ class RadarRetrieval:
                 "time": (("time",), times),
                 "altitude": (("altitude",), input_data.get_altitude(times[0])),
                 "iwc": (("time", "altitude"), np.stack(iwcs)),
-                "iwc_dm": (("time", "altitude"), np.stack(iwcs_dm)),
-                "iwc_dm_xa": (("time", "altitude"), np.stack(iwcs_dm_xa)),
-                "iwc_n0": (("time", "altitude"), np.stack(iwcs_n0)),
-                "iwc_n0_xa": (("time", "altitude"), np.stack(iwcs_n0_xa)),
                 "rwc": (("time", "altitude"), np.stack(rwcs)),
-                "rwc_dm": (("time", "altitude"), np.stack(rwcs_dm)),
-                "rwc_dm_xa": (("time", "altitude"), np.stack(rwcs_dm_xa)),
-                "rwc_n0": (("time", "altitude"), np.stack(rwcs_n0)),
-                "rwc_n0_xa": (("time", "altitude"), np.stack(rwcs_n0_xa)),
                 "lcwc": (("time", "altitude"), np.stack(lcwcs)),
                 "temperature": (("time", "altitude"), np.stack(temps)),
                 "pressure": (("time", "altitude"), np.stack(press)),
@@ -360,8 +301,10 @@ class RadarRetrieval:
                 "radar_bins": (("radar_bins",), radar_bins),
                 "radar_reflectivity": (("time", "radar_bins"), np.stack(ys)),
                 "radar_reflectivity_fitted": (("time", "radar_bins"), np.stack(y_fs)),
+                "sensor_position": (("time",), np.stack(sensor_pos))
             }
         )
+
         results["time"].attrs = {
             "long_name": "Time UTC",
             "standard_name": "time",
@@ -373,27 +316,7 @@ class RadarRetrieval:
             "standard_name": "height_above_mean_sea_level",
         }
         results["iwc"].attrs = {"units": "kg m-3", "long_name": "Ice water content"}
-        results["iwc_dm"].attrs = {
-            "units": "m",
-            "long_name": (
-                "Mass-weighted mean diameter of the PSD of ice " "hydrometeors."
-            ),
-        }
-        results["iwc_n0"].attrs = {
-            "units": "m-4",
-            "long_name": ("N0* of the PSD of ice hydrometeors."),
-        }
         results["rwc"].attrs = {"units": "kg m-3", "long_name": "Rain water content"}
-        results["rwc_dm"].attrs = {
-            "units": "m",
-            "long_name": (
-                "Mass-weighted mean diameter of the PSD of rain " "hydrometeors."
-            ),
-        }
-        results["rwc_n0"].attrs = {
-            "units": "m-4",
-            "long_name": ("N0* of the PSD of rain hydrometeors."),
-        }
         results["radar_reflectivity"].attrs = {
             "units": "dbZ",
             "long_name": ("Radar reflectivity input to the retrieval"),
@@ -402,6 +325,7 @@ class RadarRetrieval:
             "units": "dbZ",
             "long_name": ("The fitted radar reflectivity"),
         }
+
         return results
 
 
@@ -436,17 +360,15 @@ def process_day(
 
         retrieval = RadarRetrieval()
         output = io.StringIO()
-        with capture_stdout(output):
-            results = retrieval.process(input_data, time_step, ice_shape)
-            results.to_netcdf(
-                output_data_path / output_filename, group=ice_shape, mode="a"
-            )
+        #with capture_stdout(output):
+        results = retrieval.process(input_data, time_step, ice_shape)
+        results.to_netcdf(
+            output_data_path / output_filename, group=ice_shape, mode="a"
+        )
 
-    iwc_data = input_data.get_iwc_data(date, time_step)
-    iwc_data.to_netcdf(output_data_path / output_filename, group="cloudnet", mode="a")
     try:
         iwc_data = input_data.get_iwc_data(date, time_step)
-        iwc_data.to_netcdf(output_data_path / output_filename, group="cloudnet", mode="a")
+        iwc_data.to_netcdf(output_data_path / output_filename, group="reference", mode="a")
     except KeyError:
         logger = logging.getLogger(__name__)
         logger.warning(
