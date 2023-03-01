@@ -12,8 +12,8 @@ from ccic.validation.radars import (
     cloudnet_punta_arenas,
     arm_manacapuru,
     crs_olympex,
-    basta_haic_up,
-    basta_haic_down
+    rasta_haic_up,
+    rasta_haic_down
 )
 
 
@@ -80,11 +80,11 @@ def test_nasa_crs():
 
 
 @NEEDS_TEST_DATA
-def test_basta_haic():
+def test_rasta_haic():
     date = np.datetime64("2014-01-16T00:00:00")
     path = TEST_DATA / "validation" / "haic"
 
-    for radar in [basta_haic_up, basta_haic_down]:
+    for radar in [rasta_haic_up, rasta_haic_down]:
         files = radar.get_files(path, date)
         assert len(files) == 2
 

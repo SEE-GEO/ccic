@@ -86,6 +86,15 @@ def add_parser(subparsers):
         help="Path pointing to the directory holding static retrieval data."
     )
     parser.add_argument(
+        "--ice_psd",
+        metavar="PSD",
+        type=str,
+        default="f07",
+        help=(
+            "The PSD to use for ice hydrometoers. 'F07' or 'D14'."
+        )
+    )
+    parser.add_argument(
         "--ice_shapes",
         metavar="shape",
         type=str,
@@ -184,9 +193,10 @@ def download_data(
 
 def process_files(
         processing_queue,
+        ice_psd,
         ice_shapes,
         output_path,
-        time_step
+        time_step,
 ):
     """
     Processes input data from the processing queue
@@ -217,9 +227,10 @@ def process_files(
             process_day(
                 date,
                 input_data,
+                ice_psd,
                 ice_shapes,
                 output_path,
-                time_step
+                time_step,
             )
         except Exception as exc:
             logger.exception(exc)
@@ -262,6 +273,7 @@ def run(args):
 
     static_data_path = Path(args.static_data)
     ice_shapes = args.ice_shapes
+    ice_psd = args.ice_psd.lower()
     n_workers = args.n_workers
     time_step = np.timedelta64(args.time_step, "s")
 
@@ -282,7 +294,7 @@ def run(args):
         args=args,
         kwargs={"n_workers": n_workers}
     )
-    args = (processing_queue, ice_shapes, output_path, time_step)
+    args = (processing_queue, ice_psd, ice_shapes, output_path, time_step)
     processing_processes = [
         Process(target=process_files, args=args) for _ in range(n_workers)
     ]

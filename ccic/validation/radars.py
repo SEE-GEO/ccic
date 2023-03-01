@@ -613,9 +613,9 @@ class NASACRS(CloudRadar):
 crs_olympex = NASACRS("olympex", "elevation_olympex.nc")
 
 
-class Basta(CloudRadar):
+class Rasta(CloudRadar):
     """
-    Class to load input data from the airborne BASTA cloud radar.
+    Class to load input data from the airborne RASTA cloud radar.
     """
     def __init__(self, campaign, los, dem):
         """
@@ -627,7 +627,7 @@ class Basta(CloudRadar):
                 for the domain of the field campaign.
         """
         if not los in [0.0, 180.0]:
-            raise ValueError("BASTA line-of-sight (LOS) must be 0 or 180.")
+            raise ValueError("RASTA line-of-sight (LOS) must be 0 or 180.")
 
         super().__init__(95e9, -40, los)
         self.los = los
@@ -639,7 +639,10 @@ class Basta(CloudRadar):
     @property
     def instrument_name(self):
         """The radar name is used to label retrieval results."""
-        return f"basta_{self.campaign}"
+        direction = "up"
+        if self.los > 0.0:
+            direction = "down"
+        return f"rasta_{direction}_{self.campaign}"
 
     def get_files(self, path, date):
         """
@@ -674,10 +677,10 @@ class Basta(CloudRadar):
 
     def download_file(self, *args):
         """
-        No download option is available for BASTA data.
+        No download option is available for RASTA data.
         """
         raise Exception(
-            "BASTA S radar does not support on-the-fly downloads."
+            "RASTA S radar does not support on-the-fly downloads."
         )
 
     def get_roi(self, path, filename):
@@ -814,11 +817,21 @@ class Basta(CloudRadar):
 
             # IWC
             atm_bins = np.linspace(0, 20, 101)
-            iwc = radar_data.iwc_ret.data
+            iwc = np.nan_to_num(radar_data.iwc_ret.data, True, 0.0)
+            apf = radar_data.attenuation_phase_flag.data
+            iwc[apf > 3] = np.nan
             iwc = binned_statistic_2d(
                 time.ravel().astype(np.float64),
                 radar_data.height_2D.data.ravel(),
                 iwc.ravel(),
+                bins=(time_bins.astype(np.float64), atm_bins)
+                )[0]
+            iwc_zt = np.nan_to_num(radar_data.iwc_IWC_Z_T.data, True, 0.0)
+            iwc_zt[apf > 3] = np.nan
+            iwc_zt = binned_statistic_2d(
+                time.ravel().astype(np.float64),
+                radar_data.height_2D.data.ravel(),
+                iwc_zt.ravel(),
                 bins=(time_bins.astype(np.float64), atm_bins)
                 )[0]
             altitude = 0.5 * (atm_bins[1:] + atm_bins[:-1]) * 1e3
@@ -845,10 +858,11 @@ class Basta(CloudRadar):
                 "sensor_position": (("time",), sensor_position),
                 "iwc_altitude": (("iwc_altitude",), altitude),
                 "iwc": (("time", "iwc_altitude"), iwc),
+                "iwc_zt": (("time", "iwc_altitude"), iwc_zt),
                 "iwc_reliability": (("time", "iwc_altitude"), np.ones_like(iwc)),
             })
 
         return results
 
-basta_haic_up = Basta("haic", 0.0, "elevation_haic.nc")
-basta_haic_down = Basta("haic", 180.0, "elevation_haic.nc")
+rasta_haic_up = Rasta("haic", 0.0, "elevation_haic.nc")
+rasta_haic_down = Rasta("haic", 180.0, "elevation_haic.nc")

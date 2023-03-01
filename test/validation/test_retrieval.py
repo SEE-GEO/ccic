@@ -16,8 +16,8 @@ from ccic.validation.radars import (
     cloudnet_punta_arenas,
     arm_manacapuru,
     crs_olympex,
-    basta_haic_down,
-    basta_haic_up
+    rasta_haic_down,
+    rasta_haic_up
 )
 
 TEST_DATA = os.environ.get("CCIC_TEST_DATA", None)
@@ -43,6 +43,7 @@ def test_retrieval_cloudnet():
     results = retrieval.process(
         retrieval_input,
         np.timedelta64(8 * 60 * 60, "s"),
+        "f07",
         "LargePlateAggregate"
     )
     assert "radar_reflectivity" in results
@@ -65,6 +66,7 @@ def test_retrieval_arm():
     results = retrieval.process(
         retrieval_input,
         np.timedelta64(8 * 60 * 60, "s"),
+        "f07",
         "LargePlateAggregate"
     )
     assert "radar_reflectivity" in results
@@ -87,6 +89,7 @@ def test_retrieval_olympex():
     results = retrieval.process(
         retrieval_input,
         np.timedelta64(8 * 60 * 60, "s"),
+        "f07",
         "LargePlateAggregate"
     )
     assert "radar_reflectivity" in results
@@ -97,9 +100,9 @@ def test_retrieval_haic():
     """Test running the retrieval for the HAIC campaing."""
     date = np.datetime64("2014-01-16T10:00:00")
     radar_data_path = VALIDATION_DATA / "haic"
-    radar_files = basta_haic_up.get_files(radar_data_path, date)
+    radar_files = rasta_haic_up.get_files(radar_data_path, date)
     retrieval_input = RetrievalInput(
-        basta_haic_up,
+        rasta_haic_up,
         radar_data_path,
         radar_files[0],
         VALIDATION_DATA / "haic" / "era5",
@@ -109,6 +112,7 @@ def test_retrieval_haic():
     results = retrieval.process(
         retrieval_input,
         np.timedelta64(30 * 60, "s"),
+        "f07",
         "LargePlateAggregate"
     )
     assert "radar_reflectivity" in results
