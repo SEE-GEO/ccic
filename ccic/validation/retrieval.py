@@ -60,43 +60,26 @@ def capture_stdout(stream):
         os.close(stdout_fd_copy)
 
 
-def dm_a_priori(t):
-    """
-    Functional relation for of the a priori mean of :math:`D_m`
-    using the DARDAR :math:`N_0^*` a priori and a fixed water
-    content of :math:`10^{-7}` kg m:math:`^{-3}`.
-
-    Args:
-        t: Array containing the temperature profile.
-
-    Returns:
-        A priori for :math:`D_m`
-    """
-    n0 = 10**n0_a_priori(t)
-    iwc = 1e-7
-    dm = (4.0**4 * iwc / (np.pi * 917.0) / n0)**0.25
-    return dm
-
-
-def get_hydrometeors(static_data, shape, ice_psd="d14"):
+def get_hydrometeors(static_data, ice_psd, ice_shape):
     """
     Get hydrometeors for retrieval.
 
     Args:
         static_data: Path of the static retrieval data.
-        shape: The name of the ice particle shape to load.
+        ice_psd: The PSD to use for frozen hydrometeors.
+        ice_shape: The name of the ice particle shape to use.
 
     Return:
         A list containing the liquid and frozen hydrometeors for
         the retrieval.
     """
-    ice_shape = static_data / f"{shape}.xml"
-    ice_shape_meta = static_data / f"{shape}.meta.xml"
+    ice_shape_meta = static_data / f"{ice_shape}.meta.xml"
+    ice_shape = static_data / f"{ice_shape}.xml"
 
     if ice_psd == "d14":
         psd = D14M(-0.26, 1.75, 917.0)
     else:
-        psd = F07(),
+        psd = F07()
     psd.t_max = 274.0
 
     ice_mask = a_priori.FreezingLevel(lower_inclusive=True, invert=False)
@@ -184,9 +167,12 @@ class RadarRetrieval:
     """
     Simple interface to run artssat/mcrf retrievals.
     """
-    def setup_retrieval(self, input_data, ice_shape):
-
-        hydrometeors = get_hydrometeors(input_data.static_data_path, ice_shape, ice_psd="d14")
+    def setup_retrieval(self, input_data, ice_psd, ice_shape):
+        hydrometeors = get_hydrometeors(
+            input_data.static_data_path,
+            ice_psd,
+            ice_shape,
+        )
         for hydrometeor in hydrometeors:
             for prior in hydrometeor.a_priori:
                 input_data.add(prior)
@@ -207,7 +193,7 @@ class RadarRetrieval:
         retrieval_settings["lm_ga_settings"] = np.array([200.0, 3.0, 2.0, 10e3, 5.0, 5.0])
         self.retrieval.simulation.setup()
 
-    def process(self, input_data, time_interval, ice_shape):
+    def process(self, input_data, time_interval,  ice_psd, ice_shape):
         """
         Process day of radar observations.
 
@@ -215,6 +201,11 @@ class RadarRetrieval:
             date: Numpy datetime64 object specifying the day to process.
             time_interval: Interval determining how many retrieval to run
                 for the day.
+            ice_psd: String representing the PSD to use for ice hydrometeors.
+                Should be 'd14' for the Delanoe 2014 PSD or 'F07' for the
+                Field 2007 PSD.
+            ice_shape: The name of the ice habit to use to represent ice
+                particles.
 
         Return:
             An xarray Dataset containing the retrieval results.
@@ -224,11 +215,7 @@ class RadarRetrieval:
 
         results = {}
         iwcs = []
-        iwcs_n0 = []
-        iwcs_n0_xa = []
         rwcs = []
-        rwcs_n0 = []
-        rwcs_n0_xa = []
         lcwcs = []
         temps = []
         press = []
@@ -239,7 +226,7 @@ class RadarRetrieval:
         ys = []
         y_fs = []
 
-        self.setup_retrieval(input_data, ice_shape)
+        self.setup_retrieval(input_data, ice_psd, ice_shape)
         simulation = self.retrieval.simulation
 
 
@@ -334,6 +321,7 @@ class RadarRetrieval:
 def process_day(
     date,
     input_data,
+    ice_psd,
     ice_shapes,
     output_data_path,
     time_step=np.timedelta64(10 * 60, "s"),
@@ -350,8 +338,6 @@ def process_day(
         time_step: Time step defining how many retrievals to run for the given day.
 
     """
-    py_date = to_datetime(date)
-
     start_time, end_time = input_data.get_start_and_end_time()
     start_time_str = to_datetime(start_time).strftime("%Y%m%d%H%M")
     end_time_str = to_datetime(end_time).strftime("%Y%m%d%H%M")
@@ -363,7 +349,7 @@ def process_day(
         retrieval = RadarRetrieval()
         output = io.StringIO()
         #with capture_stdout(output):
-        results = retrieval.process(input_data, time_step, ice_shape)
+        results = retrieval.process(input_data, time_step, ice_psd, ice_shape)
         results.to_netcdf(
             output_data_path / output_filename, group=ice_shape, mode="a"
         )
