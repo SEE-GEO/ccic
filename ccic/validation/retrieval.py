@@ -222,6 +222,8 @@ class RadarRetrieval:
         h2o = []
         diagnostics = []
         sensor_pos = []
+        latitude = []
+        longitude = []
 
         ys = []
         y_fs = []
@@ -255,6 +257,9 @@ class RadarRetrieval:
 
             diagnostics.append(results_t["diagnostics"][0])
             sensor_pos.append(input_data.get_radar_sensor_position(time)[0, 0])
+
+            latitude.append(input_data.get_latitude(time))
+            longitude.append(input_data.get_longitude(time))
 
         radar_bins = input_data.get_radar_range_bins(times[0])
 
@@ -290,7 +295,9 @@ class RadarRetrieval:
                 "radar_bins": (("radar_bins",), radar_bins),
                 "radar_reflectivity": (("time", "radar_bins"), np.stack(ys)),
                 "radar_reflectivity_fitted": (("time", "radar_bins"), np.stack(y_fs)),
-                "sensor_position": (("time",), np.stack(sensor_pos))
+                "sensor_position": (("time",), np.stack(sensor_pos)),
+                "latitude": (("time",), np.stack(latitude)),
+                "longitude": (("time",), np.stack(longitude)),
             }
         )
 

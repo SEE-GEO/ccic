@@ -434,3 +434,12 @@ class RetrievalInput(Fascod):
         )
         return data
 
+    def get_latitude(self, time):
+        """Get H2O VMR in the atmospheric column above the radar."""
+        self._interpolate_pressure(time)
+        return self._data.latitude.data
+
+    def get_longitude(self, time):
+        """Get H2O VMR in the atmospheric column above the radar."""
+        self._interpolate_pressure(time)
+        return self._data.longitude.data

@@ -219,8 +219,8 @@ class CloudnetRadar(CloudRadar):
             "range": (("range",), radar_range),
             "radar_reflectivity": (("time", "range"), z),
             "range_bins": (("range_bins",), range_bins),
-            "latitude": (("latitude",), [self.latitude]),
-            "longitude": (("longitude",), [self.longitude]),
+            "latitude": (tuple(), self.latitude),
+            "longitude": (tuple(), self.longitude),
             "sensor_position": (("time",), sensor_position)
         })
 
@@ -382,8 +382,8 @@ class ARMRadar(CloudRadar):
                 "range": (("range",), radar_range),
                 "radar_reflectivity": (("time", "range"), z),
                 "range_bins": (("range_bins",), range_bins),
-                "latitude": (("latitude",), [self.latitude]),
-                "longitude": (("longitude",), [self.longitude]),
+                "latitude": (tuple(), self.latitude),
+                "longitude": (tuple(), self.longitude),
                 "sensor_position": (("time",), sensor_position)
             })
         return results
