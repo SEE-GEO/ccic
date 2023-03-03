@@ -83,11 +83,12 @@ def get_hydrometeors(static_data, ice_psd, ice_shape):
     psd.t_max = 274.0
 
     ice_mask = a_priori.FreezingLevel(lower_inclusive=True, invert=False)
-    ice_covariance = a_priori.Diagonal(6, mask=ice_mask, mask_value=1e-12)
-    ice_covariance = a_priori.SpatialCorrelation(ice_covariance, 200.0, mask=ice_mask)
+    ice_mask = a_priori.Dilate(ice_mask, 2)
+    ice_covariance = a_priori.Diagonal(3 ** 2, mask=ice_mask, mask_value=1e-12)
+    #ice_covariance = a_priori.SpatialCorrelation(ice_covariance, 100.0, mask=ice_mask)
     ice_a_priori = a_priori.FixedAPriori(
         "ice_mass_density",
-        -9,
+        -6,
         mask=ice_mask,
         covariance=ice_covariance,
         mask_value=-12
@@ -105,11 +106,12 @@ def get_hydrometeors(static_data, ice_psd, ice_shape):
     rain_shape = static_data / "LiquidSphere.xml"
     rain_shape_meta = static_data / "LiquidSphere.meta.xml"
 
-    rain_mask = a_priori.FreezingLevel(lower_inclusive=False, invert=True)
-    rain_covariance = a_priori.Diagonal(6, mask=rain_mask, mask_value=1e-12)
+    rain_mask = a_priori.FreezingLevel(lower_inclusive=True, invert=True)
+    rain_mask = a_priori.Dilate(rain_mask, 2)
+    rain_covariance = a_priori.Diagonal(3 ** 2, mask=rain_mask, mask_value=1e-12)
     rain_a_priori = a_priori.FixedAPriori(
         "rain_mass_density",
-        -9,
+        -6,
         rain_covariance,
         mask=rain_mask,
         mask_value=-12
@@ -190,7 +192,7 @@ class RadarRetrieval:
         retrieval_settings["max_iter"] = 10
         retrieval_settings["stop_dx"] = 1e-2
         retrieval_settings["method"] = "lm"
-        retrieval_settings["lm_ga_settings"] = np.array([200.0, 3.0, 2.0, 10e3, 5.0, 5.0])
+        retrieval_settings["lm_ga_settings"] = np.array([100.0, 3.0, 2.0, 10e3, 5.0, 5.0])
         self.retrieval.simulation.setup()
 
     def process(self, input_data, time_interval,  ice_psd, ice_shape):
