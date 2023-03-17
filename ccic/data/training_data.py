@@ -175,7 +175,7 @@ class CCICDataset:
         self.path = Path(path)
         self.input_size = input_size
         self.all_channels = all_channels
-        self.files = np.array(list(self.path.glob("**/cloudsat_match*.nc")))
+        self.files = np.array(sorted(list(self.path.glob("**/cloudsat_match*.nc"))))
         self.inference = inference
         seed = int.from_bytes(os.urandom(4), "big") + os.getpid()
         self.rng = np.random.default_rng(seed)
