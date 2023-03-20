@@ -275,6 +275,7 @@ class CCICDataset:
                 y["longitude"] = torch.tensor(longitude.astype(np.float32))
                 granule = np.ones_like(latitude) * int(data.attrs["granule"])
                 y["granule"] = torch.tensor(granule.astype(np.int64))
+                y["tbs"] = torch.tensor(data.ir_win.data)
 
             input_size = self.input_size
             if input_size is None:

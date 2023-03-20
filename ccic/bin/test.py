@@ -123,6 +123,7 @@ def process_dataset(mrnn, data_loader, device="cpu"):
     encodings = []
     enc_inds = []
     enc_inds = []
+    tbs = []
 
     mrnn.model.eval()
     mrnn.model.to(device)
@@ -255,6 +256,7 @@ def process_dataset(mrnn, data_loader, device="cpu"):
             latitude.append(y["latitude"][valid].cpu().numpy())
             longitude.append(y["longitude"][valid].cpu().numpy())
             granule.append(y["granule"][valid].cpu().numpy())
+            tbs.append(y["tbs"][valid].cpu().numpy())
 
     tiwp_mean = np.concatenate([tensor.numpy() for tensor in tiwp_mean])
     tiwp_sample = np.concatenate([tensor.numpy() for tensor in tiwp_sample])
@@ -277,6 +279,7 @@ def process_dataset(mrnn, data_loader, device="cpu"):
     latitude = np.concatenate(latitude)
     longitude = np.concatenate(longitude)
     granule = np.concatenate(granule)
+    tbs = np.concatenate(tbs)
 
     levels = (np.arange(20) + 0.5) * 1e3
     dataset = xr.Dataset({
@@ -302,6 +305,7 @@ def process_dataset(mrnn, data_loader, device="cpu"):
         "longitude": (("samples",), longitude),
         "latitude": (("samples",), latitude),
         "granule": (("samples",), granule),
+        "tbs": (("samples",), tbs),
     })
 
     enc_float = {"dtype": "float32", "zlib": True}
