@@ -10,8 +10,12 @@ def test_tiler():
     """
     Ensure that tiling and reassembling a tensor conserves its content.
     """
-    x = np.arange(200).astype(np.float32)
-    y = np.arange(200).astype(np.float32)
+    # Choose tile size so that a tile of size 1 is required between
+    # first and last tile. This will cause the antepenultimate tile and
+    # last tile to overlap, which triggered a bug in a previous version
+    # of the tiler.
+    x = np.arange(128 * 2 - 32 + 1).astype(np.float32)
+    y = np.arange(128 * 2 - 32 + 1).astype(np.float32)
     xy = np.stack(np.meshgrid(x, y))
 
     tiler = Tiler(xy, tile_size=128, overlap=32)
