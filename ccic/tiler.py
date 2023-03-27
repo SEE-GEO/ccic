@@ -140,8 +140,6 @@ class Tiler:
         Return:
             Numpy array containing weights for the corresponding tile.
         """
-        sl_i, sl_j = self.get_slices(i, j)
-
         m, n = self.tile_size
         w_i = np.ones((m, n))
         if i > 0:
@@ -156,6 +154,13 @@ class Tiler:
             l_trans = trans_end - trans_start
             start = self.tile_size[0] - l_trans
             w_i[start:] = np.linspace(1, 0, l_trans)[..., np.newaxis]
+            # The transition region of the antepenultimate tile may overlap
+            # that of the last tile. In this case weight must be zeroed out.
+            if i < self.M - 2:
+                trans_start = self.i_start[i + 2]
+                diff = trans_end - trans_start
+                if diff > 0:
+                    w_i[-diff:, :] = 0.0
 
         w_j = np.ones((m, n))
         if j > 0:
@@ -170,6 +175,13 @@ class Tiler:
             l_trans = trans_end - trans_start
             start = self.tile_size[1] - l_trans
             w_j[:, start:] = np.linspace(1, 0, l_trans)[np.newaxis]
+            # The transition region of the antepenultimate tile may overlap
+            # that of the last tile. In this case weight must be zeroed out.
+            if j < self.N - 2:
+                trans_start = self.j_start[j + 2]
+                diff = trans_end - trans_start
+                if diff > 0:
+                    w_j[:, -diff:] = 0.0
 
         return w_i * w_j
 
