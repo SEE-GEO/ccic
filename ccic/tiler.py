@@ -1,5 +1,6 @@
 from math import ceil
 import numpy as np
+import torch
 
 
 def get_start_and_clips(n, tile_size, overlap, soft_end: bool=False):
@@ -111,12 +112,22 @@ class Tiler:
         if self.wrap_columns:
             if j_end > self.n:
                 # Wrap the tile around the last column
-                return np.concatenate(
-                    (
-                        self.x[..., i_start:i_end, j_start:],
-                        self.x[..., i_start:i_end, :(self.tile_size[1] - (self.n - j_start))]
-                    ),
-                    axis=-1)
+                if isinstance(self.x, np.ndarray):
+                    return np.concatenate(
+                        (
+                            self.x[..., i_start:i_end, j_start:],
+                            self.x[..., i_start:i_end, :(self.tile_size[1] - (self.n - j_start))]
+                        ),
+                        axis=-1)
+                elif isinstance(self.x, torch.Tensor):
+                    return torch.cat(
+                        (
+                            self.x[..., i_start:i_end, j_start:],
+                            self.x[..., i_start:i_end, :(self.tile_size[1] - (self.n - j_start))]
+                        ),
+                        axis=-1)
+                else:
+                    raise TypeError("Only numpy.ndarray and torch.Tensor types are supported")
         # Ordinary slicing in all other cases
         return self.x[..., i_start:i_end, j_start:j_end] 
 
