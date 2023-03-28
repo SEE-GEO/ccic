@@ -6,6 +6,7 @@ import numpy as np
 
 from ccic.tiler import Tiler, calculate_padding
 
+
 def test_tiler():
     """
     Ensure that tiling and reassembling a tensor conserves its content.
@@ -30,6 +31,7 @@ def test_tiler():
         xy_tiled = tiler.assemble(tiles)
         assert np.all(np.isclose(xy, xy_tiled))
 
+
 def test_tiler_wrap_columns():
     """
     Ensure that tiling and reassembling a tensor conserves its content.
@@ -53,6 +55,7 @@ def test_tiler_wrap_columns():
 
         xy_tiled = tiler.assemble(tiles)
         assert np.all(np.isclose(xy, xy_tiled))
+
 
 def test_calculate_padding():
     """
