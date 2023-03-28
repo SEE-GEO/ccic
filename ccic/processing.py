@@ -502,7 +502,7 @@ def process_input(mrnn, x, retrieval_settings=None):
             "cloud_type",
         ]
 
-    tiler = Tiler(x, tile_size=tile_size, overlap=overlap)
+    tiler = Tiler(x, tile_size=tile_size, overlap=overlap, wrap_columns=retrieval_settings.roi is None)
     means = {}
     log_std_devs = {}
     p_non_zeros = {}
