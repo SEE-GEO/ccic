@@ -136,6 +136,14 @@ def add_parser(subparsers):
     )
     parser.add_argument("--roi", metavar="x", type=float, nargs=4, default=None)
     parser.add_argument("--n_processes", metavar="n", type=int, default=1)
+    parser.add_argument(
+        "--inpainted_mask",
+        action='store_true',
+        help=(
+            "Create a variable `inpainted` indicating if "
+            "the retrieved pixel is inpainted (the input data was NaN)."
+        )
+    )
     parser.set_defaults(func=run)
 
 
@@ -392,7 +400,8 @@ def run(args):
             device=args.device,
             precision=args.precision,
             output_format=OutputFormat[output_format],
-            database_path=args.database_path
+            database_path=args.database_path,
+            inpainted_mask=args.inpainted_mask
         )
 
         # Use managed queue to pass files between download threads
