@@ -113,6 +113,7 @@ class RetrievalSettings:
     precision: int = 32
     output_format: OutputFormat = OutputFormat["NETCDF"]
     database_path: str = "ccic_processing.db"
+    inpainted_mask: bool = False
 
 
 def get_input_files(
@@ -628,6 +629,14 @@ def process_input(mrnn, x, retrieval_settings=None):
         results["cloud_type"] = (dims, cloud_type)
     results["altitude"] = (("altitude",), np.arange(20) * 1e3 + 500.0)
 
+    if retrieval_settings.inpainted_mask:
+        # Assumes a quantnn.normalizer.MinMaxNormalizer is applied on x which
+        # replaces NaNs with -1.5 and normalizes everything else between -1 and +1
+        results["inpainted"] = (
+            ("time", "latitude", "longitude"),
+            x.reshape(-1, *x.shape[-2:]) < -1.4
+        )
+
     return results
 
 
@@ -741,6 +750,12 @@ def add_static_cf_attributes(dataset):
         dataset["cloud_type"].attrs["long_name"] = "Most likely cloud type"
         dataset["cloud_type"].attrs["flag_values"] = "0, 1, 2, 3, 4, 5, 6, 7, 8"
         dataset["cloud_type"].attrs["flag_meanings"] = "No cloud, Cirrus, Altostratus, Altocumulus, Stratus, Stratocumulus, Cumulus, Nimbostratus, Deep convection"
+    
+    if "inpainted" in dataset:
+        dataset["inpainted"].attrs["units"] = "1"
+        dataset["inpainted"].attrs["long_name"] = "Inpainted pixel from input pixel with NaN"
+        dataset["inpainted"].attrs["flag_values"] = "0, 1"
+        dataset["inpainted"].attrs["flag_meanings"] = "Pixel not inpainted, pixel inpainted"
 
 
 
@@ -796,7 +811,7 @@ def get_encodings_zarr(variable_names):
             "_FillValue": 255,
             "dtype": "uint8",
         },
-        "cloud_type": {"compressor": compressor, "dtype": "uint8", "_FillValue": -1},
+        "cloud_type": {"compressor": compressor, "dtype": "uint8", "_FillValue": 255},
         "longitude": {
             "compressor": compressor,
             "dtype": "float32",
@@ -805,6 +820,7 @@ def get_encodings_zarr(variable_names):
             "compressor": compressor,
             "dtype": "float32",
         },
+        "inpainted": {"compressor": compressor, "dtype": "uint8", "_FillValue": 255},
     }
     return {
         name: all_encodings[name] for name in variable_names if name in all_encodings
@@ -859,6 +875,7 @@ def get_encodings_netcdf(variable_names):
         "cloud_type": {"dtype": "uint8", "zlib": True},
         "longitude": {"dtype": "float32", "zlib": True},
         "latitude": {"dtype": "float32", "zlib": True},
+        "inpainted": {"dtype": "uint8", "zlib": True}
     }
     return {
         name: all_encodings[name] for name in variable_names if name in all_encodings
