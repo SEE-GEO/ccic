@@ -15,7 +15,7 @@ From: continuumio/miniconda3
     /opt/conda/bin/conda env create -f /ccic.yml
     echo ". /opt/conda/etc/profile.d/conda.sh" >> $SINGULARITY_ENVIRONMENT
     echo "conda activate ccic" >> $SINGULARITY_ENVIRONMENT
-    /opt/conda/envs/ccic/bin/python3 -m pip install  -U torch torchvision torchaudio --extra-index-url https://download.pytorch.org/whl/cu116
+    /opt/conda/envs/ccic/bin/python3 -m pip install -U torch==1.13.1+cu116 torchvision==0.14.1+cu116 torchaudio==0.13.1 --extra-index-url https://download.pytorch.org/whl/cu116
 
 %runscript
 
