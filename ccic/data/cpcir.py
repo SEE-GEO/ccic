@@ -164,7 +164,7 @@ class CPCIR:
 
         """
         pattern = r"**/merg_??????????_4km-pixel.nc4"
-        files = list(Path(path).glob(pattern))
+        files = sorted(list(Path(path).glob(pattern)))
 
         def get_date(path):
             return datetime.strptime(

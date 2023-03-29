@@ -54,7 +54,7 @@ class GridSat:
 
         """
         pattern = r"**/GRIDSAT-B1.????.??.??.??.v02r01.nc"
-        files = list(Path(path).glob(pattern))
+        files = sorted(list(Path(path).glob(pattern)))
 
         def get_date(path):
             return datetime.strptime(
