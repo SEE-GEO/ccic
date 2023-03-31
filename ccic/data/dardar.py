@@ -9,14 +9,38 @@ from datetime import datetime
 from pathlib import Path
 
 import numpy as np
+from scipy.signal import convolve
 import xarray as xr
 
 from .cloudsat import (
+    ALTITUDE_LEVELS,
     remap_iwc,
-    remap_cloud_classes,
-    subsample_iwc_and_height,
-    ALTITUDE_LEVELS
+    remap_cloud_classes
 )
+
+def subsample_iwc_and_height(iwc, height):
+    """
+    Smoothes and subsamples IWC and height fields to an approximate
+    resolution of 1km.
+
+    Based on .cloudsat.subsample_iwc_and_height
+
+    Args:
+        iwc: The ice water content field from a DARDAR file.
+        height: The corresponding height field.
+
+    Return:
+        A tuple ``(iwc, height)`` containing the subsampled IWC and
+        height fields.
+    """
+    # Line adapted from .cloudsat.subsample_iwc_and_height
+    # to account for the different resolutions
+    k = np.linspace(-9 * 60, 9 * 60, 19)
+    k = np.exp(np.log(0.05) * (k / 500) ** 2).reshape(1, -1)
+    k /= k.sum()
+    iwc = convolve(iwc, k, mode="valid", method="direct")
+    height = convolve(height, k, mode="valid", method="direct")
+    return iwc, height
 
 class DardarFile:
     """

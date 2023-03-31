@@ -9,16 +9,18 @@ import numpy as np
 from pyresample.bucket import BucketResampler
 import pytest
 
-from ccic.data.cpcir import CPCIR, CPCIR_GRID
 from ccic.data.cloudsat import (
+    ALTITUDE_LEVELS,
     get_sample_indices,
-    remap_cloud_classes,
     remap_iwc,
-    resample_data,
-    subsample_iwc_and_height,
-    ALTITUDE_LEVELS
+    remap_cloud_classes,
+    resample_data
 )
-from ccic.data.dardar import DardarFile
+from ccic.data.cpcir import CPCIR, CPCIR_GRID
+from ccic.data.dardar import (
+    subsample_iwc_and_height,   
+    DardarFile
+)
 
 
 TEST_DATA = os.environ.get("CCIC_TEST_DATA", None)
