@@ -57,7 +57,7 @@ def test_subsample_iwc_and_height():
     iwc_s, height_s = subsample_iwc_and_height(iwc, height)
 
     # Get IWPs (both in kg/m2)
-    iwp = dardar_file.get_iwp(dardar_data)
+    iwp = dardar_file.get_iwp(dardar_data) * 1e-3
     iwp_s = np.trapz(iwc_s, x=height_s, axis=-1) * 1e-3
     if np.any(iwp > 1e-4):
         assert np.any(iwp_s > 1e-4)
