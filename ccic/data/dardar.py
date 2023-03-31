@@ -36,58 +36,38 @@ class DardarFile:
     def __repr__(self):
         return f"{type(self).__name__}({self.filename})"
     
-    def get_surface_mask(self, dataset):
-        """Returns a binary mask indicating if the bin is at a (sub)surface
-        height based on the DARDAR mask (DARMASK)"""
-        # Sanity check for the algorithm to work:
-        # height is sorted decreasingly, i.e.
-        height = dataset.height.values
-        assert (np.flip(np.sort(height)) == height).all()
+    def add_latitude_and_longitude(
+            self,
+            target_dataset,
+            resampler,
+            target_indices,
+            source_indices,
+            start_time=None,
+            end_time=None,
+        ):
+            """
+            Adds latitude and longitude from DARDAR data.
 
-        # Find indices where it is surface and subsurface
-        surface_mask = dataset.DARMASK_Simplified_Categorization == -1
+            Args:
+                target_dataset: The ``xarray.Dataset`` to add the resampled
+                    retrieval targets to.
+                resampler: The ``pyresample.BucketResampler`` to use for
+                    resampling.
+                target_indices: Indices of the flattened target grids for
+                    probabilistic resampling of profiles.
+                source_indices: Corresponding indices of the DARDAR data for
+                    the probabilistic resampling of profiles.
+                start_time: Optional start time to limit the source profiles that
+                    are resampled.
+                end_time: Optional end time to limit the source profiles that
+                    are resampled.
+            """
+            data = self.to_xarray_dataset(start_time=start_time, end_time=end_time)
+            latitude_r = resampler.get_average(data.latitude.data).compute()
+            longitude_r = resampler.get_average(data.longitude.data).compute()
 
-        # Make sure all heights below this maximum height are set to True
-        surface_mask = np.cumsum(surface_mask, axis=1)
-        surface_mask = np.where(surface_mask > 1, True, False)
-
-        return surface_mask
-    
-    def get_iwp(self, dataset, above_ground=True):
-        """Returns the IWP in g/m2"""
-        # Get IWC values
-        iwc = dataset.iwc
-
-        # Transform them from kg/m3 to g/m3
-        iwc = iwc * 1_000
-        
-        # Get a mask for IWC to zero them if they correspond to the (sub)surface
-        if above_ground:
-            above_ground_mask = (self.get_surface_mask(dataset) == False)
-        else:
-            above_ground_mask = np.ones_like(iwc.shape, dtype=bool)
-
-        # Compute the integral, zeroing IWC if needed, and return
-        return np.trapz(iwc * above_ground_mask, dataset.height, axis=1)
-
-    def to_xarray_dataset(self, start_time=None, end_time=None):
-        """
-        Load data from file into an ``xarray.Dataset``.
-
-        Args:
-            start_time: Optional start time to limit the source profiles that
-                are loaded.
-            end_time: Optional end time to limit the source profiles that
-                are loaded.
-        """
-        data = xr.open_dataset(self.filename)
-        time_mask = np.ones(data.time.size, dtype=bool)
-        if start_time is not None:
-            time_mask *= data.time >= start_time
-        if end_time is not None:
-            time_mask *= data.time < end_time
-        data = data.sel({'time': time_mask})
-        return data
+            target_dataset["latitude_dardar"] = (("latitude", "longitude"), latitude_r)
+            target_dataset["longitude_dardar"] = (("latitude", "longitude"), longitude_r)
     
     def add_retrieval_targets(
             self,
@@ -135,23 +115,23 @@ class DardarFile:
         # Smooth, resample and remap IWC to fixed altitude relative
         # to surface
         # NOTE 1: Height dimension is in decreasing order in DARDAR data
-        # NOTE 2: `height` is 1D
+        # NOTE 2: `height` is 1D, duplicate it to have the same shape as iwc
         iwc = source_dataset.iwc.data[..., ::-1]
+        source_height = np.tile(source_dataset.height.data[::-1], (iwp.shape[0],1))
         # Convert IWC from kg/m3 to g/m3 for consistency with code prepared for 2C-ICE
         iwc = iwc * 1_000
-        height = source_dataset.height.data[::-1]
-        iwc, height = subsample_iwc_and_height(iwc, height)
+        iwc, height = subsample_iwc_and_height(iwc, source_height)
 
         # Compute the surface altitude for each profile and flip it for consistency
         surface_mask = self.get_surface_mask(source_dataset)[..., ::-1]
         # Compute the surface elevation for each profile
-        surface_altitude = np.max(surface_mask * height, axis=1)
+        surface_altitude_source = np.max(surface_mask * source_height, axis=1)
 
 
         # Pick random samples from IWC, height and surface altitude
         iwc = iwc[source_indices]
         height = height[source_indices]
-        surface_altitude = surface_altitude[source_indices]
+        surface_altitude = surface_altitude_source[source_indices]
         iwc = remap_iwc(iwc, height, surface_altitude, ALTITUDE_LEVELS)
 
         iwc_r = np.zeros(iwp_r.shape + (20,), dtype=np.float32) * np.nan
@@ -165,7 +145,7 @@ class DardarFile:
         cloud_mask = labels.max(axis=-1) > 0
 
         # Remap cloud classes
-        labels = remap_cloud_classes(labels, height, surface_altitude, ALTITUDE_LEVELS)
+        labels = remap_cloud_classes(labels, source_height, surface_altitude_source, ALTITUDE_LEVELS)
 
         # Pick the labels for the corresponding profiles
         output_shape = resampler.target_area.shape
@@ -228,3 +208,58 @@ class DardarFile:
             ),
             "_FillValue": -1,
         }
+
+    def get_iwp(self, dataset, above_ground=True):
+        """Returns the IWP in g/m2"""
+        # Get IWC values
+        iwc = dataset.iwc       
+
+        # Transform them from kg/m3 to g/m3
+        iwc = iwc * 1_000
+        
+        # Get a mask for IWC to zero them if they correspond to the (sub)surface
+        if above_ground:
+            above_ground_mask = (self.get_surface_mask(dataset) == False)
+        else:
+            above_ground_mask = np.ones_like(iwc.shape, dtype=bool)
+
+        # Compute the integral, zeroing IWC if needed, and return
+        # Note that the height dimension is in decreasing order, hence the flip
+        return np.trapz((iwc * above_ground_mask)[..., ::-1], dataset.height[::-1], axis=1)
+
+    def get_surface_mask(self, dataset):
+        """Returns a binary mask indicating if the bin is at a (sub)surface
+        height based on the DARDAR mask (DARMASK)"""
+        # Sanity check for the algorithm to work:
+        # height is sorted decreasingly, i.e.
+        height = dataset.height.values
+        assert (np.flip(np.sort(height)) == height).all()
+
+        # Find indices where it is surface and subsurface
+        surface_mask = dataset.DARMASK_Simplified_Categorization == -1
+
+        # Make sure all heights below this maximum height are set to True
+        surface_mask = np.cumsum(surface_mask, axis=1)
+        surface_mask = np.where(surface_mask > 1, True, False)
+
+        return surface_mask
+
+    def to_xarray_dataset(self, start_time=None, end_time=None):
+        """
+        Load data from file into an ``xarray.Dataset``.
+
+        Args:
+            start_time: Optional start time to limit the source profiles that
+                are loaded.
+            end_time: Optional end time to limit the source profiles that
+                are loaded.
+        """
+        data = xr.open_dataset(self.filename)
+        time_mask = np.ones(data.time.size, dtype=bool)
+        if start_time is not None:
+            time_mask *= data.time >= start_time
+        if end_time is not None:
+            time_mask *= data.time < end_time
+        data = data.sel({'time': time_mask})
+        # Apply renaming for consistency and return
+        return data.rename_dims({'time': 'rays'})
