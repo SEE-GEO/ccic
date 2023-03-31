@@ -12,7 +12,6 @@ import numpy as np
 import xarray as xr
 
 from .cloudsat import (
-    get_sample_indices,
     remap_iwc,
     remap_cloud_classes,
     subsample_iwc_and_height,
