@@ -54,13 +54,16 @@ class DardarFile:
 
         return surface_mask
     
-    def get_iwp(self, dataset, from_ground=True):
-
+    def get_iwp(self, dataset, above_ground=True):
+        """Returns the IWP in g/m2"""
         # Get IWC values
         iwc = dataset.iwc
+
+        # Transform them from kg/m3 to g/m3
+        iwc = iwc * 1_000
         
         # Get a mask for IWC to zero them if they correspond to the (sub)surface
-        if from_ground:
+        if above_ground:
             above_ground_mask = (self.get_surface_mask(dataset) == False)
         else:
             above_ground_mask = np.ones_like(iwc.shape, dtype=bool)
@@ -135,13 +138,15 @@ class DardarFile:
         # NOTE 1: Height dimension is in decreasing order in DARDAR data
         # NOTE 2: `height` is 1D
         iwc = source_dataset.iwc.data[..., ::-1]
+        # Convert IWC from kg/m3 to g/m3 for consistency with code prepared for 2C-ICE
+        iwc = iwc * 1_000
         height = source_dataset.height.data[::-1]
         iwc, height = subsample_iwc_and_height(iwc, height)
 
         # Compute the surface altitude for each profile and flip it for consistency
         surface_mask = self.get_surface_mask(source_dataset)[..., ::-1]
         # Compute the surface elevation for each profile
-        surface_elevation = np.max(surface_mask * height, axis=1)
+        surface_altitude = np.max(surface_mask * height, axis=1)
 
 
         # Pick random samples from IWC, height and surface altitude
@@ -152,6 +157,24 @@ class DardarFile:
 
         iwc_r = np.zeros(iwp_r.shape + (20,), dtype=np.float32) * np.nan
         iwc_r.reshape(-1, 20)[target_indices] = iwc
+
+        # Get the DARDAR mask labels and flip for consistency
+        labels = source_dataset.DARMASK_Simplified_Categorization.data[..., ::-1]
+
+        # Here we take as a synonym a not clear sky flag which is
+        # not ground or unknown as a cloud
+        cloud_mask = labels.max(axis=-1) > 0
+
+        # Remap cloud classes
+        labels = remap_cloud_classes(labels, height, surface_altitude, ALTITUDE_LEVELS)
+
+        # Pick the labels for the corresponding profiles
+        output_shape = resampler.target_area.shape
+        cloud_mask_r = -1 *  np.ones(output_shape, dtype=np.int8)
+        cloud_mask_r.ravel()[target_indices] = cloud_mask[source_indices]
+        labels_r = -1 * np.ones(output_shape + (20,), dtype=np.int8)
+        labels_r.reshape(-1, 20)[target_indices] = labels[source_indices]
+
 
         target_dataset["altitude"] = (("altitude",), ALTITUDE_LEVELS)
         target_dataset["altitude"].attrs = {
@@ -172,3 +195,37 @@ class DardarFile:
         target_dataset["tiwp"].attrs["unit"] = "g m-3"
 
         target_dataset["time_cloudsat"] = (("latitude", "longitude"), time_r)
+
+        target_dataset["cloud_mask"] = (("latitude", "longitude"), cloud_mask_r)
+        target_dataset["cloud_mask"].attrs = {
+            "long_name": "Cloud presence in atmospheric column",
+            "flag_values": "0, 1",
+            "flag_meaning": "no cloud, cloud present",
+            "_FillValue": -1
+        }
+        target_dataset["cloud_class"] = (("latitude", "longitude", "altitude"), labels_r)
+        target_dataset["cloud_class"].attrs = {
+            "long_name": "Resampled DARMASK Categorization Flags",
+            "flag_values": "-2, -1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15",
+            "flag_meanings": (
+                "presence of liquid unknow",
+                "surface and subsurface",
+                "clear sky",
+                "ice clouds",
+                "spherical or 2D ice",
+                "supercooled water",
+                "supercooled and ice",
+                "cold rain",
+                "aerosol",
+                "warm rain",
+                "stratospheric clouds",
+                "highly concentrated ice",
+                "top of convective towers",
+                "liquid cloud",
+                "warm rain and liquid clouds",
+                "cold rain and liquid clouds",
+                "rain may be mixed with liquid",
+                "Multiple scattering due to supercooled water"
+            ),
+            "_FillValue": -1,
+        }
