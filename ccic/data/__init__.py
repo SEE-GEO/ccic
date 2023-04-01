@@ -177,16 +177,19 @@ def process_cloudsat_files(
 def write_scenes(
         scenes,
         destination,
-        valid_input=0.2
+        valid_input=0.2,
+        product="cloudsat",
 ):
     """
     Write extracted match-up scenes to training files.
 
     Args:
-       scenes: A list of xarray.Datasets each containing a single
-           matchup file.
-       valid_input: A minimum fraction of valid input in the IR
-           window channel for a sample to be saved.
+        scenes: A list of xarray.Datasets each containing a single
+            matchup file.
+        destination: Path to save the scenes
+        valid_input: A minimum fraction of valid input in the IR
+            window channel for a sample to be saved.
+        product: name prepended in the file and used in the variables
     """
     destination = Path(destination)
 
@@ -197,22 +200,21 @@ def write_scenes(
             continue
 
         # Calculate median time of cloudsat overpass.
-        valid = np.isfinite(scene.time_cloudsat.data)
-        times = scene.time_cloudsat.data[valid]
+        valid = np.isfinite(scene[f"time_{product}"].data)
+        times = scene[f"time_{product}"].data[valid]
         dtype = times.dtype
         time = np.median(times.astype("int64")).astype(dtype)
         time_s = xr.DataArray(time).dt.strftime("%Y%m%d_%H%M%S").data.item()
 
         # Use sparse storage for CloudSat output data.
         profile_row_inds, profile_column_inds = np.where(np.isfinite(scene.tiwp_fpavg.data))
-        time_cloudsat = scene.time_cloudsat.data.astype("datetime64[s]")
         scene["profile_row_inds"] = (("profiles"), profile_row_inds)
         scene["profile_column_inds"] = (("profiles"), profile_column_inds)
         dims = ["profiles", "altitude"]
         vars = [
-            "time_cloudsat",
-            "latitude_cloudsat",
-            "longitude_cloudsat",
+            f"time_{product}",
+            f"latitude_{product}",
+            f"longitude_{product}",
             "tiwp",
             "tiwp_fpavg",
             "tiwc",
@@ -235,15 +237,15 @@ def write_scenes(
         encoding["longitude"] = {"dtype": "float32", "zlib": True}
         encoding["altitude"] = {"dtype": "float32", "zlib": True}
         encoding["latitude"] = {"dtype": "float32", "zlib": True}
-        encoding["latitude_cloudsat"] = {"dtype": "float32", "zlib": True}
-        encoding["longitude_cloudsat"] = {"dtype": "float32", "zlib": True}
+        encoding[f"latitude_{product}"] = {"dtype": "float32", "zlib": True}
+        encoding[f"longitude_{product}"] = {"dtype": "float32", "zlib": True}
         encoding["tiwc"] = {"dtype": "float32", "zlib": True}
         encoding["tiwp"] = {"dtype": "float32", "zlib": True}
         encoding["tiwp_fpavg"] = {"dtype": "float32", "zlib": True}
         encoding["cloud_class"] = {"dtype": "int8", "zlib": True}
         encoding["cloud_mask"] = {"dtype": "int8", "zlib": True}
-        encoding["time_cloudsat"] = {"dtype": "int64", "zlib": True}
+        encoding[f"time_{product}"] = {"dtype": "int64", "zlib": True}
 
         source = scene.attrs["input_source"].lower()
-        output = f"cloudsat_match_{source}_{time_s}.nc"
+        output = f"{product}_match_{source}_{time_s}.nc"
         scene.to_netcdf(destination / output, encoding=encoding)
