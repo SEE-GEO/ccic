@@ -197,7 +197,7 @@ class DardarFile:
         target_dataset["tiwp"].attrs["long_name"] = "Total ice water path"
         target_dataset["tiwp"].attrs["unit"] = "g m-3"
 
-        target_dataset["time_cloudsat"] = (("latitude", "longitude"), time_r)
+        target_dataset["time_dardar"] = (("latitude", "longitude"), time_r)
 
         target_dataset["cloud_mask"] = (("latitude", "longitude"), cloud_mask_r)
         target_dataset["cloud_mask"].attrs = {
