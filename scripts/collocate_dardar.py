@@ -167,7 +167,10 @@ if __name__ == '__main__':
             )
             print("Processing CPCIR data")
             for f in tqdm.tqdm(cpcir_files, ncols=80, file=sys.stdout):
-                resample_to_scene(f, CPCIR_GRID, dardar_files_dict, dst_cpcir)
+                try:
+                    resample_to_scene(f, CPCIR_GRID, dardar_files_dict, dst_cpcir)
+                except KeyError as e:
+                    logging.error(f'DARDAR granule not found, {str(e)}')
     
     # Process for GridSat
     if args.gridsat:
@@ -187,4 +190,7 @@ if __name__ == '__main__':
             )
             print("Processing GridSat data")
             for f in tqdm.tqdm(gridsat_files, ncols=80, file=sys.stdout):
-                resample_to_scene(f, GRIDSAT_GRID, dardar_files_dict, dst_gridsat)
+                try:
+                    resample_to_scene(f, GRIDSAT_GRID, dardar_files_dict, dst_gridsat)
+                except KeyError as e:
+                    logging.error(f'DARDAR granule not found, {str(e)}')
