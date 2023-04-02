@@ -91,8 +91,8 @@ def resample_to_scene(source_dataset_filepath, source_global_grid,
     logging.getLogger().setLevel(level)
     
     # This should hold, but assert as the warning above was silenced
-    assert scene_grid.x_size == 384
-    assert scene_grid.y_size == 384
+    assert scene_grid.width == 384
+    assert scene_grid.height == 384
 
     # Get the matching DARDAR file
     granule = int(source_dataset.attrs['granule'])
