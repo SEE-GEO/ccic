@@ -207,7 +207,11 @@ def write_scenes(
         time_s = xr.DataArray(time).dt.strftime("%Y%m%d_%H%M%S").data.item()
 
         # Use sparse storage for CloudSat output data.
-        profile_row_inds, profile_column_inds = np.where(np.isfinite(scene.tiwp_fpavg.data))
+        # `valid` and `valid_tiwp_fpavg_mask` should be equal, but in DARDAR
+        # data some tiwp_fpavg are NaN due to unfortunate collocations:
+        # profiles consisting of NaN IWCs falling alone in a bin
+        valid_tiwp_fpavg_mask = np.isfinite(scene.tiwp_fpavg.data)
+        profile_row_inds, profile_column_inds = np.where(valid_tiwp_fpavg_mask)
         scene["profile_row_inds"] = (("profiles"), profile_row_inds)
         scene["profile_column_inds"] = (("profiles"), profile_column_inds)
         dims = ["profiles", "altitude"]
@@ -223,7 +227,7 @@ def write_scenes(
         ]
         for var in vars:
             data = scene[var].data
-            scene[var] = (dims[:data.ndim - 1], data[valid])
+            scene[var] = (dims[:data.ndim - 1], data[valid_tiwp_fpavg_mask])
 
         comp = {
             "dtype": "int16",

@@ -234,7 +234,11 @@ class DardarFile:
         }
 
     def get_iwp(self, dataset, above_ground=True):
-        """Returns the IWP in g/m2"""
+        """Returns the IWP in g/m2
+        
+        Note: IWC profiles can contain or consist only of NaNs,
+            resulting in NaN IWP
+        """
         # Get IWC values
         iwc = dataset.iwc       
 
