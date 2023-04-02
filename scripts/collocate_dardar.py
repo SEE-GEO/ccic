@@ -20,6 +20,7 @@ import argparse
 import glob
 import logging
 from pathlib import Path
+import sys
 import warnings
 
 import numpy as np
@@ -165,7 +166,7 @@ if __name__ == '__main__':
                 message="You will likely lose important projection information"
             )
             print("Processing CPCIR data")
-            for f in tqdm.tqdm(cpcir_files, ncols=80):
+            for f in tqdm.tqdm(cpcir_files, ncols=80, file=sys.stdout):
                 resample_to_scene(f, CPCIR_GRID, dardar_files_dict, dst_cpcir)
     
     # Process for GridSat
@@ -185,5 +186,5 @@ if __name__ == '__main__':
                 message="You will likely lose important projection information"
             )
             print("Processing GridSat data")
-            for f in tqdm.tqdm(gridsat_files, ncols=80):
+            for f in tqdm.tqdm(gridsat_files, ncols=80, file=sys.stdout):
                 resample_to_scene(f, GRIDSAT_GRID, dardar_files_dict, dst_gridsat)
