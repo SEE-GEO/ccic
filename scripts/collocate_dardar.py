@@ -3,10 +3,11 @@ This script collocates DARDAR data with the data prepared for the training and
 test sets of CCIC.
 
 Requirements and assumptions:
-- All CloudSat granules used in the training and test sets also exist in the
-  DARDAR data and the latter are locally accessible, i.e. they do not need to
-  be downloaded.
-- No training or test scenes cross the antimeridian
+- All DARDAR granules used in the training are locally accessible,
+  i.e. they do not need to be downloaded.
+- Recording which DARDARDAR were missing takes place outside this script, e.g.,
+  by analysing the stderr.
+- No training or test scenes cross the antimeridian.
 
 Notes:
 - The variables stored have `_dardar` appended instead of `_cloudsat` to
@@ -50,7 +51,8 @@ def resample_to_scene(source_dataset_filepath, source_global_grid,
 
     Notes:
     - No scenes must be cross the antimeridian
-    - The CloudSat granule used for the source dataset must be in ``dardar_files_dict``
+    - The CloudSat granule used for the source dataset must be in
+      ``dardar_files_dict``, else a KeyError is raised
     """
     assert source_global_grid in [GRIDSAT_GRID, CPCIR_GRID]
 
