@@ -49,8 +49,7 @@ def get_file(provider, product, path, filename, retries):
 
     if failed:
         raise RuntimeError(
-            "Downloading of file '%s' failed after three retries.",
-            filename
+            "Downloading of file '%s' failed after three retries.", filename
         )
 
     new_file = product(local_file)
@@ -61,6 +60,7 @@ class DownloadCache:
     """
     Asynchronous download cache..
     """
+
     def __init__(self, n_threads=2, retries=3):
         self.path = TemporaryDirectory()
         self.files = {}
@@ -82,16 +82,16 @@ class DownloadCache:
                     product,
                     Path(self.path.name),
                     filename,
-                    self.retries
+                    self.retries,
                 )
         return self.files[filename]
 
 
 def process_cloudsat_files(
-        cloudsat_files,
-        cache,
-        size=256,
-        timedelta=15,
+    cloudsat_files,
+    cache,
+    size=256,
+    timedelta=15,
 ):
     """
     Match CloudSat product files for a given granule with CPCIR and
@@ -119,19 +119,15 @@ def process_cloudsat_files(
     data = cloudsat_files[0].result().to_xarray_dataset()
     d_t = np.array(timedelta * 60, dtype="timedelta64[s]")
     start_time = data.time.data[0] - d_t
-    end_time = data.time.data[-1]  + d_t
+    end_time = data.time.data[-1] + d_t
 
     scenes = []
 
     cpcir_files = CPCIR.provider.get_files_in_range(
-        to_datetime(start_time),
-        to_datetime(end_time),
-        start_inclusive=True
+        to_datetime(start_time), to_datetime(end_time), start_inclusive=True
     )
     gridsat_files = GridSat.provider.get_files_in_range(
-        to_datetime(start_time),
-        to_datetime(end_time),
-        start_inclusive=True
+        to_datetime(start_time), to_datetime(end_time), start_inclusive=True
     )
 
     cloudsat_files = [cs_file.result() for cs_file in cloudsat_files]
@@ -144,21 +140,13 @@ def process_cloudsat_files(
             continue
 
         scenes += cpcir_file.get_matches(
-            rng,
-            cloudsat_files,
-            size=size,
-            timedelta=timedelta
+            rng, cloudsat_files, size=size, timedelta=timedelta
         )
         scenes += cpcir_file.get_matches(
-            rng,
-            cloudsat_files,
-            size=size,
-            timedelta=timedelta,
-            subsample=True
+            rng, cloudsat_files, size=size, timedelta=timedelta, subsample=True
         )
 
     for filename in gridsat_files:
-
         try:
             gs_file = cache.get(GridSat, filename).result()
         except RuntimeError as err:
@@ -166,19 +154,16 @@ def process_cloudsat_files(
             continue
 
         scenes += gs_file.get_matches(
-            rng,
-            cloudsat_files,
-            size=size,
-            timedelta=timedelta
+            rng, cloudsat_files, size=size, timedelta=timedelta
         )
     return scenes
 
 
 def write_scenes(
-        scenes,
-        destination,
-        valid_input=0.2,
-        product="cloudsat",
+    scenes,
+    destination,
+    valid_input=0.2,
+    product="cloudsat",
 ):
     """
     Write extracted match-up scenes to training files.
@@ -194,7 +179,6 @@ def write_scenes(
     destination = Path(destination)
 
     for scene in scenes:
-
         # Check if scene has sufficient valid inputs.
         if np.isfinite(scene.ir_win.data).mean() < valid_input:
             continue
@@ -227,14 +211,9 @@ def write_scenes(
         ]
         for var in vars:
             data = scene[var].data
-            scene[var] = (dims[:data.ndim - 1], data[valid_tiwp_fpavg_mask])
+            scene[var] = (dims[: data.ndim - 1], data[valid_tiwp_fpavg_mask])
 
-        comp = {
-            "dtype": "int16",
-            "scale_factor": 0.1,
-            "zlib": True,
-            "_FillValue": -99
-        }
+        comp = {"dtype": "int16", "scale_factor": 0.1, "zlib": True, "_FillValue": -99}
         encoding = {var: copy(comp) for var in scene.variables.keys()}
         encoding["profile_row_inds"] = {"dtype": "int16", "zlib": True}
         encoding["profile_column_inds"] = {"dtype": "int16", "zlib": True}

@@ -13,31 +13,28 @@ import numpy.typing as npt
 from scipy.signal import convolve
 import xarray as xr
 
-from .cloudsat import (
-    ALTITUDE_LEVELS,
-    remap_iwc,
-    remap_cloud_classes
-)
+from .cloudsat import ALTITUDE_LEVELS, remap_iwc, remap_cloud_classes
 
-def get_iwp(dataset: xr.Dataset, above_ground: bool=True) -> npt.NDArray:
+
+def get_iwp(dataset: xr.Dataset, above_ground: bool = True) -> npt.NDArray:
     """Returns the IWP in g/m2
 
     Args:
         dataset: the DARDAR dataset
         above_ground: compute the IWP from the ground height based on
             the DARDAR mask (DARMASK)
-    
+
     Note: IWC profiles can contain or consist only of NaNs, resulting in NaN IWP
     """
     # Get IWC values
-    iwc = dataset.iwc       
+    iwc = dataset.iwc
 
     # Transform them from kg/m3 to g/m3
     iwc = iwc * 1_000
-    
+
     # Get a mask for IWC to zero them if they correspond to the (sub)surface
     if above_ground:
-        above_ground_mask = (get_surface_mask(dataset) == False)
+        above_ground_mask = get_surface_mask(dataset) == False
     else:
         above_ground_mask = np.ones_like(iwc.shape, dtype=bool)
 
@@ -45,10 +42,11 @@ def get_iwp(dataset: xr.Dataset, above_ground: bool=True) -> npt.NDArray:
     # Note that the height dimension is in decreasing order, hence the flip
     return np.trapz((iwc * above_ground_mask)[..., ::-1], dataset.height[::-1], axis=1)
 
+
 def get_surface_mask(dataset: xr.Dataset) -> npt.NDArray:
     """Returns a binary mask indicating if the bin is at a (sub)surface
     height based on the DARDAR mask (DARMASK)
-    
+
     Args:
         dataset: The DARDAR dataset
     """
@@ -65,6 +63,7 @@ def get_surface_mask(dataset: xr.Dataset) -> npt.NDArray:
     surface_mask = np.where(surface_mask > 1, True, False)
 
     return surface_mask
+
 
 def subsample_iwc_and_height(iwc, height):
     """
@@ -90,6 +89,7 @@ def subsample_iwc_and_height(iwc, height):
     height = convolve(height, k, mode="valid", method="direct")
     return iwc, height
 
+
 class DardarFile:
     """
     Generic interface class to read DARDAR files.
@@ -101,54 +101,54 @@ class DardarFile:
             filename: Path to the DARDAR product file.
         """
         self.filename = Path(filename)
-        timestamp_str = self.filename.name.split('_')[1]
-        self.start_time = np.datetime64(datetime.strptime(timestamp_str, '%Y%j%H%M%S'))
-        self.granule = int(self.filename.name.split('_')[2])
-    
+        timestamp_str = self.filename.name.split("_")[1]
+        self.start_time = np.datetime64(datetime.strptime(timestamp_str, "%Y%j%H%M%S"))
+        self.granule = int(self.filename.name.split("_")[2])
+
     def __repr__(self):
         return f"{type(self).__name__}({self.filename})"
-    
+
     def add_latitude_and_longitude(
-            self,
-            target_dataset,
-            resampler,
-            target_indices,
-            source_indices,
-            start_time=None,
-            end_time=None,
-        ):
-            """
-            Adds latitude and longitude from DARDAR data.
+        self,
+        target_dataset,
+        resampler,
+        target_indices,
+        source_indices,
+        start_time=None,
+        end_time=None,
+    ):
+        """
+        Adds latitude and longitude from DARDAR data.
 
-            Args:
-                target_dataset: The ``xarray.Dataset`` to add the resampled
-                    retrieval targets to.
-                resampler: The ``pyresample.BucketResampler`` to use for
-                    resampling.
-                target_indices: Indices of the flattened target grids for
-                    probabilistic resampling of profiles.
-                source_indices: Corresponding indices of the DARDAR data for
-                    the probabilistic resampling of profiles.
-                start_time: Optional start time to limit the source profiles that
-                    are resampled.
-                end_time: Optional end time to limit the source profiles that
-                    are resampled.
-            """
-            data = self.to_xarray_dataset(start_time=start_time, end_time=end_time)
-            latitude_r = resampler.get_average(data.latitude.data).compute()
-            longitude_r = resampler.get_average(data.longitude.data).compute()
+        Args:
+            target_dataset: The ``xarray.Dataset`` to add the resampled
+                retrieval targets to.
+            resampler: The ``pyresample.BucketResampler`` to use for
+                resampling.
+            target_indices: Indices of the flattened target grids for
+                probabilistic resampling of profiles.
+            source_indices: Corresponding indices of the DARDAR data for
+                the probabilistic resampling of profiles.
+            start_time: Optional start time to limit the source profiles that
+                are resampled.
+            end_time: Optional end time to limit the source profiles that
+                are resampled.
+        """
+        data = self.to_xarray_dataset(start_time=start_time, end_time=end_time)
+        latitude_r = resampler.get_average(data.latitude.data).compute()
+        longitude_r = resampler.get_average(data.longitude.data).compute()
 
-            target_dataset["latitude_dardar"] = (("latitude", "longitude"), latitude_r)
-            target_dataset["longitude_dardar"] = (("latitude", "longitude"), longitude_r)
-    
+        target_dataset["latitude_dardar"] = (("latitude", "longitude"), latitude_r)
+        target_dataset["longitude_dardar"] = (("latitude", "longitude"), longitude_r)
+
     def add_retrieval_targets(
-            self,
-            target_dataset,
-            resampler,
-            target_indices,
-            source_indices,
-            start_time=None,
-            end_time=None
+        self,
+        target_dataset,
+        resampler,
+        target_indices,
+        source_indices,
+        start_time=None,
+        end_time=None,
     ):
         """
         Add retrieval targets from the DARDAR file (source) to
@@ -168,7 +168,9 @@ class DardarFile:
             end_time: Optional end time to limit the source profiles that
                 are resampled.
         """
-        source_dataset = self.to_xarray_dataset(start_time=start_time, end_time=end_time)
+        source_dataset = self.to_xarray_dataset(
+            start_time=start_time, end_time=end_time
+        )
 
         # Resample IWP
         iwp = get_iwp(source_dataset)
@@ -177,10 +179,7 @@ class DardarFile:
         iwp_r_rand.ravel()[target_indices] = iwp[source_indices]
 
         # Resample DARDAR time
-        time_r = np.zeros(
-            iwp_r.shape,
-            dtype="datetime64[s]"
-        )
+        time_r = np.zeros(iwp_r.shape, dtype="datetime64[s]")
         time_r[:] = np.datetime64("nat", "s")
         time_r.ravel()[target_indices] = source_dataset.time.data[source_indices]
 
@@ -189,7 +188,7 @@ class DardarFile:
         # NOTE 1: Height dimension is in decreasing order in DARDAR data
         # NOTE 2: `height` is 1D, duplicate it to have the same shape as iwc
         iwc = source_dataset.iwc.data[..., ::-1]
-        source_height = np.tile(source_dataset.height.data[::-1], (iwp.shape[0],1))
+        source_height = np.tile(source_dataset.height.data[::-1], (iwp.shape[0], 1))
         # Convert IWC from kg/m3 to g/m3 for consistency with code prepared for 2C-ICE
         iwc = iwc * 1_000
         iwc, height = subsample_iwc_and_height(iwc, source_height)
@@ -198,7 +197,6 @@ class DardarFile:
         surface_mask = get_surface_mask(source_dataset)[..., ::-1]
         # Compute the surface elevation for each profile
         surface_altitude_source = np.max(surface_mask * source_height, axis=1)
-
 
         # Pick random samples from IWC, height and surface altitude
         iwc = iwc[source_indices]
@@ -217,22 +215,20 @@ class DardarFile:
         cloud_mask = labels.max(axis=-1) > 0
 
         # Remap cloud classes
-        labels = remap_cloud_classes(labels, source_height, surface_altitude_source, ALTITUDE_LEVELS)
+        labels = remap_cloud_classes(
+            labels, source_height, surface_altitude_source, ALTITUDE_LEVELS
+        )
 
         # Pick the labels for the corresponding profiles
         output_shape = resampler.target_area.shape
-        cloud_mask_r = -1 *  np.ones(output_shape, dtype=np.int8)
+        cloud_mask_r = -1 * np.ones(output_shape, dtype=np.int8)
         cloud_mask_r.ravel()[target_indices] = cloud_mask[source_indices]
         labels_r = -1 * np.ones(output_shape + (20,), dtype=np.int8)
         labels_r.reshape(-1, 20)[target_indices] = labels[source_indices]
 
-
         target_dataset["altitude"] = (("altitude",), ALTITUDE_LEVELS)
-        target_dataset["altitude"].attrs = {
-            "units": "meters",
-            "positive": "up"
-        }
-        
+        target_dataset["altitude"].attrs = {"units": "meters", "positive": "up"}
+
         target_dataset["tiwc"] = (("latitude", "longitude", "altitude"), iwc_r)
         target_dataset["tiwc"].attrs["long_name"] = "Total ice water content"
         target_dataset["tiwc"].attrs["unit"] = "g m-3"
@@ -252,9 +248,12 @@ class DardarFile:
             "long_name": "Cloud presence in atmospheric column",
             "flag_values": "0, 1",
             "flag_meaning": "no cloud, cloud present",
-            "_FillValue": -1
+            "_FillValue": -1,
         }
-        target_dataset["cloud_class"] = (("latitude", "longitude", "altitude"), labels_r)
+        target_dataset["cloud_class"] = (
+            ("latitude", "longitude", "altitude"),
+            labels_r,
+        )
         target_dataset["cloud_class"].attrs = {
             "long_name": "Resampled DARMASK Categorization Flags",
             "flag_values": "-2, -1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15",
@@ -276,7 +275,7 @@ class DardarFile:
                 "warm rain and liquid clouds",
                 "cold rain and liquid clouds",
                 "rain may be mixed with liquid",
-                "Multiple scattering due to supercooled water"
+                "Multiple scattering due to supercooled water",
             ),
             "_FillValue": -1,
         }
@@ -297,6 +296,6 @@ class DardarFile:
             time_mask *= data.time >= start_time
         if end_time is not None:
             time_mask *= data.time < end_time
-        data = data.sel({'time': time_mask})
+        data = data.sel({"time": time_mask})
         # Apply renaming for consistency and return
-        return data.rename_dims({'time': 'rays'})
+        return data.rename_dims({"time": "rays"})

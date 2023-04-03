@@ -14,14 +14,14 @@ from ccic.data.cloudsat import (
     get_sample_indices,
     remap_iwc,
     remap_cloud_classes,
-    resample_data
+    resample_data,
 )
 from ccic.data.cpcir import CPCIR, CPCIR_GRID
 from ccic.data.dardar import (
     get_iwp,
     get_surface_mask,
-    subsample_iwc_and_height,   
-    DardarFile
+    subsample_iwc_and_height,
+    DardarFile,
 )
 
 
@@ -38,6 +38,7 @@ NEEDS_TEST_DATA = pytest.mark.skipif(
 DARDAR_FILE = "DARDAR-CLOUD_2010017014344_19801_V3-10.nc"
 CPCIR_FILE = "merg_2008020101_4km-pixel.nc4"
 
+
 @NEEDS_TEST_DATA
 def test_granule_parsing():
     """
@@ -45,6 +46,7 @@ def test_granule_parsing():
     """
     dardar_file = DardarFile(DARDAR_FILE)
     assert dardar_file.granule == 19801
+
 
 @NEEDS_TEST_DATA
 def test_subsample_iwc_and_height():
@@ -65,11 +67,12 @@ def test_subsample_iwc_and_height():
     iwp_s = np.trapz(iwc_s, x=height_s, axis=-1) * 1e-3
     if np.any(iwp > 1e-4):
         assert np.any(iwp_s > 1e-4)
-    
+
     notable_iwp = iwp > 1e-3
     iwp = iwp[notable_iwp]
     iwp_s = iwp_s[notable_iwp]
     assert np.all(np.isclose(iwp, iwp_s, rtol=1e-2))
+
 
 @NEEDS_TEST_DATA
 def test_remap_cloud_classes():
@@ -87,13 +90,9 @@ def test_remap_cloud_classes():
     # Compute the surface elevation for each profile
     surface_altitude = np.max(surface_mask * height, axis=1)
 
-    labels = remap_cloud_classes(
-        labels,
-        height,
-        surface_altitude,
-        ALTITUDE_LEVELS
-    )
-    assert (np.logical_or((labels <= 15) * (labels >= 0), labels==-2)).all()
+    labels = remap_cloud_classes(labels, height, surface_altitude, ALTITUDE_LEVELS)
+    assert (np.logical_or((labels <= 15) * (labels >= 0), labels == -2)).all()
+
 
 @NEEDS_TEST_DATA
 def test_remap_iwc():
@@ -125,6 +124,7 @@ def test_remap_iwc():
     iwp_s = iwp_s[notable_iwp]
     assert np.all(np.isclose(iwp_r, iwp_s, rtol=1e-2))
 
+
 @NEEDS_TEST_DATA
 def test_random_resampling():
     """
@@ -153,25 +153,19 @@ def test_random_resampling():
     assert np.all(np.abs(lons_cpc - lons_cs) < 0.05)
     assert np.all(np.abs(lats_cpc - lats_cs) < 0.05)
 
+
 @NEEDS_TEST_DATA
 def test_resampling_cpcir():
     """
     Test resampling of cloudsat data to CPC IR data.
     """
     cpc_data = CPCIR(TEST_DATA / CPCIR_FILE).to_xarray_dataset()
-    cpc_data = cpc_data[{"time": 0}].rename({
-        "lon": "longitude",
-        "lat": "latitude"
-    })
+    cpc_data = cpc_data[{"time": 0}].rename({"lon": "longitude", "lat": "latitude"})
 
     dardar_file = DardarFile(TEST_DATA / DARDAR_FILE)
     dardar_data = dardar_file.to_xarray_dataset()
 
-    resample_data(
-        cpc_data,
-        CPCIR_GRID,
-        [dardar_file]
-    )
+    resample_data(cpc_data, CPCIR_GRID, [dardar_file])
 
     # Make sure collocations are found.
     iwp_r = cpc_data.tiwp_fpavg.data

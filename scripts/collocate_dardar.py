@@ -35,8 +35,10 @@ from ccic.data.dardar import DardarFile
 from ccic.data.gridsat import GRIDSAT_GRID
 from ccic.data.cpcir import CPCIR_GRID
 
-def resample_to_scene(source_dataset_filepath, source_global_grid,
-                      dardar_files_dict, dst) -> None:
+
+def resample_to_scene(
+    source_dataset_filepath, source_global_grid, dardar_files_dict, dst
+) -> None:
     """
     Resample DARDAR data to a source dataset, where the source dataset is
     CloudSat-collocated CPCIR or GridSat data.
@@ -68,7 +70,9 @@ def resample_to_scene(source_dataset_filepath, source_global_grid,
 
     # Clear all variables from the source dataset except `ir_win`
     # to avoid storing also the CloudSat DPC data
-    source_dataset = source_dataset.drop_vars(set(list(source_dataset.keys())) - {'ir_win'})
+    source_dataset = source_dataset.drop_vars(
+        set(list(source_dataset.keys())) - {"ir_win"}
+    )
 
     # Get the extent of the scene, taking into account the pixel resolution
     resolution = source_global_grid.resolution
@@ -80,7 +84,7 @@ def resample_to_scene(source_dataset_filepath, source_global_grid,
         lon_scene.min() - delta_lon,
         lat_scene.min() - delta_lat,
         lon_scene.max() + delta_lon,
-        lat_scene.max() + delta_lat
+        lat_scene.max() + delta_lat,
     ]
 
     # Create a pyresample.geometry.AreaDefinition for the scene
@@ -93,16 +97,16 @@ def resample_to_scene(source_dataset_filepath, source_global_grid,
         source_global_grid.proj_dict,
         area_extent=bbox_scene,
         resolution=resolution,
-        units="degrees"
+        units="degrees",
     )
     logging.getLogger().setLevel(level)
-    
+
     # This should hold, but assert as the warning above was silenced
     assert scene_grid.width == 384
     assert scene_grid.height == 384
 
     # Get the matching DARDAR file
-    granule = int(source_dataset.attrs['granule'])
+    granule = int(source_dataset.attrs["granule"])
     dardar_file_path = dardar_files_dict[granule]
     dardar_file = DardarFile(dardar_file_path)
 
@@ -112,57 +116,65 @@ def resample_to_scene(source_dataset_filepath, source_global_grid,
         scene_grid,
         [dardar_file],
         start_time=times_cloudsat.min(),
-        end_time=times_cloudsat.max()
+        end_time=times_cloudsat.max(),
     )
 
     if ds_resampled is not None:
         # Add an attribute to register the input source for the resampling
-        ds_resampled.attrs['input_source_resampling'] = Path(source_dataset_filepath).name
+        ds_resampled.attrs["input_source_resampling"] = Path(
+            source_dataset_filepath
+        ).name
         # and the DARDAR version
-        ds_resampled.attrs['DARDAR_version'] = Path(dardar_file_path).stem.split('V')[-1]
+        ds_resampled.attrs["DARDAR_version"] = Path(dardar_file_path).stem.split("V")[
+            -1
+        ]
 
         # Save to file
         write_scenes([ds_resampled], dst, product="dardar")
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Resample and collocate DARDAR with existing collocations"
     )
 
     parser.add_argument(
-        '--cpcir',
+        "--cpcir",
         type=Path,
-        help="Root directory containing CloudSat collocated CPCIR files"
+        help="Root directory containing CloudSat collocated CPCIR files",
     )
     parser.add_argument(
-        '--dardar',
+        "--dardar",
         type=Path,
         help="Root directory where DARDAR files are located (possibily in subfolders)",
-        required=True
+        required=True,
     )
     parser.add_argument(
-        '--gridsat',
+        "--gridsat",
         type=Path,
-        help="Root directory containing CloudSat collocated GridSat files"
+        help="Root directory containing CloudSat collocated GridSat files",
     )
     parser.add_argument(
-        '--output',
+        "--output",
         type=Path,
         help="Directory to save the output datasets",
-        required=True
+        required=True,
     )
     args = parser.parse_args()
 
     # Get DARDAR files
-    dardar_files_dict = {DardarFile(f).granule: f for f in glob.glob(str(args.dardar / '**/*nc'), recursive=True)}
+    dardar_files_dict = {
+        DardarFile(f).granule: f
+        for f in glob.glob(str(args.dardar / "**/*nc"), recursive=True)
+    }
 
-    # Process for CPCIR
+    # Process for CPCIR
     if args.cpcir:
         # Get CPCIR files
-        cpcir_files = sorted(glob.glob(str(args.cpcir / '**/*nc'), recursive=True))
+        cpcir_files = sorted(glob.glob(str(args.cpcir / "**/*nc"), recursive=True))
 
         # Make sure the destination directory exists
-        dst_cpcir = args.output / 'cpcir'
+        dst_cpcir = args.output / "cpcir"
         dst_cpcir.mkdir(parents=True, exist_ok=True)
 
         # Collocate with CPCIR files
@@ -170,22 +182,22 @@ if __name__ == '__main__':
             # Silence pyproj warning
             warnings.filterwarnings(
                 "ignore",
-                message="You will likely lose important projection information"
+                message="You will likely lose important projection information",
             )
             print("Processing CPCIR data")
             for f in tqdm.tqdm(cpcir_files, ncols=80, file=sys.stdout):
                 try:
                     resample_to_scene(f, CPCIR_GRID, dardar_files_dict, dst_cpcir)
                 except KeyError as e:
-                    logging.error(f'DARDAR granule not found, {str(e)}')
-    
+                    logging.error(f"DARDAR granule not found, {str(e)}")
+
     # Process for GridSat
     if args.gridsat:
         # Get GridSat
-        gridsat_files = sorted(glob.glob(str(args.gridsat / '**/*nc'), recursive=True))
+        gridsat_files = sorted(glob.glob(str(args.gridsat / "**/*nc"), recursive=True))
 
         # Make sure the destination directory exists
-        dst_gridsat = args.output / 'gridsat'
+        dst_gridsat = args.output / "gridsat"
         dst_gridsat.mkdir(parents=True, exist_ok=True)
 
         # Collocate with GridSat files
@@ -193,11 +205,11 @@ if __name__ == '__main__':
             # Silence pyproj warning
             warnings.filterwarnings(
                 "ignore",
-                message="You will likely lose important projection information"
+                message="You will likely lose important projection information",
             )
             print("Processing GridSat data")
             for f in tqdm.tqdm(gridsat_files, ncols=80, file=sys.stdout):
                 try:
                     resample_to_scene(f, GRIDSAT_GRID, dardar_files_dict, dst_gridsat)
                 except KeyError as e:
-                    logging.error(f'DARDAR granule not found, {str(e)}')
+                    logging.error(f"DARDAR granule not found, {str(e)}")
