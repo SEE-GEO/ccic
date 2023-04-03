@@ -9,6 +9,7 @@ from datetime import datetime
 from pathlib import Path
 
 import numpy as np
+import numpy.typing as npt
 from scipy.signal import convolve
 import xarray as xr
 
@@ -17,6 +18,53 @@ from .cloudsat import (
     remap_iwc,
     remap_cloud_classes
 )
+
+def get_iwp(dataset: xr.Dataset, above_ground: bool=True) -> npt.NDArray:
+    """Returns the IWP in g/m2
+
+    Args:
+        dataset: the DARDAR dataset
+        above_ground: compute the IWP from the ground height based on
+            the DARDAR mask (DARMASK)
+    
+    Note: IWC profiles can contain or consist only of NaNs, resulting in NaN IWP
+    """
+    # Get IWC values
+    iwc = dataset.iwc       
+
+    # Transform them from kg/m3 to g/m3
+    iwc = iwc * 1_000
+    
+    # Get a mask for IWC to zero them if they correspond to the (sub)surface
+    if above_ground:
+        above_ground_mask = (get_surface_mask(dataset) == False)
+    else:
+        above_ground_mask = np.ones_like(iwc.shape, dtype=bool)
+
+    # Compute the integral, zeroing IWC if needed, and return
+    # Note that the height dimension is in decreasing order, hence the flip
+    return np.trapz((iwc * above_ground_mask)[..., ::-1], dataset.height[::-1], axis=1)
+
+def get_surface_mask(dataset: xr.Dataset) -> npt.NDArray:
+    """Returns a binary mask indicating if the bin is at a (sub)surface
+    height based on the DARDAR mask (DARMASK)
+    
+    Args:
+        dataset: The DARDAR dataset
+    """
+    # Sanity check for the algorithm to work:
+    # height is sorted decreasingly, i.e.
+    height = dataset.height.values
+    assert (np.flip(np.sort(height)) == height).all()
+
+    # Find indices where it is surface and subsurface
+    surface_mask = dataset.DARMASK_Simplified_Categorization == -1
+
+    # Make sure all heights below this maximum height are set to True
+    surface_mask = np.cumsum(surface_mask, axis=1)
+    surface_mask = np.where(surface_mask > 1, True, False)
+
+    return surface_mask
 
 def subsample_iwc_and_height(iwc, height):
     """
@@ -123,7 +171,7 @@ class DardarFile:
         source_dataset = self.to_xarray_dataset(start_time=start_time, end_time=end_time)
 
         # Resample IWP
-        iwp = self.get_iwp(source_dataset)
+        iwp = get_iwp(source_dataset)
         iwp_r = resampler.get_average(iwp).compute()
         iwp_r_rand = np.nan * np.zeros_like(iwp_r)
         iwp_r_rand.ravel()[target_indices] = iwp[source_indices]
@@ -147,7 +195,7 @@ class DardarFile:
         iwc, height = subsample_iwc_and_height(iwc, source_height)
 
         # Compute the surface altitude for each profile and flip it for consistency
-        surface_mask = self.get_surface_mask(source_dataset)[..., ::-1]
+        surface_mask = get_surface_mask(source_dataset)[..., ::-1]
         # Compute the surface elevation for each profile
         surface_altitude_source = np.max(surface_mask * source_height, axis=1)
 
@@ -232,45 +280,6 @@ class DardarFile:
             ),
             "_FillValue": -1,
         }
-
-    def get_iwp(self, dataset, above_ground=True):
-        """Returns the IWP in g/m2
-        
-        Note: IWC profiles can contain or consist only of NaNs,
-            resulting in NaN IWP
-        """
-        # Get IWC values
-        iwc = dataset.iwc       
-
-        # Transform them from kg/m3 to g/m3
-        iwc = iwc * 1_000
-        
-        # Get a mask for IWC to zero them if they correspond to the (sub)surface
-        if above_ground:
-            above_ground_mask = (self.get_surface_mask(dataset) == False)
-        else:
-            above_ground_mask = np.ones_like(iwc.shape, dtype=bool)
-
-        # Compute the integral, zeroing IWC if needed, and return
-        # Note that the height dimension is in decreasing order, hence the flip
-        return np.trapz((iwc * above_ground_mask)[..., ::-1], dataset.height[::-1], axis=1)
-
-    def get_surface_mask(self, dataset):
-        """Returns a binary mask indicating if the bin is at a (sub)surface
-        height based on the DARDAR mask (DARMASK)"""
-        # Sanity check for the algorithm to work:
-        # height is sorted decreasingly, i.e.
-        height = dataset.height.values
-        assert (np.flip(np.sort(height)) == height).all()
-
-        # Find indices where it is surface and subsurface
-        surface_mask = dataset.DARMASK_Simplified_Categorization == -1
-
-        # Make sure all heights below this maximum height are set to True
-        surface_mask = np.cumsum(surface_mask, axis=1)
-        surface_mask = np.where(surface_mask > 1, True, False)
-
-        return surface_mask
 
     def to_xarray_dataset(self, start_time=None, end_time=None):
         """

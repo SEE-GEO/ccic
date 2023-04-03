@@ -18,6 +18,8 @@ from ccic.data.cloudsat import (
 )
 from ccic.data.cpcir import CPCIR, CPCIR_GRID
 from ccic.data.dardar import (
+    get_iwp,
+    get_surface_mask,
     subsample_iwc_and_height,   
     DardarFile
 )
@@ -59,7 +61,7 @@ def test_subsample_iwc_and_height():
     iwc_s, height_s = subsample_iwc_and_height(iwc, height)
 
     # Get IWPs (both in kg/m2)
-    iwp = dardar_file.get_iwp(dardar_data) * 1e-3
+    iwp = get_iwp(dardar_data) * 1e-3
     iwp_s = np.trapz(iwc_s, x=height_s, axis=-1) * 1e-3
     if np.any(iwp > 1e-4):
         assert np.any(iwp_s > 1e-4)
@@ -81,7 +83,7 @@ def test_remap_cloud_classes():
     labels = dardar_data.DARMASK_Simplified_Categorization.data[..., ::-1]
     height = np.tile(dardar_data.height[..., ::-1], (labels.shape[0], 1))
     # Compute the surface altitude for each profile and flip it for consistency
-    surface_mask = dardar_file.get_surface_mask(dardar_data)[..., ::-1]
+    surface_mask = get_surface_mask(dardar_data)[..., ::-1]
     # Compute the surface elevation for each profile
     surface_altitude = np.max(surface_mask * height, axis=1)
 
@@ -105,7 +107,7 @@ def test_remap_iwc():
     iwc = dardar_data.iwc.data[..., ::-1] * 1e3
     height = np.tile(dardar_data.height[..., ::-1], (iwc.shape[0], 1))
     # Compute the surface altitude for each profile and flip it for consistency
-    surface_mask = dardar_file.get_surface_mask(dardar_data)[..., ::-1]
+    surface_mask = get_surface_mask(dardar_data)[..., ::-1]
     # Compute the surface elevation for each profile
     surface_altitude = np.max(surface_mask * height, axis=1)
     below_surface = height < surface_altitude[..., None]
@@ -182,7 +184,7 @@ def test_resampling_cpcir():
     valid_rand = np.isfinite(iwp_rand_r)
     assert (valid == valid_rand).all()
 
-    iwp = dardar_file.get_iwp(dardar_data) * 1e3
+    iwp = get_iwp(dardar_data) * 1e3
     assert (iwp_r[valid] < iwp.max()).all()
 
     iwc = dardar_data.iwc.data * 1e3
