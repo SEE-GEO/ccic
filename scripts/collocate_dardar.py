@@ -49,10 +49,14 @@ def resample_to_scene(source_dataset_filepath, source_global_grid,
             and DARDAR file paths as values
         dst: directory to write the resamped scenes
 
+    Raises:
+        KeyError: if CloudSat granule used for the source dataset is not found
+            in ``dardar_files_dict``
+
     Notes:
-    - No scenes must be cross the antimeridian
-    - The CloudSat granule used for the source dataset must be in
-      ``dardar_files_dict``, else a KeyError is raised
+    - No scenes must be cross the antimeridian.
+    - If there no matches can be found within the given time constraints, then
+      no file is created.
     """
     assert source_global_grid in [GRIDSAT_GRID, CPCIR_GRID]
 
@@ -111,13 +115,14 @@ def resample_to_scene(source_dataset_filepath, source_global_grid,
         end_time=times_cloudsat.max()
     )
 
-    # Add an attribute to register the input source for the resampling
-    ds_resampled.attrs['input_source_resampling'] = Path(source_dataset_filepath).name
-    # and the DARDAR version
-    ds_resampled.attrs['DARDAR_version'] = Path(dardar_file_path).stem.split('V')[-1]
+    if ds_resampled is not None:
+        # Add an attribute to register the input source for the resampling
+        ds_resampled.attrs['input_source_resampling'] = Path(source_dataset_filepath).name
+        # and the DARDAR version
+        ds_resampled.attrs['DARDAR_version'] = Path(dardar_file_path).stem.split('V')[-1]
 
-    # Save to file
-    write_scenes([ds_resampled], dst, product="dardar")
+        # Save to file
+        write_scenes([ds_resampled], dst, product="dardar")
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
