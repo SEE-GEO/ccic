@@ -203,8 +203,10 @@ def run(args):
     quantiles_iwp[0] = 1e-3
     quantiles_iwp[-1] = 1 - 1e-3
     quantiles_iwc = np.linspace(0, 1, 16)
-    quantiles_iwc[0] = 1e-3
-    quantiles_iwc[-1] = 1 - 1e-3
+    quantiles_iwc[0] = 0.01
+    quantiles_iwc[1] = 0.05
+    quantiles_iwc[-1] = 0.99
+    quantiles_iwc[-2] = 0.95
 
     losses = {
         "tiwp": Quantiles(quantiles_iwp, sparse=True),
