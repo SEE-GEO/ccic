@@ -68,7 +68,7 @@ def add_parser(subparsers):
         help="The batch size to use.",
     )
     parser.add_argument(
-        "--accelerator",
+        "--device",
         metavar="device",
         type=str,
         default="cuda",
@@ -375,6 +375,6 @@ def run(args):
         return 1
     mrnn = MRNN.load(model_path)
 
-    results = process_dataset(mrnn, test_loader, device=args.accelerator)
+    results = process_dataset(mrnn, test_loader, device=args.device)
 
     results.to_netcdf(args.output_file)
