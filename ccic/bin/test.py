@@ -71,8 +71,8 @@ def add_parser(subparsers):
         "--accelerator",
         metavar="device",
         type=str,
-        default="gpu",
-        help="The accelerator to use for inference.",
+        default="cuda",
+        help="The device to use for inference.",
     )
     parser.add_argument(
         "--name",
@@ -375,6 +375,6 @@ def run(args):
         return 1
     mrnn = MRNN.load(model_path)
 
-    results = process_dataset(mrnn, test_loader, device="cuda")
+    results = process_dataset(mrnn, test_loader, device=args.accelerator)
 
     results.to_netcdf(args.output_file)
