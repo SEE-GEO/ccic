@@ -68,11 +68,11 @@ def add_parser(subparsers):
         help="The batch size to use.",
     )
     parser.add_argument(
-        "--accelerator",
+        "--device",
         metavar="device",
         type=str,
-        default="gpu",
-        help="The accelerator to use for inference.",
+        default="cuda",
+        help="The device to use for inference.",
     )
     parser.add_argument(
         "--name",
@@ -123,6 +123,7 @@ def process_dataset(mrnn, data_loader, device="cpu"):
     encodings = []
     enc_inds = []
     enc_inds = []
+    tbs = []
 
     mrnn.model.eval()
     mrnn.model.to(device)
@@ -255,6 +256,7 @@ def process_dataset(mrnn, data_loader, device="cpu"):
             latitude.append(y["latitude"][valid].cpu().numpy())
             longitude.append(y["longitude"][valid].cpu().numpy())
             granule.append(y["granule"][valid].cpu().numpy())
+            tbs.append(y["tbs"][valid].cpu().numpy())
 
     tiwp_mean = np.concatenate([tensor.numpy() for tensor in tiwp_mean])
     tiwp_sample = np.concatenate([tensor.numpy() for tensor in tiwp_sample])
@@ -277,6 +279,7 @@ def process_dataset(mrnn, data_loader, device="cpu"):
     latitude = np.concatenate(latitude)
     longitude = np.concatenate(longitude)
     granule = np.concatenate(granule)
+    tbs = np.concatenate(tbs)
 
     levels = (np.arange(20) + 0.5) * 1e3
     dataset = xr.Dataset({
@@ -302,21 +305,10 @@ def process_dataset(mrnn, data_loader, device="cpu"):
         "longitude": (("samples",), longitude),
         "latitude": (("samples",), latitude),
         "granule": (("samples",), granule),
+        "tbs": (("samples",), tbs),
     })
 
     enc_float = {"dtype": "float32", "zlib": True}
-    dataset.tiwp_mean.encoding = enc_float
-    dataset.tiwp_sample.encoding = enc_float
-    dataset.tiwp_true.encoding = enc_float
-    dataset.tiwp_log_std_dev.encoding = enc_float
-    dataset.tiwp_fpavg_mean.encoding = enc_float
-    dataset.tiwp_fpavg_sample.encoding = enc_float
-    dataset.tiwp_fpavg_true.encoding = enc_float
-    dataset.tiwp_fpavg_log_std_dev.encoding = enc_float
-    dataset.tiwc_mean.encoding = enc_float
-    dataset.tiwc_sample.encoding = enc_float
-    dataset.tiwc_true.encoding = enc_float
-
     enc_prob = {
         "dtype": "uint8",
         "scale_factor": 1 / 250,
@@ -328,6 +320,20 @@ def process_dataset(mrnn, data_loader, device="cpu"):
         "_FillValue": 255,
     }
 
+    dataset.tiwp_mean.encoding = enc_float
+    dataset.tiwp_sample.encoding = enc_float
+    dataset.tiwp_true.encoding = enc_float
+    dataset.tiwp_log_std_dev.encoding = enc_float
+    dataset.tiwp_fpavg_mean.encoding = enc_float
+    dataset.tiwp_fpavg_sample.encoding = enc_float
+    dataset.tiwp_fpavg_true.encoding = enc_float
+    dataset.tiwp_fpavg_log_std_dev.encoding = enc_float
+    dataset.tiwc_mean.encoding = enc_float
+    dataset.tiwc_sample.encoding = enc_float
+    dataset.tiwc_true.encoding = enc_float
+    dataset.latitude.encoding = enc_float
+    dataset.longitude.encoding = enc_float
+    dataset.tbs.encoding = enc_float
     dataset.cloud_class_prob.encoding = enc_prob
     dataset.cloud_class_true.encoding = enc_class
     dataset.cloud_prob.encoding = enc_prob
@@ -371,6 +377,6 @@ def run(args):
         return 1
     mrnn = MRNN.load(model_path)
 
-    results = process_dataset(mrnn, test_loader, device="cuda")
+    results = process_dataset(mrnn, test_loader, device=args.device)
 
     results.to_netcdf(args.output_file)
