@@ -309,18 +309,6 @@ def process_dataset(mrnn, data_loader, device="cpu"):
     })
 
     enc_float = {"dtype": "float32", "zlib": True}
-    dataset.tiwp_mean.encoding = enc_float
-    dataset.tiwp_sample.encoding = enc_float
-    dataset.tiwp_true.encoding = enc_float
-    dataset.tiwp_log_std_dev.encoding = enc_float
-    dataset.tiwp_fpavg_mean.encoding = enc_float
-    dataset.tiwp_fpavg_sample.encoding = enc_float
-    dataset.tiwp_fpavg_true.encoding = enc_float
-    dataset.tiwp_fpavg_log_std_dev.encoding = enc_float
-    dataset.tiwc_mean.encoding = enc_float
-    dataset.tiwc_sample.encoding = enc_float
-    dataset.tiwc_true.encoding = enc_float
-
     enc_prob = {
         "dtype": "uint8",
         "scale_factor": 1 / 250,
@@ -332,6 +320,20 @@ def process_dataset(mrnn, data_loader, device="cpu"):
         "_FillValue": 255,
     }
 
+    dataset.tiwp_mean.encoding = enc_float
+    dataset.tiwp_sample.encoding = enc_float
+    dataset.tiwp_true.encoding = enc_float
+    dataset.tiwp_log_std_dev.encoding = enc_float
+    dataset.tiwp_fpavg_mean.encoding = enc_float
+    dataset.tiwp_fpavg_sample.encoding = enc_float
+    dataset.tiwp_fpavg_true.encoding = enc_float
+    dataset.tiwp_fpavg_log_std_dev.encoding = enc_float
+    dataset.tiwc_mean.encoding = enc_float
+    dataset.tiwc_sample.encoding = enc_float
+    dataset.tiwc_true.encoding = enc_float
+    dataset.latitude.encoding = enc_float
+    dataset.longitude.encoding = enc_float
+    dataset.tbs.encoding = enc_float
     dataset.cloud_class_prob.encoding = enc_prob
     dataset.cloud_class_true.encoding = enc_class
     dataset.cloud_prob.encoding = enc_prob
