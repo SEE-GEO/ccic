@@ -161,6 +161,41 @@ def get_input_files(
     return [input_cls(filename) for filename in files]
 
 
+def determine_cloud_class(class_probs, axis=1):
+    """
+    Determines cloud classes from a tensor of cloud-type probabilities.
+
+    If the 'no cloud' probability of a tensor element is larger than 0.5,
+    the class will be 'no cloud'. Otherwise the diagnosed cloud type will
+    be the one that is most likely and is not 'no cloud'.
+
+    A resulting element is identified as a cloud if the probability of
+    no-cloud is less than 0.5. In
+
+
+    Args:
+        class_probs: A torch tensor containing cloud-type probabilities.
+
+    Return:
+        A tensor containing the class indices of the most likely cloud
+        type.
+    """
+    shape = list(class_probs.shape)
+    del shape[axis]
+    types = np.zeros(shape, dtype="uint8")
+
+    inds = [slice(0, None)] * class_probs.ndim
+    inds[axis] = 0
+    cloud_mask = class_probs[tuple(inds)] < 0.5
+
+    inds[axis] = slice(1, None)
+    prob_types = np.argmax(class_probs[tuple(inds)], axis=axis).astype("uint8") + 1
+    types[cloud_mask] = prob_types[cloud_mask]
+    return types
+
+
+
+
 ###############################################################################
 # Database logging
 ###############################################################################
@@ -622,10 +657,10 @@ def process_input(mrnn, x, retrieval_settings=None):
         cloud_prob_3d = np.transpose(cloud_prob_3d, [0, 2, 3, 1])
         results["cloud_prob_3d"] = (dims, cloud_prob_3d)
 
-    dims = ("time", "latitude", "longitude", "altitude", "type")
+    dims = ("time", "latitude", "longitude", "altitude")
     if len(cloud_type) > 0:
-        cloud_type = tiler.assemble(cloud_type)
-        cloud_type = np.transpose(cloud_type, [0, 3, 4, 2, 1])
+        cloud_type = determine_cloud_class(tiler.assemble(cloud_type))
+        cloud_type = np.transpose(cloud_type, [0, 2, 3, 1])
         results["cloud_type"] = (dims, cloud_type)
     results["altitude"] = (("altitude",), np.arange(20) * 1e3 + 500.0)
 
@@ -766,10 +801,19 @@ def get_encodings_zarr(variable_names):
     target variables in zarr format.
     """
     compressor = zarr.Blosc(cname="lz4", clevel=9, shuffle=2)
-    filters = [LogBins(1e-3, 1e2)]
+    filters_iwp = [LogBins(1e-3, 1e2)]
+    filters_iwc = [LogBins(1e-4, 1e2)]
     all_encodings = {
-        "tiwp": {"compressor": compressor, "filters": filters, "dtype": "float32"},
-        "tiwc": {"compressor": compressor, "filters": filters, "dtype": "float32"},
+        "tiwp": {
+            "compressor": compressor,
+            "filters": filters_iwp,
+            "dtype": "float32"
+        },
+        "tiwc": {
+            "compressor": compressor,
+            "filters": filters_iwc,
+            "dtype": "float32"
+        },
         "p_tiwp": {
             "compressor": compressor,
             "dtype": "uint8",
@@ -784,7 +828,7 @@ def get_encodings_zarr(variable_names):
         },
         "tiwp_fpavg": {
             "compressor": compressor,
-            "filters": filters,
+            "filters": filters_iwp,
             "dtype": "float32",
         },
         "p_tiwp_fpavg": {

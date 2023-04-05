@@ -11,6 +11,7 @@ import timeit
 
 from quantnn.mrnn import MRNN
 import numpy as np
+import torch
 import xarray as xr
 
 from ccic.data.cpcir import CPCIR
@@ -24,7 +25,8 @@ from ccic.processing import (
     get_encodings,
     OutputFormat,
     ProcessingLog,
-    get_invalid_mask
+    get_invalid_mask,
+    determine_cloud_class,
 )
 
 
@@ -263,3 +265,21 @@ def test_invalid_mask():
         x = input_file.get_retrieval_input()
         mask = get_invalid_mask(x)
         assert np.any(~mask)
+
+
+def test_determine_cloud_class():
+    """
+    Test that the cloud class is determined correctly from a tensor
+    of cloud type probabilities.
+    """
+    probs = np.array([
+        [0.0, 0.2, 0.8],
+        [0.4, 0.35, 0.25],
+        [0.6, 0.2, 0.2],
+    ])
+
+    types = determine_cloud_class(probs)
+
+    assert types[0] == 2
+    assert types[1] == 1
+    assert types[2] == 0
