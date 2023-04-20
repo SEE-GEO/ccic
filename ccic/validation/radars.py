@@ -277,6 +277,10 @@ cloudnet_palaiseau = CloudnetRadar(
     frequency=95e9,
     sensitivity=-25
 )
+cloudnet_palaiseau.instrument_pol = [6]
+cloudnet_palaiseau.instrument_pol_array = [[6]]
+cloudnet_palaiseau.stokes_dimension = 2
+
 
 
 class ARMRadar(CloudRadar):
