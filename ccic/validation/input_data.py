@@ -305,7 +305,9 @@ class RetrievalInput(Fascod):
 
         iwc = np.log10(cloudnet_iwc(dbz_i, t))
         iwc[dbz_i <= self.radar.y_min] = -6
-        iwc[t > 273.15] = -12
+
+        xa = self.get_ice_mass_density_xa(date)
+        iwc[xa <= -12] = -12
         return iwc
 
     def get_rain_mass_density_x0(self, date):
@@ -322,7 +324,8 @@ class RetrievalInput(Fascod):
 
         rwc = np.log10(cloudnet_iwc(dbz_i, t))
         rwc[dbz_i < self.radar.y_min] = -6
-        rwc[t < 273.15] = -12
+        xa = self.get_rain_mass_density_xa(date)
+        rwc[xa <= -12] = -12
         return rwc
 
     def get_cloud_water(self, time):
