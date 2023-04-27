@@ -114,6 +114,7 @@ class RetrievalSettings:
     output_format: OutputFormat = OutputFormat["NETCDF"]
     database_path: str = "ccic_processing.db"
     inpainted_mask: bool = False
+    confidence_interval: float = 0.9
 
 
 def get_input_files(
@@ -428,12 +429,13 @@ THRESHOLDS = {"tiwp": 1e-3, "tiwp_fpavg": 1e-3, "tiwc": 1e-3}
 
 
 def process_regression_target(
+    retrieval_settings,
     mrnn,
     y_pred,
     invalid,
     target,
     means,
-    log_std_devs,
+    conf_ints,
     p_non_zeros,
 ):
     """
@@ -443,12 +445,14 @@ def process_regression_target(
     and posterior quantiles, however, are only calculated for scalar retrieval
     targets.
     Args:
+        retrieval_settings: The retrieval settings representing the retrieval
+            configuration.
         mrnn: The MRNN model used for the inference.
         y_pred: The dictionary containing all predictions from the model.
         target: The retrieval target to process.
         means: Result dict to which to store the calculated posterior means.
-        log_std_devs: Result dict to which to store the calculate log standard
-            deviations.
+        conf_ints: Result dict to which to store the lower and upper bounds of
+            the caculated confidence intervals.
         p_non_zeros: Result dict to which to store the calculated probability that
             the target is larger than the corresponding minimum threshold.
     """
@@ -458,16 +462,20 @@ def process_regression_target(
     means[target][-1].append(mean)
 
     if target in SCALAR_TARGETS:
-        log_std_dev = (
-            mrnn.posterior_std_dev(y_pred=torch.log10(y_pred[target]), key=target)
-            .cpu()
-            .float()
-            .numpy()
+        conf = retrieval_settings.confidence_interval
+        lower = 0.5 * (1.0 - conf)
+        upper = 1.0 - lower
+        conf_int = (
+            mrnn.posterior_quantiles(
+                y_pred=y_pred[target],
+                quantiles=[lower, upper],
+                key=target
+            ).cpu().float().numpy()
         )
         for ind in range(invalid.shape[0]):
-            log_std_dev[ind, ..., invalid[ind]] = np.nan
+            conf_int[ind, ..., invalid[ind]] = np.nan
 
-        log_std_devs[target][-1].append(log_std_dev)
+        conf_ints[target][-1].append(conf_int)
         p_non_zero = (
             mrnn.probability_larger_than(
                 y_pred=y_pred[target], y=THRESHOLDS[target], key=target
@@ -540,7 +548,7 @@ def process_input(mrnn, x, retrieval_settings=None):
 
     tiler = Tiler(x, tile_size=tile_size, overlap=overlap, wrap_columns=retrieval_settings.roi is None)
     means = {}
-    log_std_devs = {}
+    conf_ints = {}
     p_non_zeros = {}
     cloud_prob_2d = []
     cloud_prob_3d = []
@@ -559,7 +567,7 @@ def process_input(mrnn, x, retrieval_settings=None):
                 if target in REGRESSION_TARGETS:
                     means.setdefault(target, []).append([])
                     if target in SCALAR_TARGETS:
-                        log_std_devs.setdefault(target, []).append([])
+                        conf_ints.setdefault(target, []).append([])
                         p_non_zeros.setdefault(target, []).append([])
                 elif target == "cloud_prob_2d":
                     cloud_prob_2d.append([])
@@ -602,12 +610,13 @@ def process_input(mrnn, x, retrieval_settings=None):
                 for target in targets:
                     if target in REGRESSION_TARGETS:
                         process_regression_target(
+                            retrieval_settings,
                             mrnn,
                             y_pred,
                             invalid,
                             target,
                             means=means,
-                            log_std_devs=log_std_devs,
+                            conf_ints=conf_ints,
                             p_non_zeros=p_non_zeros,
                         )
                     elif target == "cloud_prob_2d":
@@ -642,9 +651,10 @@ def process_input(mrnn, x, retrieval_settings=None):
         smpls = tiler.assemble(p_non_zero)
         results["p_" + target] = (dims, smpls)
 
-    for target, log_std_dev in log_std_devs.items():
-        log_std_dev = tiler.assemble(log_std_dev)
-        results[target + "_log_std_dev"] = (dims, log_std_dev)
+    dims = ("time", "latitude", "longitude", "bounds")
+    for target, conf_int in conf_ints.items():
+        conf_int = tiler.assemble(conf_int)
+        results[target + "_ci"] = (dims, np.transpose(conf_int, (0, 2, 3, 1)))
 
     dims = ("time", "latitude", "longitude")
     if len(cloud_prob_2d) > 0:
@@ -708,12 +718,12 @@ def process_input_file(mrnn, input_file, retrieval_settings=None):
         results[dim] = input_data[dim]
 
     results.attrs.update(input_file.get_input_file_attributes())
-    add_static_cf_attributes(results)
+    add_static_cf_attributes(retrieval_settings, results)
 
     return results
 
 
-def add_static_cf_attributes(dataset):
+def add_static_cf_attributes(retrieval_settings, dataset):
     """
     Adds static attributes required by CF convections.
     """
@@ -739,12 +749,15 @@ def add_static_cf_attributes(dataset):
         dataset["tiwp"].attrs[
             "long_name"
         ] = "Vertically-integrated concentration of frozen hydrometeors"
-        dataset["tiwp"].attrs["ancillary_variables"] = "tiwp_log_std_dev p_tiwp"
+        dataset["tiwp"].attrs["ancillary_variables"] = "tiwp_ci_tiwp"
 
-        dataset["tiwp_log_std_dev"].attrs[
+        dataset["tiwp_ci"].attrs[
             "long_name"
-        ] = "Standard deviation of log-transformed vertically-integrated concentration of frozen hydrometeors"
-        dataset["tiwp_log_std_dev"].attrs["units"] = "log(kg m-2)"
+        ] = (
+            f"{100 * retrieval_settings.confidence_interval:0.2f}% confidence"
+            "interval for the retrieved TIWP"
+        )
+        dataset["tiwp_ci"].attrs["units"] = "kg m-2"
         dataset["p_tiwp"].attrs[
             "long_name"
         ] = "Probability that 'tiwp' exceeds 1e-3 kg m-2"
@@ -757,12 +770,15 @@ def add_static_cf_attributes(dataset):
         ] = "Vertically-integrated concentration of frozen hydrometeors"
         dataset["tiwp_fpavg"].attrs[
             "ancillary_variables"
-        ] = "tiwp_fpavg_log_std_dev p_tiwp_fpavg"
+        ] = "tiwp_fpavg_ci p_tiwp_fpavg"
 
-        dataset["tiwp_fpavg_log_std_dev"].attrs[
+        dataset["tiwp_ci"].attrs[
             "long_name"
-        ] = "Standard deviation of log-transformed vertically-integrated concentration of frozen hydrometeors"
-        dataset["tiwp_fpavg_log_std_dev"].attrs["units"] = "log(kg m-2)"
+        ] = (
+            f"{100 * retrieval_settings.confidence_interval:0.2f}% confidence"
+            "interval for the retrieved footprint-averaged TIWP"
+        )
+        dataset["tiwp_fpavg_ci"].attrs["units"] = "kg m-2"
         dataset["p_tiwp_fpavg"].attrs[
             "long_name"
         ] = "Probability that 'tiwp_fpavg' exceeds 1e-3 kg m-2"
@@ -820,11 +836,10 @@ def get_encodings_zarr(variable_names):
             "scale_factor": 1 / 250,
             "_FillValue": 255,
         },
-        "tiwp_log_std_dev": {
+        "tiwp_ci": {
             "compressor": compressor,
-            "dtype": "uint8",
-            "scale_factor": 1 / 12.5,
-            "_FillValue": 255,
+            "filters": filters_iwp,
+            "dtype": "float32"
         },
         "tiwp_fpavg": {
             "compressor": compressor,
@@ -837,11 +852,10 @@ def get_encodings_zarr(variable_names):
             "scale_factor": 1 / 250,
             "_FillValue": 255,
         },
-        "tiwp_fpavg_log_std_dev": {
+        "tiwp_fpavg_ci": {
             "compressor": compressor,
-            "dtype": "uint8",
-            "scale_factor": 1 / 12.5,
-            "_FillValue": 255,
+            "filters": filters_iwp,
+            "dtype": "float32"
         },
         "cloud_prob_2d": {
             "compressor": compressor,
@@ -885,22 +899,12 @@ def get_encodings_netcdf(variable_names):
             "_FillValue": 255,
             "zlib": True,
         },
-        "tiwp_log_std_dev": {
-            "dtype": "uint8",
-            "scale_factor": 1 / 12.5,
-            "_FillValue": 255,
-            "zlib": True,
-        },
+        "tiwp_ci": {"dtype": "float32", "zlib": True},
         "tiwp_fpavg": {"dtype": "float32", "zlib": True},
+        "tiwp_fpavg_ci": {"dtype": "float32", "zlib": True},
         "p_tiwp_fpavg": {
             "dtype": "uint8",
             "scale_factor": 1 / 250,
-            "_FillValue": 255,
-            "zlib": True,
-        },
-        "tiwp_fpavg_log_std_dev": {
-            "dtype": "uint8",
-            "scale_factor": 1 / 12.5,
             "_FillValue": 255,
             "zlib": True,
         },
