@@ -144,6 +144,15 @@ def add_parser(subparsers):
             "the retrieved pixel is inpainted (the input data was NaN)."
         )
     )
+    parser.add_argument(
+        "--confidence_interval",
+        type=float,
+        default=0.9,
+        help=(
+            "Width of the confidence interval to use to report retrieval "
+            "uncertainty of scalar retrieval targets. Must be within [0, 1]."
+        )
+    )
     parser.set_defaults(func=run)
 
 
@@ -392,6 +401,13 @@ def run(args):
                 )
                 return 1
 
+        if ((args.confidence_interval < 0.0) or
+            (args.confidence_interval > 1.0)):
+            LOGGER.error(
+                "Width of confidence interval must be within [0, 1]."
+            )
+            return 1
+
         retrieval_settings = RetrievalSettings(
             tile_size=args.tile_size,
             overlap=args.overlap,
@@ -401,7 +417,8 @@ def run(args):
             precision=args.precision,
             output_format=OutputFormat[output_format],
             database_path=args.database_path,
-            inpainted_mask=args.inpainted_mask
+            inpainted_mask=args.inpainted_mask,
+            confidence_interval=args.confidence_interval
         )
 
         # Use managed queue to pass files between download threads
