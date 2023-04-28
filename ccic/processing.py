@@ -651,7 +651,7 @@ def process_input(mrnn, x, retrieval_settings=None):
         smpls = tiler.assemble(p_non_zero)
         results["p_" + target] = (dims, smpls)
 
-    dims = ("time", "latitude", "longitude", "bounds")
+    dims = ("time", "latitude", "longitude", "ci_bounds")
     for target, conf_int in conf_ints.items():
         conf_int = tiler.assemble(conf_int)
         results[target + "_ci"] = (dims, np.transpose(conf_int, (0, 2, 3, 1)))
@@ -754,8 +754,8 @@ def add_static_cf_attributes(retrieval_settings, dataset):
         dataset["tiwp_ci"].attrs[
             "long_name"
         ] = (
-            f"{100 * retrieval_settings.confidence_interval:0.2f}% confidence"
-            "interval for the retrieved TIWP"
+            f"{int(100 * retrieval_settings.confidence_interval)}% confidence"
+            " interval for the retrieved TIWP"
         )
         dataset["tiwp_ci"].attrs["units"] = "kg m-2"
         dataset["p_tiwp"].attrs[
@@ -772,11 +772,11 @@ def add_static_cf_attributes(retrieval_settings, dataset):
             "ancillary_variables"
         ] = "tiwp_fpavg_ci p_tiwp_fpavg"
 
-        dataset["tiwp_ci"].attrs[
+        dataset["tiwp_fpavg_ci"].attrs[
             "long_name"
         ] = (
-            f"{100 * retrieval_settings.confidence_interval:0.2f}% confidence"
-            "interval for the retrieved footprint-averaged TIWP"
+            f"{int(100 * retrieval_settings.confidence_interval)}% confidence"
+            " interval for the retrieved footprint-averaged TIWP"
         )
         dataset["tiwp_fpavg_ci"].attrs["units"] = "kg m-2"
         dataset["p_tiwp_fpavg"].attrs[
