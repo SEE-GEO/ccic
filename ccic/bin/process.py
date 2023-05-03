@@ -149,8 +149,9 @@ def add_parser(subparsers):
         type=float,
         default=0.9,
         help=(
-            "Width of the confidence interval to use to report retrieval "
-            "uncertainty of scalar retrieval targets. Must be within [0, 1]."
+            "Width of the equal-tailed confidence interval to use to report "
+            "retrieval uncertainty of scalar retrieval targets. "
+            "Must be within [0, 1]."
         )
     )
     parser.set_defaults(func=run)
