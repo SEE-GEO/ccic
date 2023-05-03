@@ -114,7 +114,7 @@ class RetrievalSettings:
     output_format: OutputFormat = OutputFormat["NETCDF"]
     database_path: str = "ccic_processing.db"
     inpainted_mask: bool = False
-    confidence_interval: float = 0.9
+    credible_interval: float = 0.9
 
 
 def get_input_files(
@@ -435,7 +435,7 @@ def process_regression_target(
     invalid,
     target,
     means,
-    conf_ints,
+    cred_ints,
     p_non_zeros,
 ):
     """
@@ -451,8 +451,8 @@ def process_regression_target(
         y_pred: The dictionary containing all predictions from the model.
         target: The retrieval target to process.
         means: Result dict to which to store the calculated posterior means.
-        conf_ints: Result dict to which to store the lower and upper bounds of
-            the calculated confidence intervals.
+        cred_ints: Result dict to which to store the lower and upper bounds of
+            the calculated credible intervals.
         p_non_zeros: Result dict to which to store the calculated probability that
             the target is larger than the corresponding minimum threshold.
     """
@@ -462,10 +462,10 @@ def process_regression_target(
     means[target][-1].append(mean)
 
     if target in SCALAR_TARGETS:
-        conf = retrieval_settings.confidence_interval
-        lower = 0.5 * (1.0 - conf)
+        cred = retrieval_settings.credible_interval
+        lower = 0.5 * (1.0 - cred)
         upper = 1.0 - lower
-        conf_int = (
+        cred_int = (
             mrnn.posterior_quantiles(
                 y_pred=y_pred[target],
                 quantiles=[lower, upper],
@@ -473,9 +473,9 @@ def process_regression_target(
             ).cpu().float().numpy()
         )
         for ind in range(invalid.shape[0]):
-            conf_int[ind, ..., invalid[ind]] = np.nan
+            cred_int[ind, ..., invalid[ind]] = np.nan
 
-        conf_ints[target][-1].append(conf_int)
+        cred_ints[target][-1].append(cred_int)
         p_non_zero = (
             mrnn.probability_larger_than(
                 y_pred=y_pred[target], y=THRESHOLDS[target], key=target
@@ -548,7 +548,7 @@ def process_input(mrnn, x, retrieval_settings=None):
 
     tiler = Tiler(x, tile_size=tile_size, overlap=overlap, wrap_columns=retrieval_settings.roi is None)
     means = {}
-    conf_ints = {}
+    cred_ints = {}
     p_non_zeros = {}
     cloud_prob_2d = []
     cloud_prob_3d = []
@@ -567,7 +567,7 @@ def process_input(mrnn, x, retrieval_settings=None):
                 if target in REGRESSION_TARGETS:
                     means.setdefault(target, []).append([])
                     if target in SCALAR_TARGETS:
-                        conf_ints.setdefault(target, []).append([])
+                        cred_ints.setdefault(target, []).append([])
                         p_non_zeros.setdefault(target, []).append([])
                 elif target == "cloud_prob_2d":
                     cloud_prob_2d.append([])
@@ -616,7 +616,7 @@ def process_input(mrnn, x, retrieval_settings=None):
                             invalid,
                             target,
                             means=means,
-                            conf_ints=conf_ints,
+                            cred_ints=cred_ints,
                             p_non_zeros=p_non_zeros,
                         )
                     elif target == "cloud_prob_2d":
@@ -652,9 +652,9 @@ def process_input(mrnn, x, retrieval_settings=None):
         results["p_" + target] = (dims, smpls)
 
     dims = ("time", "latitude", "longitude", "ci_bounds")
-    for target, conf_int in conf_ints.items():
-        conf_int = tiler.assemble(conf_int)
-        results[target + "_ci"] = (dims, np.transpose(conf_int, (0, 2, 3, 1)))
+    for target, cred_int in cred_ints.items():
+        cred_int = tiler.assemble(cred_int)
+        results[target + "_ci"] = (dims, np.transpose(cred_int, (0, 2, 3, 1)))
 
     dims = ("time", "latitude", "longitude")
     if len(cloud_prob_2d) > 0:
@@ -754,8 +754,8 @@ def add_static_cf_attributes(retrieval_settings, dataset):
         dataset["tiwp_ci"].attrs[
             "long_name"
         ] = (
-            f"{int(100 * retrieval_settings.confidence_interval)}% confidence"
-            " interval for the retrieved TIWP"
+            f"{int(100 * retrieval_settings.credible_interval)}% equal-"
+            "tailed credible interval for the retrieved TIWP"
         )
         dataset["tiwp_ci"].attrs["units"] = "kg m-2"
         dataset["p_tiwp"].attrs[
@@ -775,8 +775,8 @@ def add_static_cf_attributes(retrieval_settings, dataset):
         dataset["tiwp_fpavg_ci"].attrs[
             "long_name"
         ] = (
-            f"{int(100 * retrieval_settings.confidence_interval)}% confidence"
-            " interval for the retrieved footprint-averaged TIWP"
+            f"{int(100 * retrieval_settings.credible_interval)}% equal-tailed"
+            "credible interval for the retrieved footprint-averaged TIWP"
         )
         dataset["tiwp_fpavg_ci"].attrs["units"] = "kg m-2"
         dataset["p_tiwp_fpavg"].attrs[
