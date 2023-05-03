@@ -672,7 +672,13 @@ def process_input(mrnn, x, retrieval_settings=None):
         cloud_type = determine_cloud_class(tiler.assemble(cloud_type))
         cloud_type = np.transpose(cloud_type, [0, 2, 3, 1])
         results["cloud_type"] = (dims, cloud_type)
+    
     results["altitude"] = (("altitude",), np.arange(20) * 1e3 + 500.0)
+    
+    if len(cred_ints) > 0:
+        lower_bound = 0.5 * (1.0 - retrieval_settings.credible_interval)
+        upper_bound = 1.0 - lower_bound
+        results["ci_bounds"] = (("ci_bounds",), [lower_bound, upper_bound])
 
     if retrieval_settings.inpainted_mask:
         # Assumes a quantnn.normalizer.MinMaxNormalizer is applied on x which
@@ -758,10 +764,17 @@ def add_static_cf_attributes(retrieval_settings, dataset):
             "tailed credible interval for the retrieved TIWP"
         )
         dataset["tiwp_ci"].attrs["units"] = "kg m-2"
+        
         dataset["p_tiwp"].attrs[
             "long_name"
         ] = "Probability that 'tiwp' exceeds 1e-3 kg m-2"
         dataset["p_tiwp"].attrs["units"] = "1"
+        
+        dataset["ci_bounds"].attrs["standard_name"] = "credible_interval_bounds"
+        dataset["ci_bounds"].attrs["units"] = "1"
+        dataset["ci_bounds"].attrs["long_name"] = (
+            "Quantile levels of the credible interval"
+        )
 
     if "tiwp_fpavg" in dataset:
         dataset["tiwp_fpavg"].attrs["units"] = "kg m-2"
@@ -779,10 +792,17 @@ def add_static_cf_attributes(retrieval_settings, dataset):
             "credible interval for the retrieved footprint-averaged TIWP"
         )
         dataset["tiwp_fpavg_ci"].attrs["units"] = "kg m-2"
+
         dataset["p_tiwp_fpavg"].attrs[
             "long_name"
         ] = "Probability that 'tiwp_fpavg' exceeds 1e-3 kg m-2"
         dataset["p_tiwp_fpavg"].attrs["units"] = "1"
+
+        dataset["ci_bounds"].attrs["standard_name"] = "credible_interval_bounds"
+        dataset["ci_bounds"].attrs["units"] = "1"
+        dataset["ci_bounds"].attrs["long_name"] = (
+            "Quantile levels of the credible interval"
+        )
 
     if "tiwc" in dataset:
         dataset["tiwc"].attrs["units"] = "g m-3"
@@ -857,6 +877,10 @@ def get_encodings_zarr(variable_names):
             "filters": filters_iwp,
             "dtype": "float32"
         },
+        "ci_bounds": {
+            "compressor": compressor,
+            "dtype": "float32"
+        },
         "cloud_prob_2d": {
             "compressor": compressor,
             "scale_factor": 1 / 250,
@@ -908,6 +932,7 @@ def get_encodings_netcdf(variable_names):
             "_FillValue": 255,
             "zlib": True,
         },
+        "ci_bounds": {"dtype": "float32", "zlib": True},
         "cloud_prob_2d": {
             "scale_factor": 1 / 250,
             "_FillValue": 255,
