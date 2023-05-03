@@ -452,7 +452,7 @@ def process_regression_target(
         target: The retrieval target to process.
         means: Result dict to which to store the calculated posterior means.
         conf_ints: Result dict to which to store the lower and upper bounds of
-            the caculated confidence intervals.
+            the calculated confidence intervals.
         p_non_zeros: Result dict to which to store the calculated probability that
             the target is larger than the corresponding minimum threshold.
     """
@@ -749,7 +749,7 @@ def add_static_cf_attributes(retrieval_settings, dataset):
         dataset["tiwp"].attrs[
             "long_name"
         ] = "Vertically-integrated concentration of frozen hydrometeors"
-        dataset["tiwp"].attrs["ancillary_variables"] = "tiwp_ci_tiwp"
+        dataset["tiwp"].attrs["ancillary_variables"] = "tiwp_ci p_tiwp"
 
         dataset["tiwp_ci"].attrs[
             "long_name"

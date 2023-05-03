@@ -48,7 +48,7 @@ def add_parser(subparsers):
     )
     parser.add_argument(
         "output",
-        metavar="ouput",
+        metavar="output",
         type=str,
         help="Folder to which to write the output.",
     )
