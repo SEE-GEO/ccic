@@ -144,21 +144,21 @@ def test_processing(tmp_path):
     for input_file in [cpcir_file, gridsat_file]:
         results = process_input_file(mrnn, input_file)
         assert "tiwp" in results
-        assert "tiwp_log_std_dev" in results
+        assert "tiwp_ci" in results
         assert "p_tiwp" in results
         assert np.any(np.isfinite(results["tiwp"].data))
-        assert np.any(np.isfinite(results["tiwp_log_std_dev"].data))
+        assert np.any(np.isfinite(results["tiwp_ci"].data))
         assert np.any(np.isfinite(results["p_tiwp"].data))
 
         assert "tiwp_fpavg" in results
-        assert "tiwp_fpavg_log_std_dev" in results
+        assert "tiwp_fpavg_ci" in results
         assert "p_tiwp_fpavg" in results
         assert np.any(np.isfinite(results["tiwp_fpavg"].data))
-        assert np.any(np.isfinite(results["tiwp_fpavg_log_std_dev"].data))
+        assert np.any(np.isfinite(results["tiwp_fpavg_ci"].data))
         assert np.any(np.isfinite(results["p_tiwp_fpavg"].data))
 
         assert "tiwc" in results
-        assert "tiwc_log_std_dev" not in results
+        assert "tiwc_ci" not in results
         assert "p_tiwc" not in results
 
         assert "input_filename" in results.attrs
