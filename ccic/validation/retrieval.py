@@ -261,6 +261,9 @@ class RadarRetrieval:
             latitude.append(input_data.get_latitude(time))
             longitude.append(input_data.get_longitude(time))
 
+        latitude = np.array(latitude).ravel()
+        longitude = np.array(longitude).ravel()
+
         radar_bins = input_data.get_radar_range_bins(times[0])
 
         # Expand observation vector if required.
@@ -296,8 +299,8 @@ class RadarRetrieval:
                 "radar_reflectivity": (("time", "radar_bins"), np.stack(ys)),
                 "radar_reflectivity_fitted": (("time", "radar_bins"), np.stack(y_fs)),
                 "sensor_position": (("time",), np.stack(sensor_pos)),
-                "latitude": (("time",), np.concatenate(latitude)),
-                "longitude": (("time",), np.concatenate(longitude)),
+                "latitude": (("time",), latitude),
+                "longitude": (("time",), longitude),
                 "sensor_position": (("time",), np.stack(sensor_pos))
             }
         )
