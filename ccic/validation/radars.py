@@ -219,8 +219,8 @@ class CloudnetRadar(CloudRadar):
             "range": (("range",), radar_range),
             "radar_reflectivity": (("time", "range"), z),
             "range_bins": (("range_bins",), range_bins),
-            "latitude": (tuple(), self.latitude),
-            "longitude": (tuple(), self.longitude),
+            "latitude": (("latitude",), [self.latitude]),
+            "longitude": (("longitude",), [self.longitude]),
             "sensor_position": (("time",), sensor_position)
         })
 
@@ -277,10 +277,10 @@ cloudnet_palaiseau = CloudnetRadar(
     frequency=95e9,
     sensitivity=-25
 )
+
 cloudnet_palaiseau.instrument_pol = [6]
 cloudnet_palaiseau.instrument_pol_array = [[6]]
 cloudnet_palaiseau.stokes_dimension = 2
-
 
 
 class ARMRadar(CloudRadar):
@@ -386,8 +386,8 @@ class ARMRadar(CloudRadar):
                 "range": (("range",), radar_range),
                 "radar_reflectivity": (("time", "range"), z),
                 "range_bins": (("range_bins",), range_bins),
-                "latitude": (tuple(), self.latitude),
-                "longitude": (tuple(), self.longitude),
+                "latitude": (("latitude",), [self.latitude]),
+                "longitude": (("longitude",), [self.longitude]),
                 "sensor_position": (("time",), sensor_position)
             })
         return results
