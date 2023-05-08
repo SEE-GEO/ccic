@@ -26,16 +26,16 @@ VALIDATION_DATA = Path(TEST_DATA) / "validation"
 
 @NEEDS_TEST_DATA
 def test_era5_files_in_range():
-
+    roi = arm_manacapuru.get_roi()
     time = np.datetime64("2014-12-10T00:00:00")
     path = VALIDATION_DATA / "era5"
-    files = era5_files_in_range(path, time, time)
+    files = era5_files_in_range(path, roi, time, time)
     assert len(files) == 1
 
     start_time = np.datetime64("2014-12-10T00:00:00")
     end_time = np.datetime64("2014-12-10T22:01:00")
     path = VALIDATION_DATA / "era5"
-    files = era5_files_in_range(path, start_time, end_time)
+    files = era5_files_in_range(path, roi, start_time, end_time)
     assert len(files) == 24
 
 
