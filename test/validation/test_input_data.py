@@ -83,6 +83,10 @@ def test_retrieval_input_cloudnet():
 
     assert retrieval_input.has_data()
 
+    iwc_data = retrieval_input.get_iwc_data(date, np.timedelta64(10 * 60, "s"))
+    assert iwc_data is not None
+
+
 @NEEDS_TEST_DATA
 def test_retrieval_input_arm():
     """

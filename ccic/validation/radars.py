@@ -103,8 +103,9 @@ class CloudnetRadar(CloudRadar):
         self.longitude = longitude
         self.latitude = latitude
         self.product = CloudnetProduct("radar", "Radar L1B data", location)
-        self.iwc_product = CloudnetProduct("iwc", "IWC product", location)
         self.provider = CloudnetProvider(self.product)
+        self.iwc_product = CloudnetProduct("iwc", "IWC product", location)
+        self.iwc_provider = CloudnetProvider(self.iwc_product)
 
     @property
     def instrument_name(self):
