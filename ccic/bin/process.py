@@ -181,9 +181,10 @@ def process_files(processing_queue, result_queue, model, retrieval_settings):
     mrnn.model.eval()
 
     while True:
-        input_file = processing_queue.get()
-        if input_file is None:
+        args = processing_queue.get()
+        if args is None:
             break
+        input_file, clean_up = args
 
         log = ProcessingLog(
             retrieval_settings.database_path,
@@ -200,6 +201,9 @@ def process_files(processing_queue, result_queue, model, retrieval_settings):
                 logger.info("Finished processing file '%s'.", input_file.filename)
             except Exception as e:
                 logger.exception(e)
+            finally:
+                if clean_up:
+                    Path(input_file.filename).unlink()
 
     result_queue.put(None)
 
@@ -236,11 +240,13 @@ def download_files(download_queue, processing_queue, retrieval_settings):
                         "Input file not locally available, download required."
                     )
                     input_file = input_file.get()
+                    clean_up = True
                 else:
                     logger.info("Input file locally available.")
+                    clean_up = False
             except Exception as e:
                 logger.exception(e)
-        processing_queue.put(input_file)
+        processing_queue.put((input_file, clean_up))
     processing_queue.put(None)
 
 
