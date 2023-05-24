@@ -40,4 +40,4 @@ figure.edgecolor: 0.50
 image.cmap   : cmo.ice_r
 
 text.usetex: True
-text.latex.preamble : \usepackage{amsmath}\usepackage{lmodern}\usepackage{siunitx}\usepackage{cmbright}\renewcommand*\sfdefault{cmss}\renewcommand*\ttdefault{cmtt}
+text.latex.preamble : \usepackage{amsmath}\usepackage{amsfonts}\usepackage{lmodern}\usepackage{siunitx}\usepackage{cmbright}\renewcommand*\sfdefault{cmss}\renewcommand*\ttdefault{cmtt}
