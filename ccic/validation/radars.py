@@ -102,10 +102,10 @@ class CloudnetRadar(CloudRadar):
         self.radar_type = radar_type
         self.longitude = longitude
         self.latitude = latitude
-        self.product = CloudnetProduct("radar", "Radar L1B data", location)
-        self.provider = CloudnetProvider(self.product)
-        self.iwc_product = CloudnetProduct("iwc", "IWC product", location)
-        self.iwc_provider = CloudnetProvider(self.iwc_product)
+        radar_product = CloudnetProduct("radar", "Radar L1B data", location)
+        self.radar_provider = CloudnetProvider(radar_product)
+        iwc_product = CloudnetProduct("iwc", "IWC product", location)
+        self.iwc_provider = CloudnetProvider(iwc_product)
 
     @property
     def instrument_name(self):
@@ -124,7 +124,7 @@ class CloudnetRadar(CloudRadar):
         """
         pydate = to_datetime(date)
         day = pydate.timetuple().tm_yday
-        files = self.provider.get_files_by_day(pydate.year, day)
+        files = self.radar_provider.get_files_by_day(pydate.year, day)
         return files
 
     def get_start_and_end_time(self, path, filename):
@@ -156,14 +156,15 @@ class CloudnetRadar(CloudRadar):
         destination = Path(destination)
         if not destination.exists():
             destination.mkdir(exist_ok=True, parents=True)
-        self.provider.download_file(filename.name, destination / filename)
+        self.radar_provider.download_file(filename.name, destination / filename)
 
         start, end = self.get_start_and_end_time(destination, filename)
         pydate = to_datetime(start)
         day = pydate.timetuple().tm_yday
-        iwc_files = self.provider.get_files_by_day(pydate.year, day)
+        iwc_files = self.iwc_provider.get_files_by_day(pydate.year, day)
         for filename in iwc_files:
-            self.provider.download_file(filename, destination / filename)
+            if not (destination / filename).exists():
+                self.iwc_provider.download_file(filename, destination / filename)
 
     def get_roi(self, *args):
         """
