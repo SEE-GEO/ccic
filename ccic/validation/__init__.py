@@ -180,7 +180,6 @@ def resample_data(
     if time_interval > 1:
         hour = (hour // 3) * 3
 
-
     while hour <= hours.max():
 
         start_hour = hour
@@ -225,10 +224,11 @@ def resample_data(
                 lats = np.broadcast_to(lats[..., None], shape).ravel()
                 alt = np.broadcast_to(alt[None], shape).ravel()
             values = values.ravel()
+            valid = np.isfinite(values)
 
             values_r = binned_statistic_dd(
-                [mins, lats, lons, alt],
-                values,
+                [mins[valid], lats[valid], lons[valid], alt[valid]],
+                values[valid],
                 bins=[min_bins, lat_bins[::-1], lon_bins, alt_bins]
             )[0]
             values_r = np.flip(values_r, 1)
