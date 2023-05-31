@@ -399,7 +399,7 @@ class RetrievalInput(Fascod):
         self._interpolate_pressure(time)
         return np.array([[self._data.sensor_position]])
 
-    def get_h2o(self, time):
+    def get_H2O(self, time):
         """Get H2O VMR in the atmospheric column above the radar."""
         self._interpolate_pressure(time)
         temp = (self._data.t.data - 273.15) * units.degC
