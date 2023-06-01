@@ -187,14 +187,11 @@ def determine_cloud_class(class_probs, axis=1):
 
     inds = [slice(0, None)] * class_probs.ndim
     inds[axis] = 0
-    cloud_mask = class_probs[tuple(inds)] < 0.5
-
+    cloud_mask = class_probs[tuple(inds)] < 0.632
     inds[axis] = slice(1, None)
     prob_types = np.argmax(class_probs[tuple(inds)], axis=axis).astype("uint8") + 1
     types[cloud_mask] = prob_types[cloud_mask]
     return types
-
-
 
 
 ###############################################################################
