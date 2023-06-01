@@ -48,7 +48,7 @@ def add_parser(subparsers):
     )
     parser.add_argument(
         "output",
-        metavar="ouput",
+        metavar="output",
         type=str,
         help="Folder to which to write the output.",
     )
@@ -144,6 +144,16 @@ def add_parser(subparsers):
             "the retrieved pixel is inpainted (the input data was NaN)."
         )
     )
+    parser.add_argument(
+        "--confidence_interval",
+        type=float,
+        default=0.9,
+        help=(
+            "Width of the equal-tailed confidence interval to use to report "
+            "retrieval uncertainty of scalar retrieval targets. "
+            "Must be within [0, 1]."
+        )
+    )
     parser.set_defaults(func=run)
 
 
@@ -171,9 +181,10 @@ def process_files(processing_queue, result_queue, model, retrieval_settings):
     mrnn.model.eval()
 
     while True:
-        input_file = processing_queue.get()
-        if input_file is None:
+        args = processing_queue.get()
+        if args is None:
             break
+        input_file, clean_up = args
 
         log = ProcessingLog(
             retrieval_settings.database_path,
@@ -190,6 +201,9 @@ def process_files(processing_queue, result_queue, model, retrieval_settings):
                 logger.info("Finished processing file '%s'.", input_file.filename)
             except Exception as e:
                 logger.exception(e)
+            finally:
+                if clean_up:
+                    Path(input_file.filename).unlink()
 
     result_queue.put(None)
 
@@ -226,11 +240,13 @@ def download_files(download_queue, processing_queue, retrieval_settings):
                         "Input file not locally available, download required."
                     )
                     input_file = input_file.get()
+                    clean_up = True
                 else:
                     logger.info("Input file locally available.")
+                    clean_up = False
             except Exception as e:
                 logger.exception(e)
-        processing_queue.put(input_file)
+        processing_queue.put((input_file, clean_up))
     processing_queue.put(None)
 
 
@@ -392,6 +408,13 @@ def run(args):
                 )
                 return 1
 
+        if ((args.confidence_interval < 0.0) or
+            (args.confidence_interval > 1.0)):
+            LOGGER.error(
+                "Width of confidence interval must be within [0, 1]."
+            )
+            return 1
+
         retrieval_settings = RetrievalSettings(
             tile_size=args.tile_size,
             overlap=args.overlap,
@@ -401,7 +424,8 @@ def run(args):
             precision=args.precision,
             output_format=OutputFormat[output_format],
             database_path=args.database_path,
-            inpainted_mask=args.inpainted_mask
+            inpainted_mask=args.inpainted_mask,
+            confidence_interval=args.confidence_interval
         )
 
         # Use managed queue to pass files between download threads
