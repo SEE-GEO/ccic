@@ -40,7 +40,6 @@ def test_extract_roi():
 
     data_roi_1 = extract_roi(cpcir_data, (170, -10, 180, 10))
     data_roi_2 = extract_roi(cpcir_data, (170, -10, 190, 10))
-    print(data_roi_2.lon)
 
     assert data_roi_1.lat.size == data_roi_2.lat.size
     assert 2 * data_roi_1.lon.size == data_roi_2.lon.size
