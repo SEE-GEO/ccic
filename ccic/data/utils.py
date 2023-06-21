@@ -5,6 +5,7 @@ ccic.data.utils
 Utility functions for the data processing.
 """
 import numpy as np
+import xarray as xr
 
 
 def included_pixel_mask(indices, c_i, c_j, extent, n_roll=0):
@@ -41,6 +42,10 @@ def extract_roi(dataset, roi, min_size=None):
     """
     Extract region of interest (ROI) from dataset.
 
+    This function handles ROIs that extend over the dateline by wrapping
+    around at 180 deg E and returning a continuous region covering the
+    dateline.
+
     Args:
         dataset: The 'xarray.Dataset' from which to extract data in a
             given ROI. Expected to have longitude and latitude coordinates
@@ -52,14 +57,37 @@ def extract_roi(dataset, roi, min_size=None):
              those of the upper right point.
         min_size: The minimum size of the region in both dimensions.
     """
-    lat_mask = (
-        (dataset.lat.data >= roi[1]) *
-        (dataset.lat.data <= roi[3])
-    )
+    lon_min, lat_min, lon_max, lat_max = roi
 
+    if lon_min > 180:
+        lon_min -= 360
+    if lon_max > 180:
+        lon_max -= 360
+
+    # Handle special case of ROI extending over date line.
+    if lon_min > lon_max:
+        if min_size is not None:
+            min_size = min_size // 2
+        left = extract_roi(
+            dataset,
+            (lon_min, lat_min, 180.0, lat_max),
+            min_size=min_size
+        )
+        right = extract_roi(
+            dataset,
+            (-180.0, lat_min, lon_max, lat_max),
+            min_size=min_size
+        )
+        right = right.assign(lon=right.lon.data + 360.0)
+        return xr.concat([left, right], dim="lon")
+
+    lat_mask = (
+        (dataset.lat.data >= lat_min) *
+        (dataset.lat.data <= lat_max)
+    )
     lon_mask = (
-        (dataset.lon.data >= roi[0]) *
-        (dataset.lon.data <= roi[2])
+        (dataset.lon.data >= lon_min) *
+        (dataset.lon.data <= lon_max)
     )
 
     if min_size is not None:
