@@ -404,10 +404,11 @@ class RetrievalInput(Fascod):
         self._interpolate_pressure(time)
         temp = (self._data.t.data - 273.15) * units.degC
         press = self._data.p.data * units.hPa
-        rel = self._data.r.data
+        rel = self._data.r.data * units.percent
 
         mmr = mixing_ratio_from_relative_humidity(press, temp, rel)
-        return dry_air_molecular_weight / water_molecular_weight * mmr
+        vmr = dry_air_molecular_weight / water_molecular_weight * mmr
+        return vmr.to("dimensionless")
 
     def get_iwc_data(self, time, timestep):
         """

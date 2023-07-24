@@ -225,6 +225,8 @@ def resample_data(
                 alt = np.broadcast_to(alt[None], shape).ravel()
             values = values.ravel()
             valid = np.isfinite(values)
+            if valid.sum() == 0:
+                continue
 
             values_r = binned_statistic_dd(
                 [mins[valid], lats[valid], lons[valid], alt[valid]],
