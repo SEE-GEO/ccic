@@ -206,7 +206,7 @@ text.usetex: True  # use latex for all text handling. The following fonts
                     # zapf chancery, charter, serif, sans-serif, helvetica,
                     # avant garde, courier, monospace, computer modern roman,
                     # computer modern sans serif, computer modern typewriter
-text.latex.preamble:  \include{siunitx}
+text.latex.preamble:  \usepackage{siunitx}
 
 # The following settings allow you to select the fonts in math mode.
 mathtext.fontset: dejavusans  # Should be 'dejavusans' (default),

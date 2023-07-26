@@ -143,7 +143,6 @@ def resample_data(
         variables,
         lon_bins,
         lat_bins,
-        time_interval,
         output_path,
         filename_pattern):
     """
@@ -156,8 +155,6 @@ def resample_data(
         variables: List of names of the variables to resample.
         lon_bins: The longitude bins
         lat_bins: The latitude bins.
-        time_interval: The time interval in hours. Should be 0.5 for CPCIR data
-            and 3.0 for GridSat data.
         output_path: The path to which to write the output files.
         filename_patther: Pattern to use for the filenames.
 
@@ -165,73 +162,69 @@ def resample_data(
 
     output_path = Path(output_path)
 
-    if time_interval > 1:
-        min_bins = np.array([0, 300])
-    else:
-        min_bins = np.array([0, 30, 60])
-    alt_bins = np.linspace(0, 20, 21)
+    time = data.time.data
+    start_hour = time.min().astype("datetime64[h]")
+    end_hour = time.max().astype("datetime64[h]") + np.timedelta64(1, "h")
+    hours = np.arange(
+        start_hour,
+        end_hour + np.timedelta64(1, "h"),
+        np.timedelta64(1, "h")
+    )
+    alt_bins = np.arange(21)
 
-    hours = data.time.dt.hour.data
-    next_day = np.where(np.diff(hours) < 0)[0]
-    if (len(next_day) > 0):
-        hours[next_day[0] + 1:] += 24
+    for ind in range(hours.size - 1):
 
-    hour = hours[0]
-    if time_interval > 1:
-        hour = (hour // 3) * 3
+        start = hours[ind].astype("datetime64[m]") - np.timedelta64(15, "m")
+        end = hours[ind + 1] - np.timedelta64(15, "m")
 
-    while hour <= hours.max():
 
-        start_hour = hour
-        if time_interval < 1:
-            end_hour = hour + 1
-        else:
-            end_hour = hour + 3
-        indices = (hours >= start_hour) * (hours < end_hour)
-        data_h = data[{"time": indices}]
+        t_inds = (time >= start) * (time < end)
+        data_h = data[{"time": t_inds}]
 
-        mins = (data_h.time.dt.hour.data - hour) % 24 * 60 + data_h.time.dt.minute.data
+        bins = np.arange(
+            start,
+            end + np.timedelta64(1, "m"),
+            np.timedelta64(30, "m")
+        ).astype(time.dtype)
+
         lons = data_h.longitude.data
         lats = data_h.latitude.data
         alt = data_h.altitude.data / 1e3
 
-        year = data_h.time.dt.year[0].data
-        month = data_h.time.dt.month[0].data
-        day = data_h.time.dt.day[0].data
+        time_h = time[t_inds]
 
-        time = to_datetime64(
-            datetime(year, month, day, 0) +
-            timedelta(hours=int(hour) % 24)
-        )
-
-        times = [time]
-        if time_interval < 1:
-            times += [time + np.timedelta64(30 * 60, "s")]
 
         results = xr.Dataset({
             "latitude": (("latitude",), 0.5 * (lat_bins[1:] + lat_bins[:-1])),
             "longitude": (("longitude",), 0.5 * (lon_bins[1:] + lon_bins[:-1])),
-            "time": times,
+            "time": (("time",), bins[:-1] + 0.5 * (bins[1] - bins[0])),
             "altitude": (("altitude",), 0.5 * (alt_bins[1:] + alt_bins[:-1])),
         })
 
         for var in variables:
+
             values = data_h[var].data
-            if mins.size < values.size:
+            time_v = time_h
+            lons_v = lons
+            lats_v = lats
+            alt_v = alt
+
+            if time_h.size < values.size:
                 shape = values.shape
-                mins = np.broadcast_to(mins[..., None], shape).ravel()
-                lons = np.broadcast_to(lons[..., None], shape).ravel()
-                lats = np.broadcast_to(lats[..., None], shape).ravel()
-                alt = np.broadcast_to(alt[None], shape).ravel()
+                time_v = np.broadcast_to(time_v[..., None], shape).ravel()
+                lons_v = np.broadcast_to(lons_v[..., None], shape).ravel()
+                lats_v = np.broadcast_to(lats_v[..., None], shape).ravel()
+                alt_v = np.broadcast_to(alt_v[None], shape).ravel()
+
             values = values.ravel()
             valid = np.isfinite(values)
             if valid.sum() == 0:
                 continue
 
             values_r = binned_statistic_dd(
-                [mins[valid], lats[valid], lons[valid], alt[valid]],
+                [time_v[valid].astype(np.float64), lats_v[valid], lons_v[valid], alt_v[valid]],
                 values[valid],
-                bins=[min_bins, lat_bins[::-1], lon_bins, alt_bins]
+                bins=[bins.astype(np.float64), lat_bins[::-1], lon_bins, alt_bins]
             )[0]
             values_r = np.flip(values_r, 1)
             results[var] = (
@@ -239,19 +232,20 @@ def resample_data(
                 values_r
             )
 
+
+        year = results.time.dt.year[0].data
+        month = results.time.dt.month[0].data
+        day = results.time.dt.day[0].data
+        hour = results.time.dt.hour[0].data
+
         filename = filename_pattern.format(**{
             "year": year,
             "month": month,
             "day": day,
-            "hour": start_hour % 24
+            "hour": hour
         })
         output_filename = output_path / filename
         results.to_netcdf(output_filename)
-
-        if time_interval < 1:
-            hour += 1
-        else:
-            hour += 3
 
 
 def get_latlon_bins(ccic_file):
