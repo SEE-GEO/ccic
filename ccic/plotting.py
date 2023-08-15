@@ -9,6 +9,14 @@ from pathlib import Path
 import cmocean
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
+from matplotlib.cm import ScalarMappable, get_cmap
+from matplotlib.colors import (
+    Normalize,
+    to_hex,
+    LinearSegmentedColormap
+)
+from ccic.data.cloudsat import CLOUD_CLASSES
+import numpy as np
 
 
 def set_style():
@@ -116,3 +124,252 @@ def scale_bar(
             verticalalignment='top',
             color=textcolor
     )
+
+
+def render_model(
+        activations,
+        outputs
+):
+    """
+    Generates an SVG image of the CCIC neural network model.
+
+    Args:
+        activations: A list of tensors containing the intermediate
+            activations from a forward pass through the CCIC model.
+        outputs: A dictionary containing the predicted raw outputs.
+
+    Return:
+        A drawnn Image object representing a SVG drawing.
+    """
+    from drawnn.base import Image
+    from drawnn.modules import Encoder, Decoder
+    from drawnn.layers import InputLayer2D, Layer2D
+    from drawnn import path
+
+    # Mapppable for input.
+    m_inpt = ScalarMappable(
+        cmap="cmo.amp",
+        norm=Normalize()
+    )
+    # Mappable for internal activations.
+    m_int = ScalarMappable(
+        cmap="Greys",
+        norm=Normalize()
+    )
+    # Mappable for outputs.
+    m_out = ScalarMappable(
+        cmap="cmo.dense",
+        norm=Normalize()
+    )
+
+    inputs = activations[0]
+    inputs = [m_inpt.to_rgba((inpt - inpt.mean()) / inpt.std()) for inpt in inputs]
+
+    base_ext = 150
+
+    # Colors for modules
+    cmap = get_cmap("cmo.dense")
+    colors = cmap(np.linspace(0, 1, 11))[1:-1]
+
+    with Image() as img:
+
+        #
+        # Input
+        #
+
+        cntr = [-20, 0, 0]
+        ext = [10, base_ext, base_ext]
+        input_layer = InputLayer2D(
+            cntr, ext, inputs,
+            edge_properties={"color": "black"},
+            orientation="x",
+        )
+        input_layer.color_data = colors[0]
+        input_layer.color_data[..., -1] = 0.5
+
+        path.Path(
+            input_layer.rcc,
+            [50 - 12.5, 0, 0]
+        )
+
+        #
+        # Stem
+        #
+
+        cntr = [50, 0, 0]
+        ext = [25, base_ext, base_ext]
+        stem = Layer2D(
+            cntr,
+            ext,
+            (1, 1)
+        )
+        stem.color_data[:] = colors[0]
+
+        path.Path(
+            stem.rcc,
+            [100 - 12.5, 0, 0]
+        )
+
+        cntr = [100, 0, 0]
+        ext = [5, base_ext, base_ext]
+        inputs = activations[1]
+        inputs = [
+            m_int.to_rgba((inpt - inpt.mean()) / inpt.std()) for inpt in inputs[:5]
+        ]
+        f_0 = InputLayer2D(
+            cntr, ext, inputs,
+            edge_properties={"color": "grey", "width": 1},
+            fill_properties={"opacity": 0.3},
+            orientation="x",
+        )
+
+        path.Path(
+            f_0.rcc,
+            [150, 0, 0]
+        )
+
+        #
+        # Encoder
+        #
+
+        cntr = [150, 0, 0]
+        ext = [50, base_ext, base_ext]
+        encoder = Encoder(
+            5,
+            cntr,
+            ext,
+            shrink_factor=0.7,
+            mappable=m_int,
+            feature_maps=activations[2:],
+            draw_feature_maps=True
+        )
+        encoder.translate(encoder.bb.rcc - cntr)
+        for ind, stage in enumerate(encoder.stages):
+            stage.fill_properties = {
+                "color": to_hex(colors[ind + 1]),
+                "opacity": 0.5
+            }
+
+        cntr = encoder.rcc + [50, 0, 0]
+        ext = [50, base_ext, base_ext]
+        decoder = Decoder(
+            5,
+            cntr,
+            ext,
+            shrink_factor=0.7,
+            mappable=m_int,
+            feature_maps=activations[7:],
+            draw_feature_maps=True
+        )
+        decoder.translate(decoder.bb.rcc - cntr)
+        for ind, stage in enumerate(decoder.stages):
+            stage.fill_properties = {
+                "color": to_hex(colors[5 - ind]),
+                "opacity": 0.5
+            }
+
+        final = activations[-1]
+        final = [m_int.to_rgba((fnl - fnl.mean()) / fnl.std()) for fnl in final[:5]]
+        cntr = decoder.rcc + [50, 0, 0]
+        ext = [3, base_ext, base_ext]
+        final_act = InputLayer2D(
+            cntr, ext, final,
+            edge_properties={"color": "grey", "width": 1},
+            fill_properties={"opacity": 0.3},
+            orientation="x",
+        )
+
+        offset = 200
+
+        #
+        # Skip connections
+        #
+
+        for ind, (act, stage) in enumerate(
+                zip([f_0] + encoder.feature_layers, decoder.stages[::-1])
+        ):
+
+            y_offset = -(5 - ind + 1) * 10
+            path.Path(
+                act.clc,
+                act.clc + [0, y_offset, 0],
+                stage.clc + [0, y_offset - act.clc[1] + stage.clc[1], 0],
+                stage.clc
+            )
+
+
+        #
+        # Outputs
+        #
+
+        outpt = path.Path(decoder.rcc, decoder.rcc + [50, 0, 0])
+
+        keys = ["tiwp", "tiwc", "cloud_mask", "cloud_class"]
+        n_outputs = len(keys)
+
+        for ind, key in enumerate(keys):
+
+            offs = -(n_outputs - 1) / 2 * offset + ind * offset
+            path.Path(
+                outpt.end,
+                outpt.end + [25, 0, 0],
+                outpt.end + [25, 0, offs],
+                outpt.end + [50, 0, offs]
+            )
+
+        heads = {}
+
+        for ind, key in enumerate(keys):
+
+            offs = -(n_outputs - 1) / 2 * offset + ind * offset
+            results = outputs[key]
+
+            # Head module
+            ext = [25, base_ext, base_ext]
+            cntr = final_act.ccc + [50, 0, offs]
+            heads[key] = Layer2D(
+                cntr, ext, (1, 1)
+            )
+            heads[key].color_data[:] = colors[0]
+            heads[key].color_data[..., -1] = 0.5
+
+
+        for ind, key in enumerate(keys):
+
+            offs = -(n_outputs - 1) / 2 * offset + ind * offset
+            results = outputs[key]
+            head = heads[key]
+
+            path.Path(head.rcc, head.rcc + [50, 0, 0])
+
+            # Output
+            cntr = head.ccc + [50, 0]
+            results = results[0]
+            if results.ndim > 3:
+                results = results.flatten(0, 1)
+            results = [
+                m_out.to_rgba((res - res.mean()) / res.std()) for res in results[:5]
+            ]
+
+            ext = [3, base_ext, base_ext]
+            out_layer = InputLayer2D(
+                cntr, ext, results,
+                edge_properties={"color": "grey", "width": 1},
+                fill_properties={"opacity": 1.0},
+                orientation="x",
+        )
+
+    return img
+
+
+def get_cloud_type_cmap():
+    """
+    Return cmap for displaying cloud types.
+    """
+    blues = get_cmap("Greens")
+    b1, b2, b3, b4 = (blues(x) for x in [0.4, 0.6, 0.8, 1.0])
+    reds = get_cmap("Reds")
+    r1, r2, r3, r4 = (reds(x) for x in [0.4, 0.6, 0.8, 1.0])
+    colors = ["#FFFFFF", b1, b2, b3, b4, r1, r2, r3, r4 ]
+    cloud_class_cmap = LinearSegmentedColormap.from_list("cloud_classes", colors, N=9)
+    return cloud_class_cmap
