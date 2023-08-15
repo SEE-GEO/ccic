@@ -83,6 +83,41 @@ class CCICModel(nn.Module):
         self.heads["cloud_mask"] = head_factory(1)
         self.heads["cloud_class"] = head_factory(20 * 9)
 
+    def forward_w_feature_maps(self, x):
+        """
+        Propagate input through network and return intermediate activations.
+
+
+        Args:
+            x: A torch.tensor containing the input to feed through the
+                network.
+
+        Return:
+
+        """
+        output = {}
+        y = self.stem(x)
+        activations = [y] + self.encoder(y, return_skips=True)
+
+        y = self.decoder.forward_w_intermediate(activations)
+        activations += y
+        y = y[-1]
+
+        output["tiwp"] = self.heads["tiwp"](y)
+        output["tiwp_fpavg"] = self.heads["tiwp_fpavg"](y)
+        output["cloud_mask"] = self.heads["cloud_mask"](y)
+
+        shape = y.shape
+        profile_shape = [shape[0], self.n_quantiles // 4, 20, shape[-2], shape[-1]]
+        head = self.heads["tiwc"]
+        output["tiwc"] = head(y).reshape(profile_shape)
+
+        profile_shape = [shape[0], 9, 20, shape[-2], shape[-1]]
+        head = self.heads["cloud_class"]
+        output["cloud_class"] = head(y).reshape(profile_shape)
+
+        return output, activations
+
     def forward(self, x, return_encodings=False):
         """
         Propagate input through network.
@@ -92,9 +127,13 @@ class CCICModel(nn.Module):
                 network.
             return_encodings: If set to true, the output from the encoder
                 is included in the output.
+
+        Return:
+            A dictionary containing the network outputs.
         """
         output = {}
-        y = self.encoder(self.stem(x), return_skips=True)
+        y = self.stem(x)
+        y = [y] + self.encoder(y, return_skips=True)
 
         if return_encodings:
             output["encodings"] = y[-1]
