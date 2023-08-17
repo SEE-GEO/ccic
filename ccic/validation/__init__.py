@@ -5,6 +5,7 @@ from netCDF4 import Dataset
 import numpy as np
 import xarray as xr
 from scipy.stats import binned_statistic, binned_statistic_dd
+from scipy.signal import convolve
 from pansat.time import to_datetime64
 
 
@@ -84,26 +85,59 @@ def load_ccic_results(files, longitude, latitude):
     return results
 
 
-def calculate_daily_cycle(data, longitude=None, variable="iwp"):
+def calc_diurnal_cycle(
+        data,
+        longitude=None,
+        months=None,
+        smooth=None,
+        resolution=1
+):
 
-    hours = data.time.dt.hour.data.astype(np.float64)
-    iwp = data[variable].data
-    valid = iwp >= 0.0
-
-    hours = hours[valid]
-    iwp = iwp[valid]
-
+    time = data.time
     if longitude is not None:
-        delta = 12.0 / 180 * longitude
-        hours += delta
-    hours[hours > 23.5] -= 24.0
-    hours[hours < -0.5] += 24.0
+        delta = np.timedelta64(int(12 * 60 * 60 / 180 * longitude), "s")
+        time = time + delta
+    seconds = (
+        time.dt.hour.data * 60 * 60 +
+        time.dt.minute.data * 60+
+        time.dt.second.data * 60
+    )
 
-    bins = np.linspace(-0.5, 23.5, 25)
-    mean_iwp = binned_statistic(hours, iwp, bins=bins)[0]
+    vals = data.data
+    valid = np.isfinite(vals)
 
-    bin_centers = 0.5 * (bins[1:] + bins[:-1])
-    return bin_centers, mean_iwp
+    if months is not None:
+        if not isinstance(months, list):
+            months = [months]
+        valid_months = np.zeros_like(valid)
+        for month in months:
+            valid_months += data.time.dt.month == month
+        valid = valid * valid_months
+
+
+    seconds = seconds[valid]
+    vals = vals[valid]
+
+    bins = np.arange(-resolution / 2, 24 - resolution / 2 + 1e-3, resolution)
+    bins = bins * 3600
+
+    seconds[seconds > bins[-1]] -= 24 * 60 * 60
+    dc = binned_statistic(seconds, vals, bins=bins)[0]
+
+    bins = np.concatenate([bins, bins[-1:] + resolution * 60 * 60])
+
+    if smooth is not None:
+        smooth += smooth % 2
+        k = np.arange(-smooth // 2, smooth // 2 + 1e-6)
+        k = np.exp(np.log(0.5) * ((k / smooth) ** 2))
+        k = k / k.sum()
+        dc = np.concatenate([dc[-(smooth // 2):], dc, dc[:smooth // 2]])
+        dc = convolve(dc, k, "valid")
+
+    dc = np.concatenate([dc, dc[:1]])
+
+    bin_centers = 0.5 * (bins[1:] + bins[:-1]) / 60 / 60
+    return bin_centers, dc
 
 
 def great_circle_distance(lats_1, lons_1, lats_2, lons_2):
@@ -218,20 +252,30 @@ def resample_data(
 
             values = values.ravel()
             valid = np.isfinite(values)
+            dims = ("time", "latitude", "longitude", "altitude")
             if valid.sum() == 0:
-                continue
-
-            values_r = binned_statistic_dd(
-                [time_v[valid].astype(np.float64), lats_v[valid], lons_v[valid], alt_v[valid]],
-                values[valid],
-                bins=[bins.astype(np.float64), lat_bins[::-1], lon_bins, alt_bins]
-            )[0]
-            values_r = np.flip(values_r, 1)
-            results[var] = (
-                ("time", "latitude", "longitude", "altitude"),
-                values_r
-            )
-
+                shape = (
+                    results.time.size,
+                    results.latitude.size,
+                    results.longitude.size,
+                    results.altitude.size
+                )
+                values_r = np.nan * np.zeros(shape)
+                results[var] = (dims, values_r)
+            else:
+                values_in = [
+                    time_v[valid].astype(np.float64),
+                    lats_v[valid],
+                    lons_v[valid],
+                    alt_v[valid]
+                ]
+                values_r = binned_statistic_dd(
+                    values_in,
+                    values[valid],
+                    bins=[bins.astype(np.float64), lat_bins[::-1], lon_bins, alt_bins]
+                )[0]
+                values_r = np.flip(values_r, 1)
+                results[var] = (dims, values_r)
 
         year = results.time.dt.year[0].data
         month = results.time.dt.month[0].data
@@ -270,3 +314,27 @@ def get_latlon_bins(ccic_file):
         lats = np.concatenate([[lat_c[0] - d_lat], lat_c, [lat_c[-1] + d_lat]])
         lons = np.concatenate([[lon_c[0] - d_lon], lon_c, [lon_c[-1] + d_lon]])
         return lats, lons
+
+
+def get_dominant_cloud_type(cloud_types):
+    """
+    Determine 2D map of dominant cloud types based on 3D cloud-type mask.
+
+    Args:
+        cloud_types: 'xarray.DataArray' or 'numpy.ndarray' containing
+            CCIC-predicted cloud types.
+
+    Return:
+        'numpy.ndarray' containing a 2D map of dominant cloud types.
+    """
+    if not isinstance(cloud_types, np.ndarray):
+        cloud_types = cloud_types.data
+
+    cloud_counts = np.zeros(cloud_types.shape[:-1] + (9,))
+    for i in range(9):
+        cloud_counts[..., i] += (cloud_types == i).sum(-1)
+        cloud_type_map = np.argmax(cloud_counts[..., 1:], axis=-1) + 1
+        cloud_free = np.all(cloud_counts[..., 1:] == 0, axis=-1)
+        cloud_type_map[cloud_free] = 0
+
+    return cloud_type_map

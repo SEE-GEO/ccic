@@ -275,7 +275,7 @@ cloudnet_palaiseau = CloudnetRadar(
     "palaiseau",
     "basta",
     longitude=2.212,
-    latitude=47.72,
+    latitude=48.71,
     frequency=95e9,
     sensitivity=-25
 )
