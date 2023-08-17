@@ -367,9 +367,9 @@ def get_cloud_type_cmap():
     Return cmap for displaying cloud types.
     """
     blues = get_cmap("Greens")
-    b1, b2, b3, b4 = (blues(x) for x in [0.4, 0.6, 0.8, 1.0])
+    b1, b2, b3, b4, b5 = (blues(x) for x in [0.3, 0.5, 0.7, 0.9, 1.0])
     reds = get_cmap("Reds")
-    r1, r2, r3, r4 = (reds(x) for x in [0.4, 0.6, 0.8, 1.0])
-    colors = ["#FFFFFF", b1, b2, b3, b4, r1, r2, r3, r4 ]
+    r1, r2, r3 = (reds(x) for x in [0.4, 0.7, 1.0])
+    colors = ["#FFFFFF", b1, b2, b3, b4, b5, r1, r2, r3]
     cloud_class_cmap = LinearSegmentedColormap.from_list("cloud_classes", colors, N=9)
     return cloud_class_cmap
