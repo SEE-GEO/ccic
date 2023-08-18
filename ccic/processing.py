@@ -173,6 +173,7 @@ def determine_cloud_class(class_probs, threshold=0.638, axis=1):
 
     Args:
         class_probs: A torch tensor containing cloud-type probabilities.
+        threshold: The no-cloud probability threshold to use.
 
     Return:
         A tensor containing the class indices of the most likely cloud
