@@ -191,23 +191,33 @@ def determine_cloud_class(class_probs, threshold=0.638, axis=1):
     types[cloud_mask] = prob_types[cloud_mask]
     return types
 
-def get_column_class(cloud_classes):
+def determine_column_cloud_class(cloud_classes):
     """
-    Determine class of column from CCIC cloud class probabilities.
+    Determine the the type of column cloud class from CCIC
+    cloud class probabilities. The column cloud classes are given
+    by the indices:
+
+    * 0: clear-sky column
+    * 1: cloudy column
+    * 2: convective column
+    * -1: column with all invalid cloud classes
+
+    An atmospheric column is classified as convective if it contains
+    at least one parcel that is classified as Cu, Ns or DC.
     
     Args:
-         cloud_classes: Cloud class probabilities as predicted by CCIC.
+        cloud_classes: Cloud class probabilities as predicted by CCIC.
          
     Return:
-         The corresponding cloud class indices
+        The corresponding column cloud class indices
     """
-    cc = np.zeros(cloud_classes.shape[:-1])
-    strat = np.any(cloud_classes > 0, -1)
-    cc[strat] = 1
+    cc = np.zeros(cloud_classes.shape[:-1], dtype='int8')
+    cloudy = np.any(cloud_classes > 0, -1)
+    cc[cloudy] = 1
     conv = np.any(cloud_classes > 5, -1)
     cc[conv] = 2
     invalid = np.all(cloud_classes > 8, -1)
-    cc[invalid] = -1.0
+    cc[invalid] = -1
     return cc
 
 ###############################################################################
