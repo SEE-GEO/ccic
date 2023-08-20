@@ -162,20 +162,18 @@ def get_input_files(
     return [input_cls(filename) for filename in files]
 
 
-def determine_cloud_class(class_probs, axis=1):
+def determine_cloud_class(class_probs, threshold=0.638, axis=1):
     """
     Determines cloud classes from a tensor of cloud-type probabilities.
 
-    If the 'no cloud' probability of a tensor element is larger than 0.5,
-    the class will be 'no cloud'. Otherwise the diagnosed cloud type will
-    be the one that is most likely and is not 'no cloud'.
-
-    A resulting element is identified as a cloud if the probability of
-    no-cloud is less than 0.5. In
+    If the 'no cloud' probability of a tensor element is larger than a
+    threshold, the class will be 'no cloud'. Otherwise the diagnosed
+    cloud type will be the one that is most likely and is not 'no cloud'.
 
 
     Args:
         class_probs: A torch tensor containing cloud-type probabilities.
+        threshold: The no-cloud probability threshold to use.
 
     Return:
         A tensor containing the class indices of the most likely cloud
@@ -187,12 +185,40 @@ def determine_cloud_class(class_probs, axis=1):
 
     inds = [slice(0, None)] * class_probs.ndim
     inds[axis] = 0
-    cloud_mask = class_probs[tuple(inds)] < 0.638
+    cloud_mask = class_probs[tuple(inds)] < threshold
     inds[axis] = slice(1, None)
     prob_types = np.argmax(class_probs[tuple(inds)], axis=axis).astype("uint8") + 1
     types[cloud_mask] = prob_types[cloud_mask]
     return types
 
+def determine_column_cloud_class(cloud_classes):
+    """
+    Determine the the type of column cloud class from CCIC
+    cloud class probabilities. The column cloud classes are given
+    by the indices:
+
+    * 0: clear-sky column
+    * 1: cloudy column
+    * 2: convective column
+    * -1: column with all invalid cloud classes
+
+    An atmospheric column is classified as convective if it contains
+    at least one parcel that is classified as Cu, Ns or DC.
+    
+    Args:
+        cloud_classes: Cloud class probabilities as predicted by CCIC.
+         
+    Return:
+        The corresponding column cloud class indices
+    """
+    cc = np.zeros(cloud_classes.shape[:-1], dtype='int8')
+    cloudy = np.any(cloud_classes > 0, -1)
+    cc[cloudy] = 1
+    conv = np.any(cloud_classes > 5, -1)
+    cc[conv] = 2
+    invalid = np.all(cloud_classes > 8, -1)
+    cc[invalid] = -1
+    return cc
 
 ###############################################################################
 # Database logging
