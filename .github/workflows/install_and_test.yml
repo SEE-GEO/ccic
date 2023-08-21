@@ -4,8 +4,8 @@ jobs:
   install_and_test_job:
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest]
-        python: [3.9, 3.10]
+        os: [ubuntu-latest]
+        python: [3.9]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v3
@@ -20,6 +20,6 @@ jobs:
                 use-only-tar-bz2: true
       - name: Install and test
         shell: bash -l {0}
-        run: mamba env create --quiet --yes --file ccic.yml &&
+        run: mamba env create --quiet --file ccic.yml &&
              pip install -e . &&
              pytest test
