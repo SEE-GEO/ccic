@@ -17,11 +17,17 @@ setup(
     install_requires=[
         "metpy",
         "numpy",
-        "quantnn",
+        "quantnn>=0.0.5",
         "torch",
         "pytorch-lightning",
+        "pansat",
         "xarray",
         "zarr",
+        "netCDF4",
+        "dask",
+        "beautifulsoup4",
+        "lxml",
+        "artssat @ git+https://github.com/simonpf/artssat.git"
     ],
     packages=find_packages(),
     python_requires=">=3.8",

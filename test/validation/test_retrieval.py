@@ -20,13 +20,19 @@ from ccic.validation.radars import (
     rasta_haic_up
 )
 
-TEST_DATA = os.environ.get("CCIC_TEST_DATA", None)
+try:
+    TEST_DATA = Path(os.environ.get("CCIC_TEST_DATA", None))
+    VALIDATION_DATA = Path(TEST_DATA) / "validation"
+    HAS_TEST_DATA = True
+except TypeError:
+    HAS_TEST_DATA = False
+
 NEEDS_TEST_DATA = pytest.mark.skipif(
-    TEST_DATA is None, reason="Needs 'CCIC_TEST_DATA'."
+    not HAS_TEST_DATA, reason="Needs 'CCIC_TEST_DATA'."
 )
-VALIDATION_DATA = Path(TEST_DATA) / "validation"
 
 
+@NEEDS_TEST_DATA
 def test_retrieval_cloudnet():
     """Test running the retrieval for the Cloudnet radar in Punta Arenas."""
     date = np.datetime64("2020-03-15T10:00:00")
@@ -50,6 +56,7 @@ def test_retrieval_cloudnet():
     assert "radar_reflectivity_fitted" in results
 
 
+@NEEDS_TEST_DATA
 def test_retrieval_arm():
     """Test running the retrieval for the ARM WACR radar in Manacapuru."""
     date = np.datetime64("2014-12-10T10:00:00")
@@ -73,6 +80,7 @@ def test_retrieval_arm():
     assert "radar_reflectivity_fitted" in results
 
 
+@NEEDS_TEST_DATA
 def test_retrieval_olympex():
     """Test running the retrieval for the CRS radar during Olympex campaign."""
     date = np.datetime64("2015-12-03T10:00:00")
@@ -96,6 +104,7 @@ def test_retrieval_olympex():
     assert "radar_reflectivity_fitted" in results
 
 
+@NEEDS_TEST_DATA
 def test_retrieval_haic():
     """Test running the retrieval for the HAIC campaing."""
     date = np.datetime64("2014-01-16T10:00:00")

@@ -18,11 +18,17 @@ from ccic.validation.radars import (
     crs_olympex,
     )
 
-TEST_DATA = os.environ.get("CCIC_TEST_DATA", None)
+try:
+    TEST_DATA = Path(os.environ.get("CCIC_TEST_DATA", None))
+    VALIDATION_DATA = Path(TEST_DATA) / "validation"
+    HAS_TEST_DATA = True
+except TypeError:
+    HAS_TEST_DATA = False
+
 NEEDS_TEST_DATA = pytest.mark.skipif(
-    TEST_DATA is None, reason="Needs 'CCIC_TEST_DATA'."
+    not HAS_TEST_DATA, reason="Needs 'CCIC_TEST_DATA'."
 )
-VALIDATION_DATA = Path(TEST_DATA) / "validation"
+
 
 @NEEDS_TEST_DATA
 def test_era5_files_in_range():
@@ -68,7 +74,7 @@ def test_retrieval_input_cloudnet():
     t = retrieval_input.get_temperature(date)
     assert np.all(t > 150)
 
-    h2o = retrieval_input.get_h2o(date)
+    h2o = retrieval_input.get_H2O(date)
     assert np.all(h2o >= 0)
 
     assert p.size == t.size
@@ -117,7 +123,7 @@ def test_retrieval_input_arm():
     t = retrieval_input.get_temperature(start)
     assert np.all(t > 150)
 
-    h2o = retrieval_input.get_h2o(start)
+    h2o = retrieval_input.get_H2O(start)
     assert np.all(h2o >= 0)
 
     assert p.size == t.size
@@ -159,7 +165,7 @@ def test_retrieval_input_crs():
     t = retrieval_input.get_temperature(start)
     assert np.all(t > 150)
 
-    h2o = retrieval_input.get_h2o(start)
+    h2o = retrieval_input.get_H2O(start)
     assert np.all(h2o >= 0)
 
     assert p.size == t.size

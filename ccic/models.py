@@ -53,7 +53,7 @@ class CCICModel(nn.Module):
         self.stem = nn.Conv2d(n_channels_in, features, 3, padding=1)
         self.encoder = SpatialEncoder(
             channels=features,
-            stages=[n_blocks] * n_stages,
+            stages= [0] + [n_blocks] * n_stages,
             block_factory=block_factory,
             max_channels=512,
         )
@@ -82,6 +82,7 @@ class CCICModel(nn.Module):
         self.heads["tiwp_fpavg"] = head_factory(self.n_quantiles)
         self.heads["cloud_mask"] = head_factory(1)
         self.heads["cloud_class"] = head_factory(20 * 9)
+        self.version = 0.1
 
     def forward_w_feature_maps(self, x):
         """
@@ -133,6 +134,8 @@ class CCICModel(nn.Module):
         """
         output = {}
         y = self.stem(x)
+
+        version = getattr(self, "version", 0.0)
         y = [y] + self.encoder(y, return_skips=True)
 
         if return_encodings:

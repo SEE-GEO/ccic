@@ -9,8 +9,10 @@ import sqlite3
 from tempfile import TemporaryDirectory
 import timeit
 
-from quantnn.mrnn import MRNN
+
 import numpy as np
+import pytest
+from quantnn.mrnn import MRNN
 import torch
 import xarray as xr
 
@@ -30,9 +32,19 @@ from ccic.processing import (
 )
 
 
-TEST_DATA = Path(os.environ.get("CCIC_TEST_DATA", None))
+try:
+    TEST_DATA = Path(os.environ.get("CCIC_TEST_DATA", None))
+    HAS_TEST_DATA = True
+except TypeError:
+    HAS_TEST_DATA = False
 
 
+NEEDS_TEST_DATA = pytest.mark.skipif(
+    not HAS_TEST_DATA, reason="Needs 'CCIC_TEST_DATA'."
+)
+
+
+@NEEDS_TEST_DATA
 def test_get_input_files():
     """
     Test that input files are determined correctly.
@@ -109,6 +121,7 @@ def test_get_input_files():
     assert isinstance(input_files[0], GridSat)
 
 
+@NEEDS_TEST_DATA
 def test_remote_file():
     """
     Test that input files are determined correctly.
@@ -133,6 +146,7 @@ def test_remote_file():
     if_2 = input_files_prefetch[0]
 
 
+@NEEDS_TEST_DATA
 def test_processing(tmp_path):
     """
     Test processing and writing of CPCIR and GridSat input files.
@@ -190,6 +204,7 @@ def test_processing(tmp_path):
         assert results_nc.variables.keys() == results_zarr.variables.keys()
 
 
+@NEEDS_TEST_DATA
 def test_get_output_filename():
     """
     Ensure that filenames have the right suffixes.
@@ -253,6 +268,7 @@ def test_processing_logger(tmp_path):
         assert len(entry[0]) > 0
 
 
+@NEEDS_TEST_DATA
 def test_invalid_mask():
     """
     Test masking of invalid inputs.
@@ -275,10 +291,10 @@ def test_determine_cloud_class():
     probs = np.array([
         [0.0, 0.2, 0.8],
         [0.4, 0.35, 0.25],
-        [0.6, 0.2, 0.2],
+        [0.64, 0.2, 0.2],
     ])
 
-    types = determine_cloud_class(probs)
+    types = determine_cloud_class(probs, axis=-1)
 
     assert types[0] == 2
     assert types[1] == 1
