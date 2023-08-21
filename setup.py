@@ -23,7 +23,9 @@ setup(
         "pansat",
         "xarray",
         "zarr",
-        "netCDF4"
+        "netCDF4",
+        "dask",
+        "artssat @ git+ssh://git@github.com/simonpf/artssat.git"
     ],
     packages=find_packages(),
     python_requires=">=3.8",
