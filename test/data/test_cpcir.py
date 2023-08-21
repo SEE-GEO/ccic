@@ -21,6 +21,13 @@ NEEDS_TEST_DATA = pytest.mark.skipif(
     not HAS_TEST_DATA, reason="Needs 'CCIC_TEST_DATA'."
 )
 
+
+PANSAT_PW = os.environ.get("PANSAT_PASSWORD", None)
+NEEDS_PANSAT_PW = pytest.mark.skipif(
+    PANSAT_PW is None, reason="Needs 'PANSAT_PASSWORD' set."
+)
+
+
 CS_2CICE_FILE = "2008032011612_09374_CS_2C-ICE_GRANULE_P1_R05_E02_F00.hdf"
 CS_2BCLDCLASS_FILE = "2008032011612_09374_CS_2B-CLDCLASS_GRANULE_P1_R05_E02_F00.hdf"
 CPCIR_FILE = "merg_2008020101_4km-pixel.nc4"
@@ -46,6 +53,7 @@ def test_find_files():
     assert len(files) == 1
 
 
+@NEEDS_PANSAT_PW
 def test_get_available_files():
     """
     Assert that the correct times are returned for a given day.

@@ -25,6 +25,8 @@ setup(
         "zarr",
         "netCDF4",
         "dask",
+        "beautifulsoup4",
+        "lxml",
         "artssat @ git+https://github.com/simonpf/artssat.git"
     ],
     packages=find_packages(),
