@@ -23,6 +23,7 @@ setup(
         "pansat",
         "xarray",
         "zarr",
+        "netCDF4"
     ],
     packages=find_packages(),
     python_requires=">=3.8",
