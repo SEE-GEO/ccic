@@ -20,6 +20,7 @@ setup(
         "quantnn",
         "torch",
         "pytorch-lightning",
+        "pansat",
         "xarray",
         "zarr",
     ],
