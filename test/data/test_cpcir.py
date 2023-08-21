@@ -10,20 +10,26 @@ import pytest
 from ccic.data.cloudsat import CloudSat2CIce, CloudSat2BCLDCLASS
 from ccic.data.cpcir import CPCIR
 
-TEST_DATA = os.environ.get("CCIC_TEST_DATA", None)
-if TEST_DATA is not None:
-    TEST_DATA = Path(TEST_DATA)
+try:
+    TEST_DATA = Path(os.environ.get("CCIC_TEST_DATA", None))
+    HAS_TEST_DATA = True
+except TypeError:
+    HAS_TEST_DATA = False
+
+
 NEEDS_TEST_DATA = pytest.mark.skipif(
-    TEST_DATA is None, reason="Needs 'CCIC_TEST_DATA'."
+    not HAS_TEST_DATA, reason="Needs 'CCIC_TEST_DATA'."
 )
+
 CS_2CICE_FILE = "2008032011612_09374_CS_2C-ICE_GRANULE_P1_R05_E02_F00.hdf"
 CS_2BCLDCLASS_FILE = "2008032011612_09374_CS_2B-CLDCLASS_GRANULE_P1_R05_E02_F00.hdf"
 CPCIR_FILE = "merg_2008020101_4km-pixel.nc4"
 
 
+@NEEDS_TEST_DATA
 def test_find_files():
     """
-    Ensure that all three files in test data folder are found.
+    Ensure that all four files in test data folder are found.
     """
     files = CPCIR.find_files(TEST_DATA)
     assert len(files) == 4

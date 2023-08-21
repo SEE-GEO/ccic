@@ -18,11 +18,16 @@ from ccic.validation.radars import (
     crs_olympex,
     )
 
-TEST_DATA = os.environ.get("CCIC_TEST_DATA", None)
+try:
+    TEST_DATA = Path(os.environ.get("CCIC_TEST_DATA", None))
+    HAS_TEST_DATA = True
+except TypeError:
+    HAS_TEST_DATA = False
+
 NEEDS_TEST_DATA = pytest.mark.skipif(
-    TEST_DATA is None, reason="Needs 'CCIC_TEST_DATA'."
+    not HAS_TEST_DATA, reason="Needs 'CCIC_TEST_DATA'."
 )
-VALIDATION_DATA = Path(TEST_DATA) / "validation"
+
 
 @NEEDS_TEST_DATA
 def test_era5_files_in_range():
