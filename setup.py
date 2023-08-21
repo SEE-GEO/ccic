@@ -17,7 +17,7 @@ setup(
     install_requires=[
         "metpy",
         "numpy",
-        "quantnn",
+        "quantnn>=0.0.5",
         "torch",
         "pytorch-lightning",
         "pansat",

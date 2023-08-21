@@ -13,18 +13,378 @@ import sys
 import tempfile
 
 import numpy as np
+import scipy as sp
 import xarray as xr
 
+from artssat.atmosphere.absorption import (
+    O2,
+    N2,
+    H2O,
+    CloudWater,
+    RelativeHumidity,
+    VMR
+)
+from artssat.atmosphere import Atmosphere1D
+from artssat.atmosphere.catalogs import Aer, Perrin
+from artssat.atmosphere.surface import Tessem
 from artssat.jacobian import Log10, Identity
 from artssat.sensor import ActiveSensor
 from artssat.retrieval import a_priori
 from artssat.scattering.psd.f07 import F07
 from artssat.scattering.psd import D14M, AB12
-from mcrf.psds import D14NDmLiquid
-from mcrf.retrieval import CloudRetrieval
-from mcrf.hydrometeors import Hydrometeor
-from mcrf.faam_combined import ObservationError
+from artssat.scattering.solvers import Disort, RT4
+from artssat.simulation import ArtsSimulation
+from artssat.data_provider import DataProviderBase
+from artssat.scattering import ScatteringSpecies
+from artssat.jacobian import Log10, Atanh, Composition, Identity
 from pansat.time import to_datetime
+
+
+class ObservationError(DataProviderBase):
+    """
+    """
+    def __init__(self,
+                 sensors,
+                 footprint_error=False,
+                 forward_model_error=False):
+        """
+        Arguments:
+            sensors(:code:`list`): List of :code:`parts.sensor.Sensor` objects
+                containing the sensors that are used in the retrieval.
+
+            footprint_error(:code:`Bool`): Include footprint error for :code:`lcpr`
+                sensor.
+
+            forward_model_error(:code:`Bool`): Include estimated model error for
+                all sensors.
+
+        """
+        self.sensors = sensors
+
+    def _get_nedt(self, sensor, i_p):
+        try:
+            f_name = "get_y_" + sensor.name + "_nedt"
+            f = getattr(self.owner, f_name)
+            nedt_dp = f(i_p)
+        except:
+            nedt_dp = 0.0
+        return nedt_dp
+
+    def get_observation_error_covariance(self, i_p):
+        m = 0
+
+        diag = []
+
+        for s in self.sensors:
+
+            nedt_dp = self._get_nedt(s, i_p)
+            if isinstance(s, ActiveSensor):
+                if not isinstance(nedt_dp, (np.ndarray, list)):
+                    nedt_dp = [nedt_dp] * s.y_vector_length
+                diag += [nedt_dp**2]
+
+        for s in self.sensors:
+            nedt_dp = self._get_nedt(s, i_p)
+
+        diag = np.concatenate(diag).ravel()
+        covmat = sp.sparse.diags(diag, format="coo")
+
+        return covmat
+
+
+class Hydrometeor(ScatteringSpecies):
+    """
+    Specialization of the artssat.scattering.ScatteringSpecies class that
+    adds serveral attributes that are used to customize the behavior of
+    the CloudRetrieval class.
+
+    Attributes:
+
+        a_priori: A priori data provider for this hydrometeor species.
+
+        transformations: List containing two transformations to apply to the
+            two moments of the hydrometeor.
+
+        scattering_data: Path of the file containing the scattering data to
+            use for this hydrometeor.
+
+        scattering_data_meta: Path of the file containing the meta data for
+            this hydrometeor.
+
+    """
+    def __init__(self,
+                 name,
+                 psd,
+                 a_priori,
+                 scattering_data,
+                 scattering_meta_data):
+        super().__init__(name, psd, scattering_data, scattering_meta_data)
+        self.a_priori = a_priori
+        self.transformations = [Log10(), Log10()]
+        self.limits_low      = [1e-12, 2]
+        self.radar_only             = True
+        self.retrieve_first_moment = True
+        self.retrieve_second_moment = True
+
+
+class CloudRetrieval:
+    """
+    Class for performing cloud retrievals.
+
+    Attributes:
+
+        simulation(artssat.ArtsSimulation): artssat ArtsSimulation object that is used
+            to perform retrieval caculations.
+
+        h2o(artssat.atmosphere.AtmosphericQuantity): The AtmosphericQuantity instance
+            that represent water vapor in the ARTS simulation.
+
+        cw(artssat.atmosphere.AtmosphericQuantity): The AtmosphericQuantity instance
+            that represent cloud liquid in the ARTS simulation.
+
+        sensors(artssat.sensor.Sensor): The sensors used in the retrieval.
+
+        data_provider: The data provider used to perform the retrieval.
+    """
+    def _setup_retrieval(self):
+        """
+        Setup the artssat simulation used to perform the retrieval.
+        """
+
+        for q in self.hydrometeors:
+            for ind, mom in enumerate(q.moments):
+                if hasattr(q, "limits_high"):
+                    limit_high = q.limits_high[ind]
+                else:
+                    limit_high = np.inf
+
+                self.simulation.retrieval.add(mom)
+                mom.transformation = q.transformations[ind]
+                mom.retrieval.limit_low = q.limits_low[ind]
+                mom.retrieval.limit_high = limit_high
+
+        h2o = self.simulation.atmosphere.absorbers[-1]
+        h2o_a = [p for p in self.data_provider.subproviders \
+                 if getattr(p, "name", "") == "H2O"]
+        if len(h2o_a) > 0:
+            h2o_a = h2o_a[0]
+            self.simulation.retrieval.add(h2o)
+            atanh = Atanh(0.0, 1.1)
+            if h2o_a.transformation is not None:
+                h2o.transformation = h2o_a.transformation
+            h2o.retrieval.unit = RelativeHumidity()
+
+            if hasattr(h2o_a, "limit_low"):
+                h2o.retrieval.limit_low = h2o_a.limit_low
+            if hasattr(h2o_a, "limit_high"):
+                h2o.retrieval.limit_high = h2o_a.limit_high
+            self.h2o = h2o
+        else:
+            self.h2o = None
+
+        cw_a = [p for p in self.data_provider.subproviders \
+                if getattr(p, "name", "") == "cloud_water"]
+        if len(cw_a) > 0 and self.include_cloud_water:
+            cw_a = cw_a[0]
+            cw = self.simulation.atmosphere.absorbers[-2]
+            self.simulation.retrieval.add(cw)
+            pl = PiecewiseLinear(cw_a)
+            cw.transformation = Composition(Log10(), pl)
+            cw.retrieval.limit_high = -3
+            self.cw = cw
+        else:
+            self.cw = None
+
+        t_a = [p for p in self.data_provider.subproviders \
+               if getattr(p, "name", "") == "temperature"]
+        if len(t_a) > 0:
+            t = self.simulation.atmosphere.temperature
+            self.temperature = t
+            self.simulation.retrieval.add(self.temperature)
+        else:
+            self.temperature = None
+
+    def __init__(
+            self,
+            hydrometeors,
+            sensors,
+            data_provider,
+            data_path=None,
+            include_cloud_water=False
+    ):
+
+        cw_a = [p for p in data_provider.subproviders \
+                if getattr(p, "name", "") == "cloud_water"]
+        self.include_cloud_water = (len(cw_a) > 0) or include_cloud_water
+
+        self.hydrometeors = hydrometeors
+        absorbers = [
+            O2(model="TRE05", from_catalog=False),
+            N2(model="SelfContStandardType", from_catalog=False),
+            H2O(model=["SelfContCKDMT320", "ForeignContCKDMT320"],
+                from_catalog=True,
+                lineshape="VP",
+                normalization="VVH",
+                cutoff=750e9)
+        ]
+        if self.include_cloud_water:
+            absorbers.insert(2, CloudWater(model="ELL07", from_catalog=False))
+        scatterers = hydrometeors
+        surface = Tessem()
+
+        if data_path is None:
+            catalog = Aer("h2o_lines.xml.gz")
+        else:
+            catalog = Aer(Path(data_path) / "h2o_lines.xml.gz")
+
+        atmosphere = Atmosphere1D(absorbers, scatterers, surface, catalog=catalog)
+        self.simulation = ArtsSimulation(atmosphere,
+                                         sensors=sensors,
+                                         scattering_solver=Disort(nstreams=16))
+        self.sensors = sensors
+
+        self.data_provider = data_provider
+        self.simulation.data_provider = self.data_provider
+
+        self._setup_retrieval()
+
+        self.radar_only = all(
+            [isinstance(s, ActiveSensor) for s in self.sensors])
+
+        def radar_only(rr):
+
+            rr.settings["max_iter"] = 30
+            rr.settings["stop_dx"] = 1e-4
+            rr.settings["method"] = "lm"
+            rr.settings["lm_ga_settings"] = np.array(
+                [1000.0, 3.0, 2.0, 10e3, 1.0, 1.0])
+
+            rr.sensors = [s for s in rr.sensors if isinstance(s, ActiveSensor)]
+            rr.retrieval_quantities = [h.moments[0] for h in self.hydrometeors]
+            rr.retrieval_quantities += [
+                h.moments[1] for h in self.hydrometeors
+            ]
+            #rr.retrieval_quantities = [h.moments[1] for h in self.hydrometeors]
+
+        def all_quantities(rr):
+
+            rr.settings["max_iter"] = 30
+            rr.settings["stop_dx"] = 1e-2
+            rr.settings["method"] = "lm"
+            rr.settings["lm_ga_settings"] = np.array(
+                [20.0, 5.0, 2.0, 1e5, 0.1, 1.0])
+
+            if all([isinstance(s, PassiveSensor) for s in rr.sensors]):
+                rr.settings["lm_ga_settings"] = np.array(
+                    [20.0, 3.0, 2.0, 1e5, 0.1, 1.0])
+            #else:
+            #    rr.settings["lm_ga_settings"] = np.array(
+            #        [10.0, 3.0, 2.0, 1e5, 1.0, 1.0])
+            rr.retrieval_quantities = [h.moments[0] for h in self.hydrometeors]
+            rr.retrieval_quantities += [
+                h.moments[1] for h in self.hydrometeors
+            ]
+
+            if not self.h2o is None:
+                rr.retrieval_quantities += [self.h2o]
+            if not self.cw is None:
+                rr.retrieval_quantities += [self.cw]
+            if not self.temperature is None:
+                rr.retrieval_quantities += [self.temperature]
+
+        if all([isinstance(s, ActiveSensor) for s in self.sensors]):
+            self.simulation.retrieval.callbacks = [("Radar only", radar_only)]
+        elif any([isinstance(s, ActiveSensor) for s in self.sensors]):
+            self.simulation.retrieval.callbacks = [
+                #("Radar only", radar_only),
+                ("All quantities", all_quantities)
+            ]
+        else:
+            self.simulation.retrieval.callbacks = [("All quantities",
+                                                    all_quantities)]
+
+    def setup(self, verbosity=1):
+        """
+        Run artssat setup of simulation instance. This function needs to be executed
+        before the retrieval can be calculated.
+
+        Arguments:
+
+            verbosity: ARTS workspace verbosity. 0 for silent.
+        """
+
+        self.simulation.setup(verbosity=verbosity)
+
+    def run(self, i):
+        """
+        Run retrieval with simulation argument i.
+
+        Arguments:
+            i: The simulation argument that is passed to the run method of the
+               ArtsSimulation object.
+        """
+        self.index = i
+        return self.simulation.run(i)
+
+
+################################################################################
+# Cloud simulation
+################################################################################
+
+
+class CloudSimulation:
+    """
+    Class for performing forward simulation on GEM model data.
+    """
+    def __init__(self,
+                 hydrometeors,
+                 sensors,
+                 data_provider,
+                 include_cloud_water=False):
+        """
+        Arguments:
+
+            hydrometeors(list): List of the hydrometeors to use in the simulation.
+
+            sensors(list): List of sensors for which to simulate observations.
+
+            data_provider: Data provider object providing the simulation data.
+
+            include_cloud_water(bool): Whether or not to include cloud water
+        """
+        self.include_cloud_water = include_cloud_water
+
+        self.hydrometeors = hydrometeors
+        absorbers = [
+            O2(model="TRE05", from_catalog=False),
+            N2(model="SelfContStandardType", from_catalog=False),
+            H2O(model=["SelfContCKDMT320", "ForeignContCKDMT320"],
+                lineshape="VP",
+                normalization="VVH",
+                cutoff=750e9)
+        ]
+        absorbers = [O2(), N2(), H2O()]
+        if self.include_cloud_water:
+            absorbers.insert(2, CloudWater(model="ELL07", from_catalog=False))
+        scatterers = hydrometeors
+        surface = Tessem()
+        atmosphere = Atmosphere2D(absorbers, scatterers, surface)
+        self.simulation = ArtsSimulation(atmosphere,
+                                         sensors=sensors,
+                                         scattering_solver=Disort(nstreams=16))
+        self.sensors = sensors
+
+        self.data_provider = data_provider
+        self.simulation.data_provider = self.data_provider
+
+    def setup(self, verbosity=1):
+        """
+        Run setup method of ArtsSimulation.
+        """
+        self.simulation.setup(verbosity=verbosity)
+
+    def run(self, *args, **kwargs):
+        return self.simulation.run(*args, **kwargs)
 
 
 @contextmanager
