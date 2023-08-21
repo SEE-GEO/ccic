@@ -78,8 +78,10 @@ def get_hydrometeors(static_data, ice_psd, ice_shape):
 
     if ice_psd == "d14":
         psd = D14M(-0.26, 1.75, 917.0)
+    elif ice_psd.lower() == "f07_tropical":
+        psd = F07(regime="tropical")
     else:
-        psd = F07()
+        psd = F07(regime="midlatitudes")
     psd.t_max = 274.0
 
     ice_mask = a_priori.FreezingLevel(lower_inclusive=True, invert=False)
