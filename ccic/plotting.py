@@ -6,6 +6,7 @@ Helper functions for plotting results.
 """
 from pathlib import Path
 
+import cartopy.crs as ccrs
 import cmocean
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
@@ -15,8 +16,10 @@ from matplotlib.colors import (
     to_hex,
     LinearSegmentedColormap
 )
-from ccic.data.cloudsat import CLOUD_CLASSES
+from matplotlib.ticker import FixedLocator
 import numpy as np
+
+from ccic.data.cloudsat import CLOUD_CLASSES
 
 
 def set_style():
@@ -373,3 +376,25 @@ def get_cloud_type_cmap():
     colors = ["#FFFFFF", b1, b2, b3, b4, b5, r1, r2, r3]
     cloud_class_cmap = LinearSegmentedColormap.from_list("cloud_classes", colors, N=9)
     return cloud_class_cmap
+
+
+def add_ticks(ax, lons, lats, left=True, bottom=True):
+    """
+    Add ticks to a cartopy plot.
+
+    Args:
+        ax: A Matplotlib axes object to which to add the ticks.
+        lons: The longitude values at which to draw the ticks.
+        lats: The latitude values at which to draw ticks.
+        left: Flag indicating whether to draw ticks on the left
+            y-axis. 'lats' argument will be ignored if this is 'False'.
+        bottom: Flag indicating whether to draw ticks on the lower
+            x-axis. 'lons' argument will be ignored if this is 'False'.
+    """
+    gl = ax.gridlines(crs=ccrs.PlateCarree(), draw_labels=True, linewidth=0, color='none')
+    gl.top_labels = False
+    gl.right_labels = False
+    gl.left_labels = left
+    gl.bottom_labels = bottom
+    gl.xlocator = FixedLocator(lons)
+    gl.ylocator = FixedLocator(lats)
