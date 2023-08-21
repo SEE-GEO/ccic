@@ -22,4 +22,5 @@ jobs:
         shell: bash -l {0}
         run: mamba env create --quiet --file ccic.yml &&
              pip install -e . &&
+             pip install pytest &&
              pytest test
