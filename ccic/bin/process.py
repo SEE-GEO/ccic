@@ -334,7 +334,10 @@ def run(args):
     # Load model.
     model = Path(args.model)
     if not model.exists():
-        LOGGER.error("The provides model '%s' does not exist.", model.name)
+        LOGGER.error(
+            "The provided CCIC retrieval model '%s' does not exist.",
+            model
+        )
         return 1
 
     # Determine input data.
