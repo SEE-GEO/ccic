@@ -134,7 +134,22 @@ def add_parser(subparsers):
         ),
         default=None
     )
-    parser.add_argument("--roi", metavar="x", type=float, nargs=4, default=None)
+    parser.add_argument(
+        "--roi",
+        metavar=("lon_min", "lat_min", "lon_max", "lat_max"),
+        type=float,
+        nargs=4,
+        default=None,
+        help=(
+            "Corner coordinates (lon_min, lat_min, lon_max, lat_max) of a "
+            " rectangular bounding box for which to run the retrieval. If "
+            " given, the retrieval will be run only for  a limited subset "
+            " of the global input data that in guaranteed to include the "
+            " given ROI. "
+            "NOTE: that the minimum size of the output will be at "
+            " leat 256 pixels."
+        )
+    )
     parser.add_argument("--n_processes", metavar="n", type=int, default=1)
     parser.add_argument(
         "--inpainted_mask",
