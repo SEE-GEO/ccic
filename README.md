@@ -63,11 +63,7 @@ ccic process --help
 ``ccic`` relies on the ``pansat`` package to outmatically download reuqired input data. To automatically download the CPCIR input data, you need to provide ``pansat`` with your credentials for the NASA GES DISC server.
 
 
----
-**NOTE**
-
-We recommend creating a new account with throw-away credential for this purpose.
----
+> NOTE: We recommend creating a new account with throw-away credential for this purpose.
 
 After setting up your account you can configure ``pansat`` as follows:
 
