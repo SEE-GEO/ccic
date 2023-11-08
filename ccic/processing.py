@@ -6,12 +6,12 @@ Implements functions for the operational processing of the CCIC
 retrieval.
 """
 from dataclasses import dataclass
-from datetime import datetime
 from enum import Enum
 from io import StringIO
 from logging import Handler
 from pathlib import Path
 import sqlite3
+from typing import List
 
 import numpy as np
 from pansat.time import to_datetime
@@ -251,6 +251,15 @@ class ProcessingLog(Handler):
     A logging handler that logs processing info to a database.
     """
 
+    @staticmethod
+    def get_failed(database_path) -> List[str]:
+        with sqlite3.connect(database_path) as conn:
+            cursor = conn.cursor()
+            res = cursor.execute(
+                "SELECT input_file FROM files WHERE success=0"
+            )
+            return [tpl[0] for tpl in res.fetchall()]
+
     def __init__(self, database_path, input_file):
         super().__init__(level="DEBUG")
         if database_path is not None:
@@ -277,10 +286,10 @@ class ProcessingLog(Handler):
             cursor.execute(
                 """
                 CREATE TABLE files(
-                    name TEXT PRIMARY KEY,
+                    input_file TEXT PRIMARY KEY,
+                    output_file TEXT,
                     date date,
                     success INTEGER,
-                    output_file TEXT,
                     tiwp_min FLOAT,
                     tiwp_max FLOAT,
                     tiwp_mean FLOAT,
@@ -300,7 +309,7 @@ class ProcessingLog(Handler):
 
         with sqlite3.connect(self.database_path) as conn:
             cursor = conn.cursor()
-            res = cursor.execute("SELECT * FROM files WHERE name=?", (self.input_file,))
+            res = cursor.execute("SELECT * FROM files WHERE input_file=?", (self.input_file,))
             if res.fetchone() is None:
                 res = cursor.execute(
                     """
@@ -309,9 +318,9 @@ class ProcessingLog(Handler):
                     """,
                     (
                         self.input_file,
+                        "",
                         datetime.now(),
                         False,
-                        "",
                         np.nan,
                         np.nan,
                         np.nan,
@@ -357,12 +366,12 @@ class ProcessingLog(Handler):
         with sqlite3.connect(self.database_path) as conn:
             cursor = conn.cursor()
             res = cursor.execute(
-                "SELECT log FROM files WHERE name=?", (self.input_file,)
+                "SELECT log FROM files WHERE input_file=?", (self.input_file,)
             )
             self.buffer.seek(0)
             log = res.fetchone()[0] + self.buffer.read().encode()
             res = cursor.execute(
-                "UPDATE files SET log=? WHERE name=?",
+                "UPDATE files SET log=? WHERE input_file=?",
                 (log, self.input_file),
             )
         return None
@@ -389,7 +398,7 @@ class ProcessingLog(Handler):
         with sqlite3.connect(self.database_path) as conn:
             cursor = conn.cursor()
             res = cursor.execute(
-                "SELECT log FROM files WHERE name=?", (self.input_file,)
+                "SELECT log FROM files WHERE input_file=?", (self.input_file,)
             )
 
             if res.fetchone() is not None:
@@ -401,7 +410,7 @@ class ProcessingLog(Handler):
                 tiwp_max=?,
                 tiwp_mean=?,
                 n_missing=?
-            WHERE name=?
+            WHERE input_file=?
             """
                 data = (
                     True,
@@ -414,6 +423,8 @@ class ProcessingLog(Handler):
                 )
                 res = cursor.execute(cmd, data)
         return None
+
+
 
 
 def get_output_filename(input_file, date, retrieval_settings):

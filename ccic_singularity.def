@@ -3,7 +3,6 @@ From: ccic_conda.sif
 
 %files
     ../pansat /pansat
-    ../quantnn /quantnn
     ../ccic /ccic
     ../../.config/pansat/identities.json /pansat/identities.json
 
@@ -14,12 +13,12 @@ From: ccic_conda.sif
 
 %post
     /opt/conda/envs/ccic/bin/python3 -m pip install --no-cache-dir /pansat
-    /opt/conda/envs/ccic/bin/python3 -m pip install --no-cache-dir /quantnn
+    /opt/conda/envs/ccic/bin/python3 -m pip install quantnn
     /opt/conda/envs/ccic/bin/python3 -m pip install --no-cache-dir /ccic
     /opt/conda/envs/ccic/bin/python3 -m pip install notebook tensorboard
 
-    echo ". /opt/conda/etc/profile.d/conda.sh" >> $SINGULARITY_ENVIRONMENT
-    echo "conda activate ccic" >> $SINGULARITY_ENVIRONMENT
+    echo ". /singularity_shell_init.sh" >> $SINGULARITY_ENVIRONMENT
+    echo "micromamba activate ccic" >> $SINGULARITY_ENVIRONMENT
 
 %runscript
 

@@ -6,6 +6,8 @@ ccic.bin.process
 This sub-module implements the CLI to run the CCIC retrievals.
 """
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
+from datetime import datetime
+import hashlib
 import logging
 from multiprocessing import Manager, Process
 from pathlib import Path
@@ -80,7 +82,11 @@ def add_parser(subparsers):
         ),
     )
     parser.add_argument(
-        "--targets", metavar="target", type=str, nargs="+", default=["tiwp", "tiwp_fpavg"]
+        "--targets",
+        metavar="target",
+        type=str,
+        nargs="+",
+        default=["tiwp", "tiwp_fpavg"],
     )
     parser.add_argument(
         "--tile_size",
@@ -101,7 +107,7 @@ def add_parser(subparsers):
         metavar="dev",
         type=str,
         help="The name of the torch device to use for processing.",
-        default="cpu"
+        default="cpu",
     )
     parser.add_argument(
         "--precision",
@@ -111,7 +117,7 @@ def add_parser(subparsers):
             "The precision with which to run the retrieval. Only has an "
             "effect for GPU processing."
         ),
-        default=32
+        default=32,
     )
     parser.add_argument(
         "--output_format",
@@ -123,16 +129,23 @@ def add_parser(subparsers):
             " storing 'tiwp' fields as 8-bit integer, which significantly"
             " reduces the size of the output files."
         ),
-        default="netcdf"
+        default="netcdf",
     )
     parser.add_argument(
         "--database_path",
         metavar="path",
         type=str,
+        help=("Path to the database to use to log processing progress."),
+        default=None,
+    )
+    parser.add_argument(
+        "--failed",
+        action="store_true",
         help=(
-            "Path to the database to use to log processing progress."
+            "If this flag is set, the retrieval will be run only for input "
+            "whose processing is flagged as failed in the processing log "
+            " database."
         ),
-        default=None
     )
     parser.add_argument(
         "--roi",
@@ -148,16 +161,16 @@ def add_parser(subparsers):
             " given ROI. "
             "NOTE: that the minimum size of the output will be at "
             " leat 256 pixels."
-        )
+        ),
     )
     parser.add_argument("--n_processes", metavar="n", type=int, default=1)
     parser.add_argument(
         "--inpainted_mask",
-        action='store_true',
+        action="store_true",
         help=(
             "Create a variable `inpainted` indicating if "
             "the retrieved pixel is inpainted (the input data was NaN)."
-        )
+        ),
     )
     parser.add_argument(
         "--confidence_interval",
@@ -167,7 +180,7 @@ def add_parser(subparsers):
             "Width of the equal-tailed confidence interval to use to report "
             "retrieval uncertainty of scalar retrieval targets. "
             "Must be within [0, 1]."
-        )
+        ),
     )
     parser.set_defaults(func=run)
 
@@ -190,6 +203,7 @@ def process_files(processing_queue, result_queue, model, retrieval_settings):
         RemoteFile,
         ProcessingLog
     )
+
     logger = logging.getLogger(__file__)
 
     mrnn = MRNN.load(model)
@@ -202,8 +216,7 @@ def process_files(processing_queue, result_queue, model, retrieval_settings):
         input_file, clean_up = args
 
         log = ProcessingLog(
-            retrieval_settings.database_path,
-            Path(input_file.filename).name
+            retrieval_settings.database_path, Path(input_file.filename).name
         )
 
         with log.log(logger):
@@ -233,10 +246,8 @@ def download_files(download_queue, processing_queue, retrieval_settings):
         processing_queue: A queue object on which the downloaded files
             will be put.
     """
-    from ccic.processing import (
-        RemoteFile,
-        ProcessingLog
-    )
+    from ccic.processing import RemoteFile, ProcessingLog
+
     logger = logging.getLogger(__file__)
 
     while True:
@@ -245,22 +256,21 @@ def download_files(download_queue, processing_queue, retrieval_settings):
             break
 
         log = ProcessingLog(
-            retrieval_settings.database_path,
-            Path(input_file.filename).name
+            retrieval_settings.database_path, Path(input_file.filename).name
         )
         with log.log(logger):
-            try:
-                if isinstance(input_file, RemoteFile):
-                    logger.info(
-                        "Input file not locally available, download required."
-                    )
+            if isinstance(input_file, RemoteFile):
+                clean_up = False
+                try:
+                    logger.info("Input file not locally available, download required.")
                     input_file = input_file.get()
                     clean_up = True
-                else:
-                    logger.info("Input file locally available.")
-                    clean_up = False
-            except Exception as e:
-                logger.exception(e)
+                except Exception as e:
+                    logger.exception(e)
+
+            else:
+                logger.info("Input file locally available.")
+                clean_up = False
         processing_queue.put((input_file, clean_up))
     processing_queue.put(None)
 
@@ -279,8 +289,9 @@ def write_output(result_queue, retrieval_settings, output_path):
         OutputFormat,
         get_encodings,
         get_output_filename,
-        ProcessingLog
+        ProcessingLog,
     )
+
     logger = logging.getLogger(__file__)
 
     while True:
@@ -289,14 +300,9 @@ def write_output(result_queue, retrieval_settings, output_path):
             break
 
         input_file, data = results
-        log = ProcessingLog(
-            retrieval_settings.database_path,
-            input_file.filename.name
-        )
+        log = ProcessingLog(retrieval_settings.database_path, input_file.filename.name)
         output_file = get_output_filename(
-            input_file,
-            data.time.data[0],
-            retrieval_settings
+            input_file, data.time.data[0], retrieval_settings
         )
         with log.log(logger):
             try:
@@ -307,12 +313,25 @@ def write_output(result_queue, retrieval_settings, output_path):
                 else:
                     data.to_zarr(output_path / output_file, encoding=encodings)
                 logger.info(
-                    "Successfully processed input file '%s'.",
-                    input_file.filename
+                    "Successfully processed input file '%s'.", input_file.filename
                 )
             except Exception as e:
                 logger.exception(e)
         log.finalize(data, output_file)
+
+
+def _get_database_name(args) -> str:
+    """Determine database name based on arguments."""
+    hsh = hashlib.md5()
+    hsh.update(
+        (
+            f"{args.model}{args.input_type}{args.start_time}{args.end_time}"
+            f"{args.roi}"
+        ).encode()
+    )
+    database_name =  f"ccic_processing_{hsh.hexdigest()[:32]}.db"
+    return database_name
+
 
 
 def run(args):
@@ -327,17 +346,16 @@ def run(args):
     from ccic.processing import (
         process_input_file,
         get_input_files,
+        RemoteFile,
         RetrievalSettings,
-        OutputFormat
+        OutputFormat,
+        ProcessingLog
     )
 
     # Load model.
     model = Path(args.model)
     if not model.exists():
-        LOGGER.error(
-            "The provided CCIC retrieval model '%s' does not exist.",
-            model
-        )
+        LOGGER.error("The provided CCIC retrieval model '%s' does not exist.", model)
         return 1
 
     # Determine input data.
@@ -386,51 +404,67 @@ def run(args):
             )
             return 1
 
-    with TemporaryDirectory() as tmp:
-        input_files = get_input_files(
-            input_cls,
-            start_time,
-            end_time=end_time,
-            working_dir=tmp,
-            path=input_path
-        )
+    # Retrieval settings
+    valid_targets = [
+        "tiwp",
+        "tiwp_fpavg",
+        "tiwc",
+        "cloud_type",
+        "cloud_prob_2d",
+        "cloud_prob_3d",
+    ]
+    targets = args.targets
+    if any([target not in valid_targets for target in targets]):
+        LOGGER.error("Targets must be a subset of %s.", valid_targets)
 
-        # Retrieval settings
-        valid_targets = [
-            "tiwp",
-            "tiwp_fpavg",
-            "tiwc",
-            "cloud_type",
-            "cloud_prob_2d",
-            "cloud_prob_3d",
-        ]
-        targets = args.targets
-        if any([target not in valid_targets for target in targets]):
-            LOGGER.error("Targets must be a subset of %s.", valid_targets)
+    output_format = None
+    if not args.output_format.upper() in ["NETCDF", "ZARR"]:
+        LOGGER.error("'output_format' must be one of 'NETCDF' or 'ZARR'.")
+        return 1
+    output_format = args.output_format.upper()
 
-        output_format = None
-        if not args.output_format.upper() in ["NETCDF", "ZARR"]:
+    database_path = args.database_path
+    if database_path is not None:
+        database_path = Path(database_path)
+        database_path.is_dir() and database_path.exists()
+        if database_path.is_dir() and database_path.exists():
+            command_hash = hash(
+                f"{args.model}{args.input_type}{args.start_time}{args.end_time}"
+                f"{args.roi}"
+            )
+            database_name = _get_database_name(args)
+            database_path = database_path / database_name
+        elif not database_path.parent.exists():
             LOGGER.error(
-                "'output_format' must be one of 'NETCDF' or 'ZARR'."
+                "If provided, database path must point to a file in an "
+                " directory."
             )
             return 1
-        output_format = args.output_format.upper()
 
-        database_path = args.database_path
-        if not database_path is None:
-            database_path = Path(database_path)
-            if not database_path.parent.exists():
-                LOGGER.error(
-                    "If provided, database path must point to a file in an "
-                    " directory."
-                )
-                return 1
+    with TemporaryDirectory() as working_dir:
 
-        if ((args.confidence_interval < 0.0) or
-            (args.confidence_interval > 1.0)):
-            LOGGER.error(
-                "Width of confidence interval must be within [0, 1]."
+        if not args.failed or database_path is None:
+            input_files = get_input_files(
+                input_cls, start_time, end_time=end_time, path=input_path,
+                working_dir=working_dir
             )
+            # Initialize database with all found files.
+            if database_path is not None:
+                for input_file in input_files:
+                    ProcessingLog(database_path, input_file)
+        else:
+            input_files = [
+                RemoteFile(input_cls, name, working_dir=working_dir)
+                for name in ProcessingLog.get_failed(database_path)
+            ]
+            LOGGER.info(
+                f"Found {len(input_files)} failed input files in logging database "
+                f" {database_path}."
+            )
+
+
+        if (args.confidence_interval < 0.0) or (args.confidence_interval > 1.0):
+            LOGGER.error("Width of confidence interval must be within [0, 1].")
             return 1
 
         retrieval_settings = RetrievalSettings(
@@ -441,9 +475,9 @@ def run(args):
             device=args.device,
             precision=args.precision,
             output_format=OutputFormat[output_format],
-            database_path=args.database_path,
+            database_path=database_path,
             inpainted_mask=args.inpainted_mask,
-            confidence_interval=args.confidence_interval
+            confidence_interval=args.confidence_interval,
         )
 
         # Use managed queue to pass files between download threads
@@ -472,4 +506,3 @@ def run(args):
         download_thread.join()
         processing_process.join()
         output_process.join()
-
