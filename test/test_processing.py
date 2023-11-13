@@ -9,8 +9,11 @@ import sqlite3
 from tempfile import TemporaryDirectory
 import timeit
 
-from quantnn.mrnn import MRNN
+
 import numpy as np
+import pytest
+from quantnn.mrnn import MRNN
+import torch
 import xarray as xr
 
 from ccic.data.cpcir import CPCIR
@@ -24,13 +27,24 @@ from ccic.processing import (
     get_encodings,
     OutputFormat,
     ProcessingLog,
-    get_invalid_mask
+    get_invalid_mask,
+    determine_cloud_class,
 )
 
 
-TEST_DATA = Path(os.environ.get("CCIC_TEST_DATA", None))
+try:
+    TEST_DATA = Path(os.environ.get("CCIC_TEST_DATA", None))
+    HAS_TEST_DATA = True
+except TypeError:
+    HAS_TEST_DATA = False
 
 
+NEEDS_TEST_DATA = pytest.mark.skipif(
+    not HAS_TEST_DATA, reason="Needs 'CCIC_TEST_DATA'."
+)
+
+
+@NEEDS_TEST_DATA
 def test_get_input_files():
     """
     Test that input files are determined correctly.
@@ -107,6 +121,7 @@ def test_get_input_files():
     assert isinstance(input_files[0], GridSat)
 
 
+@NEEDS_TEST_DATA
 def test_remote_file():
     """
     Test that input files are determined correctly.
@@ -131,6 +146,7 @@ def test_remote_file():
     if_2 = input_files_prefetch[0]
 
 
+@NEEDS_TEST_DATA
 def test_processing(tmp_path):
     """
     Test processing and writing of CPCIR and GridSat input files.
@@ -142,21 +158,21 @@ def test_processing(tmp_path):
     for input_file in [cpcir_file, gridsat_file]:
         results = process_input_file(mrnn, input_file)
         assert "tiwp" in results
-        assert "tiwp_log_std_dev" in results
+        assert "tiwp_ci" in results
         assert "p_tiwp" in results
         assert np.any(np.isfinite(results["tiwp"].data))
-        assert np.any(np.isfinite(results["tiwp_log_std_dev"].data))
+        assert np.any(np.isfinite(results["tiwp_ci"].data))
         assert np.any(np.isfinite(results["p_tiwp"].data))
 
         assert "tiwp_fpavg" in results
-        assert "tiwp_fpavg_log_std_dev" in results
+        assert "tiwp_fpavg_ci" in results
         assert "p_tiwp_fpavg" in results
         assert np.any(np.isfinite(results["tiwp_fpavg"].data))
-        assert np.any(np.isfinite(results["tiwp_fpavg_log_std_dev"].data))
+        assert np.any(np.isfinite(results["tiwp_fpavg_ci"].data))
         assert np.any(np.isfinite(results["p_tiwp_fpavg"].data))
 
         assert "tiwc" in results
-        assert "tiwc_log_std_dev" not in results
+        assert "tiwc_ci" not in results
         assert "p_tiwc" not in results
 
         assert "input_filename" in results.attrs
@@ -188,6 +204,7 @@ def test_processing(tmp_path):
         assert results_nc.variables.keys() == results_zarr.variables.keys()
 
 
+@NEEDS_TEST_DATA
 def test_get_output_filename():
     """
     Ensure that filenames have the right suffixes.
@@ -248,10 +265,10 @@ def test_processing_logger(tmp_path):
         res = cursor.execute("SELECT log FROM files")
         entry = res.fetchone()
         assert entry is not None
-        print(len(entry[0]))
         assert len(entry[0]) > 0
 
 
+@NEEDS_TEST_DATA
 def test_invalid_mask():
     """
     Test masking of invalid inputs.
@@ -264,3 +281,21 @@ def test_invalid_mask():
         x = input_file.get_retrieval_input()
         mask = get_invalid_mask(x)
         assert np.any(~mask)
+
+
+def test_determine_cloud_class():
+    """
+    Test that the cloud class is determined correctly from a tensor
+    of cloud type probabilities.
+    """
+    probs = np.array([
+        [0.0, 0.2, 0.8],
+        [0.4, 0.35, 0.25],
+        [0.64, 0.2, 0.2],
+    ])
+
+    types = determine_cloud_class(probs, axis=-1)
+
+    assert types[0] == 2
+    assert types[1] == 1
+    assert types[2] == 0

@@ -13,9 +13,9 @@ def test_codec():
     Ensures that encoding error are small and that NAN values are
     handled correctly.
     """
-    codec = LogBins(1e-3, 1e2)
-    values = np.logspace(-3, 2, 10_000).astype(np.float32)
-    values[0] = 1e-4
+    codec = LogBins(1e-4, 1e2)
+    values = np.logspace(-4, 2, 10_000).astype(np.float32)
+    values[0] = 1e-5
     values[-1] = np.nan
     values_enc = codec.encode(values)
 
@@ -42,7 +42,7 @@ def test_save_dataset(tmpdir):
         "iwp": (("y", "x"), data)
     })
 
-    filters = [LogBins(1e-3, 1e2)]
+    filters = [LogBins(1e-4, 1e2)]
     compressor = zarr.Blosc(cname="zstd", clevel=3, shuffle=2)
 
     encodings = {

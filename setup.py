@@ -17,11 +17,17 @@ setup(
     install_requires=[
         "metpy",
         "numpy",
-        "quantnn",
+        "quantnn>=0.0.5",
         "torch",
         "pytorch-lightning",
+        "pansat",
         "xarray",
         "zarr",
+        "netCDF4",
+        "dask",
+        "beautifulsoup4",
+        "lxml",
+        "artssat @ git+https://github.com/simonpf/artssat.git"
     ],
     packages=find_packages(),
     python_requires=">=3.8",
@@ -29,7 +35,11 @@ setup(
         "Source": "https://github.com/see-geo/ccic/",
     },
     include_package_data=True,
-    package_data={},
+    package_data={
+        "ccic" : [
+            "files/ccic.mplstyle"
+        ]
+    },
     entry_points = {
         'console_scripts': ['ccic=ccic.bin:ccic'],
     },

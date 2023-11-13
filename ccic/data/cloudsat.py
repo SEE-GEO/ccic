@@ -22,6 +22,18 @@ PROVIDER_2CICE = CloudSatDPCProvider(l2c_ice)
 PROVIDER_2BCLDCLASS = CloudSatDPCProvider(l2b_cldclass)
 ALTITUDE_LEVELS = (np.arange(0, 20) + 0.5) * 1e3
 
+CLOUD_CLASSES = [
+    "No cloud",
+    "Ci",
+    "As",
+    "Ac",
+    "St",
+    "Sc",
+    "Cu",
+    "Ns",
+    "DC"
+]
+
 
 def get_sample_indices(resampler):
     """

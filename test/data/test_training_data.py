@@ -10,12 +10,18 @@ import numpy as np
 from ccic.data.training_data import CCICDataset
 
 
-TEST_DATA = Path(os.environ.get("CCIC_TEST_DATA", None))
+try:
+    TEST_DATA = Path(os.environ.get("CCIC_TEST_DATA", None))
+    HAS_TEST_DATA = True
+except TypeError:
+    HAS_TEST_DATA = False
+
 NEEDS_TEST_DATA = pytest.mark.skipif(
-    TEST_DATA is None, reason="Needs 'CCIC_TEST_DATA'."
+    not HAS_TEST_DATA, reason="Needs 'CCIC_TEST_DATA'."
 )
 
 
+@NEEDS_TEST_DATA
 def test_load_data():
     """
     Ensure that the dataset length matches the number of training
@@ -26,6 +32,7 @@ def test_load_data():
     assert len(dataset) == n_files
 
 
+@NEEDS_TEST_DATA
 def test_load_sample():
     """
     Test that loading a sample from the data works and that data
@@ -37,9 +44,9 @@ def test_load_sample():
 
         x, y = dataset[0]
 
-        assert "iwp" in y
-        assert "iwp_rand" in y
-        assert "iwc" in y
+        assert "tiwp_fpavg" in y
+        assert "tiwp" in y
+        assert "tiwc" in y
         assert "cloud_class" in y
         assert "cloud_mask" in y
 

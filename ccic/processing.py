@@ -17,11 +17,12 @@ import numpy as np
 from pansat.time import to_datetime
 from scipy.ndimage.morphology import binary_closing
 import torch
+from torch import nn
 import xarray as xr
 import zarr
 
 from ccic import __version__
-from ccic.tiler import Tiler
+from ccic.tiler import Tiler, calculate_padding
 from ccic.data.cpcir import CPCIR
 from ccic.data.gridsat import GridSat
 from ccic.data.utils import extract_roi
@@ -112,6 +113,8 @@ class RetrievalSettings:
     precision: int = 32
     output_format: OutputFormat = OutputFormat["NETCDF"]
     database_path: str = "ccic_processing.db"
+    inpainted_mask: bool = False
+    confidence_interval: float = 0.9
 
 
 def get_input_files(
@@ -158,6 +161,64 @@ def get_input_files(
     files = input_cls.find_files(path=path, start_time=start_time, end_time=end_time)
     return [input_cls(filename) for filename in files]
 
+
+def determine_cloud_class(class_probs, threshold=0.638, axis=1):
+    """
+    Determines cloud classes from a tensor of cloud-type probabilities.
+
+    If the 'no cloud' probability of a tensor element is larger than a
+    threshold, the class will be 'no cloud'. Otherwise the diagnosed
+    cloud type will be the one that is most likely and is not 'no cloud'.
+
+
+    Args:
+        class_probs: A torch tensor containing cloud-type probabilities.
+        threshold: The no-cloud probability threshold to use.
+
+    Return:
+        A tensor containing the class indices of the most likely cloud
+        type.
+    """
+    shape = list(class_probs.shape)
+    del shape[axis]
+    types = np.zeros(shape, dtype="uint8")
+
+    inds = [slice(0, None)] * class_probs.ndim
+    inds[axis] = 0
+    cloud_mask = class_probs[tuple(inds)] < threshold
+    inds[axis] = slice(1, None)
+    prob_types = np.argmax(class_probs[tuple(inds)], axis=axis).astype("uint8") + 1
+    types[cloud_mask] = prob_types[cloud_mask]
+    return types
+
+def determine_column_cloud_class(cloud_classes):
+    """
+    Determine the the type of column cloud class from CCIC
+    cloud class probabilities. The column cloud classes are given
+    by the indices:
+
+    * 0: clear-sky column
+    * 1: cloudy column
+    * 2: convective column
+    * -1: column with all invalid cloud classes
+
+    An atmospheric column is classified as convective if it contains
+    at least one parcel that is classified as Cu, Ns or DC.
+    
+    Args:
+        cloud_classes: Cloud class probabilities as predicted by CCIC.
+         
+    Return:
+        The corresponding column cloud class indices
+    """
+    cc = np.zeros(cloud_classes.shape[:-1], dtype='int8')
+    cloudy = np.any(cloud_classes > 0, -1)
+    cc[cloudy] = 1
+    conv = np.any(cloud_classes > 5, -1)
+    cc[conv] = 2
+    invalid = np.all(cloud_classes > 8, -1)
+    cc[invalid] = -1
+    return cc
 
 ###############################################################################
 # Database logging
@@ -385,21 +446,19 @@ def get_output_filename(input_file, date, retrieval_settings):
     return f"ccic_{file_type}_{date_str}.{suffix}"
 
 
-REGRESSION_TARGETS = ["iwp", "iwp_rand", "iwc"]
-SCALAR_TARGETS = ["iwp", "iwp_rand"]
-THRESHOLDS = {"iwp": 1e-3, "iwp_rand": 1e-3, "iwc": 1e-3}
-
-# Maps NN target names to output names.
-OUTPUT_NAMES = {"iwp": "tiwp_fpavg", "iwp_rand": "tiwp", "iwc": "tiwc"}
+REGRESSION_TARGETS = ["tiwp", "tiwp_fpavg", "tiwc"]
+SCALAR_TARGETS = ["tiwp", "tiwp_fpavg"]
+THRESHOLDS = {"tiwp": 1e-3, "tiwp_fpavg": 1e-3, "tiwc": 1e-3}
 
 
 def process_regression_target(
+    retrieval_settings,
     mrnn,
     y_pred,
     invalid,
     target,
     means,
-    log_std_devs,
+    conf_ints,
     p_non_zeros,
 ):
     """
@@ -409,12 +468,14 @@ def process_regression_target(
     and posterior quantiles, however, are only calculated for scalar retrieval
     targets.
     Args:
+        retrieval_settings: The retrieval settings representing the retrieval
+            configuration.
         mrnn: The MRNN model used for the inference.
         y_pred: The dictionary containing all predictions from the model.
         target: The retrieval target to process.
         means: Result dict to which to store the calculated posterior means.
-        log_std_devs: Result dict to which to store the calculate log standard
-            deviations.
+        conf_ints: Result dict to which to store the lower and upper bounds of
+            the calculated confidence intervals.
         p_non_zeros: Result dict to which to store the calculated probability that
             the target is larger than the corresponding minimum threshold.
     """
@@ -424,16 +485,20 @@ def process_regression_target(
     means[target][-1].append(mean)
 
     if target in SCALAR_TARGETS:
-        log_std_dev = (
-            mrnn.posterior_std_dev(y_pred=torch.log10(y_pred[target]), key=target)
-            .cpu()
-            .float()
-            .numpy()
+        conf = retrieval_settings.confidence_interval
+        lower = 0.5 * (1.0 - conf)
+        upper = 1.0 - lower
+        conf_int = (
+            mrnn.posterior_quantiles(
+                y_pred=y_pred[target],
+                quantiles=[lower, upper],
+                key=target
+            ).cpu().float().numpy()
         )
         for ind in range(invalid.shape[0]):
-            log_std_dev[ind, ..., invalid[ind]] = np.nan
+            conf_int[ind, ..., invalid[ind]] = np.nan
 
-        log_std_devs[target][-1].append(log_std_dev)
+        conf_ints[target][-1].append(conf_int)
         p_non_zero = (
             mrnn.probability_larger_than(
                 y_pred=y_pred[target], y=THRESHOLDS[target], key=target
@@ -496,17 +561,22 @@ def process_input(mrnn, x, retrieval_settings=None):
     targets = retrieval_settings.targets
     if targets is None:
         targets = [
-            "iwp",
-            "iwp_rand",
-            "iwc",
+            "tiwp",
+            "tiwp_fpavg",
+            "tiwc",
             "cloud_prob_2d",
             "cloud_prob_3d",
             "cloud_type",
         ]
 
-    tiler = Tiler(x, tile_size=tile_size, overlap=overlap)
+    tiler = Tiler(
+        x,
+        tile_size=tile_size,
+        overlap=overlap,
+        wrap_columns=retrieval_settings.roi is None
+    )
     means = {}
-    log_std_devs = {}
+    conf_ints = {}
     p_non_zeros = {}
     cloud_prob_2d = []
     cloud_prob_3d = []
@@ -525,7 +595,7 @@ def process_input(mrnn, x, retrieval_settings=None):
                 if target in REGRESSION_TARGETS:
                     means.setdefault(target, []).append([])
                     if target in SCALAR_TARGETS:
-                        log_std_devs.setdefault(target, []).append([])
+                        conf_ints.setdefault(target, []).append([])
                         p_non_zeros.setdefault(target, []).append([])
                 elif target == "cloud_prob_2d":
                     cloud_prob_2d.append([])
@@ -539,23 +609,42 @@ def process_input(mrnn, x, retrieval_settings=None):
 
                 # Use torch autocast for mixed precision.
                 x_t = x_t.to(device)
+
+                if (x_t.shape[-2] % 32 > 0) or (x_t.shape[-1] % 32 > 0):
+                    padding = calculate_padding(x_t, 32)
+                    x_t = nn.functional.pad(x_t, padding, mode="reflect")
+                    slices = [
+                        slice(padding[2], x_t.shape[-2] - padding[3]),
+                        slice(padding[0], x_t.shape[-1] - padding[1])
+                    ]
+                else:
+                    slices = None
+
                 if precision == 16:
                     with torch.autocast(device_type=device):
                         y_pred = mrnn.predict(x_t)
                 else:
                     y_pred = mrnn.predict(x_t)
 
+                # Remove padding if has been applied.
+                if slices is not None:
+                    x_t = x_t[..., slices[0], slices[1]]
+                    y_pred = {
+                        key: val[..., slices[0], slices[1]] for key, val in y_pred.items()
+                    }
+
                 invalid = get_invalid_mask(x_t)
 
                 for target in targets:
                     if target in REGRESSION_TARGETS:
                         process_regression_target(
+                            retrieval_settings,
                             mrnn,
                             y_pred,
                             invalid,
                             target,
                             means=means,
-                            log_std_devs=log_std_devs,
+                            conf_ints=conf_ints,
                             p_non_zeros=p_non_zeros,
                         )
                     elif target == "cloud_prob_2d":
@@ -583,16 +672,17 @@ def process_input(mrnn, x, retrieval_settings=None):
             dims = ("time", "latitude", "longitude", "altitude")
             mean = np.transpose(mean, [0, 2, 3, 1])
 
-        results[OUTPUT_NAMES[target]] = (dims, mean)
+        results[target] = (dims, mean)
 
     dims = ("time", "latitude", "longitude")
     for target, p_non_zero in p_non_zeros.items():
         smpls = tiler.assemble(p_non_zero)
-        results["p_" + OUTPUT_NAMES[target]] = (dims, smpls)
+        results["p_" + target] = (dims, smpls)
 
-    for target, log_std_dev in log_std_devs.items():
-        log_std_dev = tiler.assemble(log_std_dev)
-        results[OUTPUT_NAMES[target] + "_log_std_dev"] = (dims, log_std_dev)
+    dims = ("time", "latitude", "longitude", "ci_bounds")
+    for target, conf_int in conf_ints.items():
+        conf_int = tiler.assemble(conf_int)
+        results[target + "_ci"] = (dims, np.transpose(conf_int, (0, 2, 3, 1)))
 
     dims = ("time", "latitude", "longitude")
     if len(cloud_prob_2d) > 0:
@@ -605,12 +695,20 @@ def process_input(mrnn, x, retrieval_settings=None):
         cloud_prob_3d = np.transpose(cloud_prob_3d, [0, 2, 3, 1])
         results["cloud_prob_3d"] = (dims, cloud_prob_3d)
 
-    dims = ("time", "latitude", "longitude", "altitude", "type")
+    dims = ("time", "latitude", "longitude", "altitude")
     if len(cloud_type) > 0:
-        cloud_type = tiler.assemble(cloud_type)
-        cloud_type = np.transpose(cloud_type, [0, 3, 4, 2, 1])
+        cloud_type = determine_cloud_class(tiler.assemble(cloud_type))
+        cloud_type = np.transpose(cloud_type, [0, 2, 3, 1])
         results["cloud_type"] = (dims, cloud_type)
-    results["altitude"] = (("altitude,",), np.arange(20) * 1e3 + 500.0)
+    results["altitude"] = (("altitude",), np.arange(20) * 1e3 + 500.0)
+
+    if retrieval_settings.inpainted_mask:
+        # Assumes a quantnn.normalizer.MinMaxNormalizer is applied on x which
+        # replaces NaNs with -1.5 and normalizes everything else between -1 and +1
+        results["inpainted"] = (
+            ("time", "latitude", "longitude"),
+            x.reshape(-1, *x.shape[-2:]) < -1.4
+        )
 
     return results
 
@@ -648,12 +746,12 @@ def process_input_file(mrnn, input_file, retrieval_settings=None):
         results[dim] = input_data[dim]
 
     results.attrs.update(input_file.get_input_file_attributes())
-    add_static_cf_attributes(results)
+    add_static_cf_attributes(retrieval_settings, results)
 
     return results
 
 
-def add_static_cf_attributes(dataset):
+def add_static_cf_attributes(retrieval_settings, dataset):
     """
     Adds static attributes required by CF convections.
     """
@@ -679,12 +777,15 @@ def add_static_cf_attributes(dataset):
         dataset["tiwp"].attrs[
             "long_name"
         ] = "Vertically-integrated concentration of frozen hydrometeors"
-        dataset["tiwp"].attrs["ancillary_variables"] = "tiwp_log_std_dev p_tiwp"
+        dataset["tiwp"].attrs["ancillary_variables"] = "tiwp_ci p_tiwp"
 
-        dataset["tiwp_log_std_dev"].attrs[
+        dataset["tiwp_ci"].attrs[
             "long_name"
-        ] = "Standard deviation of log-transformed vertically-integrated concentration of frozen hydrometeors"
-        dataset["tiwp_log_std_dev"].attrs["units"] = "log(kg m-2)"
+        ] = (
+            f"{int(100 * retrieval_settings.confidence_interval)}% confidence"
+            " interval for the retrieved TIWP"
+        )
+        dataset["tiwp_ci"].attrs["units"] = "kg m-2"
         dataset["p_tiwp"].attrs[
             "long_name"
         ] = "Probability that 'tiwp' exceeds 1e-3 kg m-2"
@@ -697,19 +798,22 @@ def add_static_cf_attributes(dataset):
         ] = "Vertically-integrated concentration of frozen hydrometeors"
         dataset["tiwp_fpavg"].attrs[
             "ancillary_variables"
-        ] = "tiwp_fpavg_log_std_dev p_tiwp_fpavg"
+        ] = "tiwp_fpavg_ci p_tiwp_fpavg"
 
-        dataset["tiwp_fpavg_log_std_dev"].attrs[
+        dataset["tiwp_fpavg_ci"].attrs[
             "long_name"
-        ] = "Standard deviation of log-transformed vertically-integrated concentration of frozen hydrometeors"
-        dataset["tiwp_fpavg_log_std_dev"].attrs["units"] = "log(kg m-2)"
+        ] = (
+            f"{int(100 * retrieval_settings.confidence_interval)}% confidence"
+            " interval for the retrieved footprint-averaged TIWP"
+        )
+        dataset["tiwp_fpavg_ci"].attrs["units"] = "kg m-2"
         dataset["p_tiwp_fpavg"].attrs[
             "long_name"
         ] = "Probability that 'tiwp_fpavg' exceeds 1e-3 kg m-2"
         dataset["p_tiwp_fpavg"].attrs["units"] = "1"
 
     if "tiwc" in dataset:
-        dataset["tiwc"].attrs["units"] = "kg m-3"
+        dataset["tiwc"].attrs["units"] = "g m-3"
         dataset["tiwc"].attrs["long_name"] = "Concentration of frozen hydrometeors"
 
     if "cloud_prob_2d" in dataset:
@@ -725,6 +829,12 @@ def add_static_cf_attributes(dataset):
         dataset["cloud_type"].attrs["long_name"] = "Most likely cloud type"
         dataset["cloud_type"].attrs["flag_values"] = "0, 1, 2, 3, 4, 5, 6, 7, 8"
         dataset["cloud_type"].attrs["flag_meanings"] = "No cloud, Cirrus, Altostratus, Altocumulus, Stratus, Stratocumulus, Cumulus, Nimbostratus, Deep convection"
+    
+    if "inpainted" in dataset:
+        dataset["inpainted"].attrs["units"] = "1"
+        dataset["inpainted"].attrs["long_name"] = "Inpainted pixel from input pixel with NaN"
+        dataset["inpainted"].attrs["flag_values"] = "0, 1"
+        dataset["inpainted"].attrs["flag_meanings"] = "Pixel not inpainted, pixel inpainted"
 
 
 
@@ -735,25 +845,33 @@ def get_encodings_zarr(variable_names):
     target variables in zarr format.
     """
     compressor = zarr.Blosc(cname="lz4", clevel=9, shuffle=2)
-    filters = [LogBins(1e-3, 1e2)]
+    filters_iwp = [LogBins(1e-3, 1e2)]
+    filters_iwc = [LogBins(1e-4, 1e2)]
     all_encodings = {
-        "tiwp": {"compressor": compressor, "filters": filters, "dtype": "float32"},
-        "tiwc": {"compressor": compressor, "filters": filters, "dtype": "float32"},
+        "tiwp": {
+            "compressor": compressor,
+            "filters": filters_iwp,
+            "dtype": "float32"
+        },
+        "tiwc": {
+            "compressor": compressor,
+            "filters": filters_iwc,
+            "dtype": "float32"
+        },
         "p_tiwp": {
             "compressor": compressor,
             "dtype": "uint8",
             "scale_factor": 1 / 250,
             "_FillValue": 255,
         },
-        "tiwp_log_std_dev": {
+        "tiwp_ci": {
             "compressor": compressor,
-            "dtype": "uint8",
-            "scale_factor": 1 / 12.5,
-            "_FillValue": 255,
+            "filters": filters_iwp,
+            "dtype": "float32"
         },
         "tiwp_fpavg": {
             "compressor": compressor,
-            "filters": filters,
+            "filters": filters_iwp,
             "dtype": "float32",
         },
         "p_tiwp_fpavg": {
@@ -762,25 +880,24 @@ def get_encodings_zarr(variable_names):
             "scale_factor": 1 / 250,
             "_FillValue": 255,
         },
-        "tiwp_fpavg_log_std_dev": {
+        "tiwp_fpavg_ci": {
             "compressor": compressor,
-            "dtype": "uint8",
-            "scale_factor": 1 / 12.5,
-            "_FillValue": 255,
+            "filters": filters_iwp,
+            "dtype": "float32"
         },
         "cloud_prob_2d": {
             "compressor": compressor,
-            "scale_factor": 250,
+            "scale_factor": 1 / 250,
             "_FillValue": 255,
             "dtype": "uint8",
         },
         "cloud_prob_3d": {
             "compressor": compressor,
-            "scale_factor": 250,
+            "scale_factor": 1 / 250,
             "_FillValue": 255,
             "dtype": "uint8",
         },
-        "cloud_type": {"compressor": compressor, "dtype": "uint8", "_FillValue": -1},
+        "cloud_type": {"compressor": compressor, "dtype": "uint8", "_FillValue": 255},
         "longitude": {
             "compressor": compressor,
             "dtype": "float32",
@@ -789,6 +906,7 @@ def get_encodings_zarr(variable_names):
             "compressor": compressor,
             "dtype": "float32",
         },
+        "inpainted": {"compressor": compressor, "dtype": "uint8", "_FillValue": 255},
     }
     return {
         name: all_encodings[name] for name in variable_names if name in all_encodings
@@ -809,22 +927,12 @@ def get_encodings_netcdf(variable_names):
             "_FillValue": 255,
             "zlib": True,
         },
-        "tiwp_log_std_dev": {
-            "dtype": "uint8",
-            "scale_factor": 1 / 12.5,
-            "_FillValue": 255,
-            "zlib": True,
-        },
+        "tiwp_ci": {"dtype": "float32", "zlib": True},
         "tiwp_fpavg": {"dtype": "float32", "zlib": True},
+        "tiwp_fpavg_ci": {"dtype": "float32", "zlib": True},
         "p_tiwp_fpavg": {
             "dtype": "uint8",
             "scale_factor": 1 / 250,
-            "_FillValue": 255,
-            "zlib": True,
-        },
-        "tiwp_fpavg_log_std_dev": {
-            "dtype": "uint8",
-            "scale_factor": 1 / 12.5,
             "_FillValue": 255,
             "zlib": True,
         },
@@ -843,6 +951,7 @@ def get_encodings_netcdf(variable_names):
         "cloud_type": {"dtype": "uint8", "zlib": True},
         "longitude": {"dtype": "float32", "zlib": True},
         "latitude": {"dtype": "float32", "zlib": True},
+        "inpainted": {"dtype": "uint8", "zlib": True}
     }
     return {
         name: all_encodings[name] for name in variable_names if name in all_encodings

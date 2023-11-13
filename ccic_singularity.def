@@ -16,7 +16,7 @@ From: ccic_conda.sif
     /opt/conda/envs/ccic/bin/python3 -m pip install --no-cache-dir /pansat
     /opt/conda/envs/ccic/bin/python3 -m pip install --no-cache-dir /quantnn
     /opt/conda/envs/ccic/bin/python3 -m pip install --no-cache-dir /ccic
-    /opt/conda/envs/ccic/bin/python3 -m pip install notebook
+    /opt/conda/envs/ccic/bin/python3 -m pip install notebook tensorboard
 
     echo ". /opt/conda/etc/profile.d/conda.sh" >> $SINGULARITY_ENVIRONMENT
     echo "conda activate ccic" >> $SINGULARITY_ENVIRONMENT

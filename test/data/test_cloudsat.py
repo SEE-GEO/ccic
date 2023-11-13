@@ -22,17 +22,28 @@ from ccic.data.cloudsat import (
 )
 
 
-TEST_DATA = os.environ.get("CCIC_TEST_DATA", None)
-if TEST_DATA is not None:
-    TEST_DATA = Path(TEST_DATA)
+try:
+    TEST_DATA = Path(os.environ.get("CCIC_TEST_DATA", None))
+    HAS_TEST_DATA = True
+except TypeError:
+    HAS_TEST_DATA = False
+
 NEEDS_TEST_DATA = pytest.mark.skipif(
-    TEST_DATA is None, reason="Needs 'CCIC_TEST_DATA'."
+    not HAS_TEST_DATA, reason="Needs 'CCIC_TEST_DATA' set."
 )
+
+PANSAT_PW = os.environ.get("PANSAT_PASSWORD", None)
+NEEDS_PANSAT_PW = pytest.mark.skipif(
+    PANSAT_PW is None, reason="Needs 'PANSAT_PASSWORD' set."
+)
+
+
 CS_2CICE_FILE = "2008032011612_09374_CS_2C-ICE_GRANULE_P1_R05_E02_F00.hdf"
 CS_2BCLDCLASS_FILE = "2008032011612_09374_CS_2B-CLDCLASS_GRANULE_P1_R05_E02_F00.hdf"
 CPCIR_FILE = "merg_2008020101_4km-pixel.nc4"
 
 
+@NEEDS_PANSAT_PW
 def test_available_files():
     """
     Test that available files for 2008-02-01 are found.
@@ -43,6 +54,7 @@ def test_available_files():
     assert len(available_files) > 10
 
 
+@NEEDS_PANSAT_PW
 def test_available_granules():
     """
     Test extraction of available granules is consistent with available files.

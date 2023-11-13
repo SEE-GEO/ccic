@@ -1,0 +1,27 @@
+name: install_and_test
+on: [push]
+jobs:
+  install_and_test_job:
+    strategy:
+      matrix:
+        os: [ubuntu-latest]
+        python: [3.9]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v3
+      - name: Setup
+        uses: conda-incubator/setup-miniconda@v2
+        with:
+                miniforge-version: latest
+                miniforge-variant: mambaforge
+                channel-priority: strict
+                channels: conda-forge
+                show-channel-urls: true
+                use-only-tar-bz2: true
+      - name: Install and test
+        shell: bash -l {0}
+        run: mamba env create --quiet --file ccic.yml &&
+             conda activate ccic &&
+             pip install -e . &&
+             pip install pytest &&
+             pytest test

@@ -10,20 +10,33 @@ import pytest
 from ccic.data.cloudsat import CloudSat2CIce, CloudSat2BCLDCLASS
 from ccic.data.cpcir import CPCIR
 
-TEST_DATA = os.environ.get("CCIC_TEST_DATA", None)
-if TEST_DATA is not None:
-    TEST_DATA = Path(TEST_DATA)
+try:
+    TEST_DATA = Path(os.environ.get("CCIC_TEST_DATA", None))
+    HAS_TEST_DATA = True
+except TypeError:
+    HAS_TEST_DATA = False
+
+
 NEEDS_TEST_DATA = pytest.mark.skipif(
-    TEST_DATA is None, reason="Needs 'CCIC_TEST_DATA'."
+    not HAS_TEST_DATA, reason="Needs 'CCIC_TEST_DATA'."
 )
+
+
+PANSAT_PW = os.environ.get("PANSAT_PASSWORD", None)
+NEEDS_PANSAT_PW = pytest.mark.skipif(
+    PANSAT_PW is None, reason="Needs 'PANSAT_PASSWORD' set."
+)
+
+
 CS_2CICE_FILE = "2008032011612_09374_CS_2C-ICE_GRANULE_P1_R05_E02_F00.hdf"
 CS_2BCLDCLASS_FILE = "2008032011612_09374_CS_2B-CLDCLASS_GRANULE_P1_R05_E02_F00.hdf"
 CPCIR_FILE = "merg_2008020101_4km-pixel.nc4"
 
 
+@NEEDS_TEST_DATA
 def test_find_files():
     """
-    Ensure that all three files in test data folder are found.
+    Ensure that all four files in test data folder are found.
     """
     files = CPCIR.find_files(TEST_DATA)
     assert len(files) == 4
@@ -40,6 +53,7 @@ def test_find_files():
     assert len(files) == 1
 
 
+@NEEDS_PANSAT_PW
 def test_get_available_files():
     """
     Assert that the correct times are returned for a given day.
@@ -71,7 +85,7 @@ def test_get_retrieval_input():
     x = cpcir.get_retrieval_input()
     assert x.ndim == 4
     assert x.shape[0] == 2
-    assert x.shape[1] == 3
+    assert x.shape[1] == 1
     assert (x >= -1.5).all()
     assert (x <= 1.0).all()
 
