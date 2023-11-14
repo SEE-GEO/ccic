@@ -8,6 +8,7 @@ Its task is to delegate the processing to the sub-commands defined in
  the sub-module of the 'ccic.bin' module.
 """
 import argparse
+import logging
 import sys
 import warnings
 
@@ -24,6 +25,7 @@ def ccic():
     from ccic.bin import test
     from ccic.bin import run_radar_only_retrieval
 
+    logging.basicConfig(level="INFO")
     warnings.filterwarnings("ignore", category=RuntimeWarning)
 
     description = "ccic: The Chalmers cloud-ice climatology"

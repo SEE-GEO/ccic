@@ -6,6 +6,7 @@ Implements functions for the operational processing of the CCIC
 retrieval.
 """
 from dataclasses import dataclass
+from datetime import datetime
 from enum import Enum
 from io import StringIO
 from logging import Handler
@@ -79,15 +80,17 @@ class RemoteFile:
             )
 
         output_path = Path(working_dir) / self.filename
+        if output_path.exists():
+            return self.file_cls(output_path), False
 
         # Check if file is pre-fetched.
         if self.prefetch_task is not None:
             self.prefetch_task.result()
             result = self.file_cls(output_path)
-            return result
+            return result, True
 
         self.file_cls.download(self.filename, output_path)
-        return self.file_cls(output_path)
+        return self.file_cls(output_path), True
 
 
 class OutputFormat(Enum):
@@ -118,7 +121,7 @@ class RetrievalSettings:
 
 
 def get_input_files(
-    input_cls, start_time, end_time=None, path=None, thread_pool=None, working_dir=None
+    input_cls, start_time, end_time=None, path=None, thread_pool=None,
 ):
     """
     Determine local or remote input files.
@@ -138,28 +141,24 @@ def get_input_files(
         path: If given, will be used to look for local files.
         thread_pool: An optional thread pool to use for the prefetching
             of remote files.
-        working_dir: A temporary directory to use for the prefetching of files.
+
+    Return:
+        A list
     """
     start_time = to_datetime(start_time)
     if end_time is None:
         end_time = start_time
 
-    # Return remote files if no path if given.
-    if path is None:
-        files = input_cls.get_available_files(start_time=start_time, end_time=end_time)
-        return [
-            RemoteFile(
-                input_cls,
-                filename,
-                working_dir,
-                thread_pool=thread_pool,
-            )
-            for filename in files
-        ]
-
-    # Return local files if path if given.
-    files = input_cls.find_files(path=path, start_time=start_time, end_time=end_time)
-    return [input_cls(filename) for filename in files]
+    files = input_cls.get_available_files(start_time=start_time, end_time=end_time)
+    return [
+        RemoteFile(
+            input_cls,
+            filename,
+            path,
+            thread_pool=thread_pool,
+        )
+        for filename in files
+    ]
 
 
 def determine_cloud_class(class_probs, threshold=0.638, axis=1):

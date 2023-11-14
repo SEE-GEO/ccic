@@ -6,7 +6,6 @@ ccic.bin.process
 This sub-module implements the CLI to run the CCIC retrievals.
 """
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
-from datetime import datetime
 import hashlib
 import logging
 from multiprocessing import Manager, Process
@@ -204,6 +203,7 @@ def process_files(processing_queue, result_queue, model, retrieval_settings):
         ProcessingLog
     )
 
+    logging.basicConfig(level="INFO")
     logger = logging.getLogger(__file__)
 
     mrnn = MRNN.load(model)
@@ -259,18 +259,7 @@ def download_files(download_queue, processing_queue, retrieval_settings):
             retrieval_settings.database_path, Path(input_file.filename).name
         )
         with log.log(logger):
-            if isinstance(input_file, RemoteFile):
-                clean_up = False
-                try:
-                    logger.info("Input file not locally available, download required.")
-                    input_file = input_file.get()
-                    clean_up = True
-                except Exception as e:
-                    logger.exception(e)
-
-            else:
-                logger.info("Input file locally available.")
-                clean_up = False
+            input_file, clean_up = input_file.get()
         processing_queue.put((input_file, clean_up))
     processing_queue.put(None)
 
@@ -441,68 +430,70 @@ def run(args):
             )
             return 1
 
-    with TemporaryDirectory() as working_dir:
+    if input_path is None:
+        working_dir = TemporaryDirectory()
+    else:
+        working_dir = input_path
 
-        if not args.failed or database_path is None:
-            input_files = get_input_files(
-                input_cls, start_time, end_time=end_time, path=input_path,
-                working_dir=working_dir
-            )
-            # Initialize database with all found files.
-            if database_path is not None:
-                for input_file in input_files:
-                    ProcessingLog(database_path, input_file)
-        else:
-            input_files = [
-                RemoteFile(input_cls, name, working_dir=working_dir)
-                for name in ProcessingLog.get_failed(database_path)
-            ]
-            LOGGER.info(
-                f"Found {len(input_files)} failed input files in logging database "
-                f" {database_path}."
-            )
-
-
-        if (args.confidence_interval < 0.0) or (args.confidence_interval > 1.0):
-            LOGGER.error("Width of confidence interval must be within [0, 1].")
-            return 1
-
-        retrieval_settings = RetrievalSettings(
-            tile_size=args.tile_size,
-            overlap=args.overlap,
-            targets=targets,
-            roi=args.roi,
-            device=args.device,
-            precision=args.precision,
-            output_format=OutputFormat[output_format],
-            database_path=database_path,
-            inpainted_mask=args.inpainted_mask,
-            confidence_interval=args.confidence_interval,
+    if not args.failed or database_path is None:
+        input_files = get_input_files(
+            input_cls, start_time, end_time=end_time, path=working_dir,
+        )
+        # Initialize database with all found files.
+        if database_path is not None:
+            for input_file in input_files:
+                ProcessingLog(database_path, input_file)
+    else:
+        input_files = [
+            RemoteFile(input_cls, name, working_dir=working_dir)
+            for name in ProcessingLog.get_failed(database_path)
+        ]
+        LOGGER.info(
+            f"Found {len(input_files)} failed input files in logging database "
+            f" {database_path}."
         )
 
-        # Use managed queue to pass files between download threads
-        # and processing processes.
-        manager = Manager()
-        download_queue = manager.Queue()
-        processing_queue = manager.Queue(4)
-        result_queue = manager.Queue(4)
 
-        args = (download_queue, processing_queue, retrieval_settings)
-        download_thread = Thread(target=download_files, args=args)
-        args = (processing_queue, result_queue, model, retrieval_settings)
-        processing_process = Process(target=process_files, args=args)
-        args = (result_queue, retrieval_settings, output)
-        output_process = Process(target=write_output, args=args)
+    if (args.confidence_interval < 0.0) or (args.confidence_interval > 1.0):
+        LOGGER.error("Width of confidence interval must be within [0, 1].")
+        return 1
 
-        # Submit a download task for each file.
-        for input_file in input_files:
-            download_queue.put(input_file)
-        download_queue.put(None)
+    retrieval_settings = RetrievalSettings(
+        tile_size=args.tile_size,
+        overlap=args.overlap,
+        targets=targets,
+        roi=args.roi,
+        device=args.device,
+        precision=args.precision,
+        output_format=OutputFormat[output_format],
+        database_path=database_path,
+        inpainted_mask=args.inpainted_mask,
+        confidence_interval=args.confidence_interval,
+    )
 
-        download_thread.start()
-        processing_process.start()
-        output_process.start()
+    # Use managed queue to pass files between download threads
+    # and processing processes.
+    manager = Manager()
+    download_queue = manager.Queue()
+    processing_queue = manager.Queue(4)
+    result_queue = manager.Queue(4)
 
-        download_thread.join()
-        processing_process.join()
-        output_process.join()
+    args = (download_queue, processing_queue, retrieval_settings)
+    download_thread = Thread(target=download_files, args=args)
+    args = (processing_queue, result_queue, model, retrieval_settings)
+    processing_process = Process(target=process_files, args=args)
+    args = (result_queue, retrieval_settings, output)
+    output_process = Process(target=write_output, args=args)
+
+    # Submit a download task for each file.
+    for input_file in input_files:
+        download_queue.put(input_file)
+    download_queue.put(None)
+
+    download_thread.start()
+    processing_process.start()
+    output_process.start()
+
+    download_thread.join()
+    processing_process.join()
+    output_process.join()
