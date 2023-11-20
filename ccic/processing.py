@@ -9,10 +9,10 @@ from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
 from io import StringIO
-from logging import Handler
+import logging
 from pathlib import Path
 import sqlite3
-from typing import List
+from typing import List, Optional
 
 import numpy as np
 from pansat.time import to_datetime
@@ -28,6 +28,9 @@ from ccic.data.cpcir import CPCIR
 from ccic.data.gridsat import GridSat
 from ccic.data.utils import extract_roi
 from ccic.codecs import LogBins
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass
@@ -118,6 +121,7 @@ class RetrievalSettings:
     database_path: str = "ccic_processing.db"
     inpainted_mask: bool = False
     confidence_interval: float = 0.9
+    transfer: Optional[str] = None
 
 
 def get_input_files(
@@ -245,7 +249,7 @@ class LogContext:
         self.handler.finish_logging(self.logger)
 
 
-class ProcessingLog(Handler):
+class ProcessingLog(logging.Handler):
     """
     A logging handler that logs processing info to a database.
     """
@@ -265,6 +269,9 @@ class ProcessingLog(Handler):
             self.database_path = Path(database_path)
         else:
             self.database_path = None
+
+        if isinstance(input_file, RemoteFile):
+            input_file = input_file.filename
 
         self.input_file = input_file
         self.buffer = StringIO()
@@ -600,6 +607,8 @@ def process_input(mrnn, x, retrieval_settings=None):
     with torch.no_grad():
         for i in range(tiler.M):
 
+            LOGGER.info(f"Processing tile {i + 1} of {tiler.M}.")
+
             # Insert empty list into list of row results.
             for target in targets:
                 if target in REGRESSION_TARGETS:
@@ -741,6 +750,7 @@ def process_input_file(mrnn, input_file, retrieval_settings=None):
         retrieval_settings = RetrievalSettings()
     roi = retrieval_settings.roi
 
+    LOGGER.info(f"Loading retrieval input from file {input_file}.")
     retrieval_input = input_file.get_retrieval_input(roi=roi)
     results = process_input(
         mrnn, retrieval_input, retrieval_settings=retrieval_settings
