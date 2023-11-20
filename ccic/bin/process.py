@@ -10,6 +10,8 @@ import hashlib
 import logging
 from multiprocessing import Manager, Process
 from pathlib import Path
+import shutil
+import subprocess
 from tempfile import TemporaryDirectory
 from threading import Thread
 
@@ -181,6 +183,16 @@ def add_parser(subparsers):
             "Must be within [0, 1]."
         ),
     )
+    parser.add_argument(
+        "--transfer",
+        type=str,
+        default=None,
+        help=(
+            "Optional ssh target to which the produced output file will be "
+            " copied using scp. This requires ssh public-key authentication "
+            " to be set up on the system."
+        )
+    )
     parser.set_defaults(func=run)
 
 
@@ -203,8 +215,8 @@ def process_files(processing_queue, result_queue, model, retrieval_settings):
         ProcessingLog
     )
 
-    logging.basicConfig(level="INFO")
-    logger = logging.getLogger(__file__)
+    logging.basicConfig(level=logging.INFO)
+    logger = logging.getLogger(__name__)
 
     mrnn = MRNN.load(model)
     mrnn.model.eval()
@@ -212,6 +224,7 @@ def process_files(processing_queue, result_queue, model, retrieval_settings):
     while True:
         args = processing_queue.get()
         if args is None:
+            processing_queue.task_done()
             break
         input_file, clean_up = args
 
@@ -221,7 +234,7 @@ def process_files(processing_queue, result_queue, model, retrieval_settings):
 
         with log.log(logger):
             try:
-                logger.info("Starting processing input file '%s'.", input_file.filename)
+                logger.info("Starting processing of input file '%s'.", input_file.filename)
                 results = process_input_file(
                     mrnn, input_file, retrieval_settings=retrieval_settings
                 )
@@ -232,8 +245,11 @@ def process_files(processing_queue, result_queue, model, retrieval_settings):
             finally:
                 if clean_up:
                     Path(input_file.filename).unlink()
+                processing_queue.task_done()
 
-    result_queue.put(None)
+    for i in range(4):
+        result_queue.put(None)
+    result_queue.join()
 
 
 def download_files(download_queue, processing_queue, retrieval_settings):
@@ -248,7 +264,7 @@ def download_files(download_queue, processing_queue, retrieval_settings):
     """
     from ccic.processing import RemoteFile, ProcessingLog
 
-    logger = logging.getLogger(__file__)
+    logger = logging.getLogger(__name__)
 
     while True:
         input_file = download_queue.get()
@@ -261,7 +277,9 @@ def download_files(download_queue, processing_queue, retrieval_settings):
         with log.log(logger):
             input_file, clean_up = input_file.get()
         processing_queue.put((input_file, clean_up))
+
     processing_queue.put(None)
+    processing_queue.join()
 
 
 def write_output(result_queue, retrieval_settings, output_path):
@@ -281,11 +299,12 @@ def write_output(result_queue, retrieval_settings, output_path):
         ProcessingLog,
     )
 
-    logger = logging.getLogger(__file__)
+    logger = logging.getLogger(__name__)
 
     while True:
         results = result_queue.get()
         if results is None:
+            result_queue.task_done()
             break
 
         input_file, data = results
@@ -301,12 +320,23 @@ def write_output(result_queue, retrieval_settings, output_path):
                     data.to_netcdf(output_path / output_file, encoding=encodings)
                 else:
                     data.to_zarr(output_path / output_file, encoding=encodings)
+
+                if retrieval_settings.transfer is not None:
+                    output = output_path / output_file
+                    command = ["scp", "-r", str(output), retrieval_settings.transfer]
+                    subprocess.run(command, check=True)
+                    if output.is_dir():
+                        shutil.rmtree(output)
+                    else:
+                        output.unlink()
+
                 logger.info(
                     "Successfully processed input file '%s'.", input_file.filename
                 )
             except Exception as e:
                 logger.exception(e)
         log.finalize(data, output_file)
+        result_queue.task_done()
 
 
 def _get_database_name(args) -> str:
@@ -431,7 +461,8 @@ def run(args):
             return 1
 
     if input_path is None:
-        working_dir = TemporaryDirectory()
+        tmp = TemporaryDirectory()
+        working_dir = Path(tmp.name)
     else:
         working_dir = input_path
 
@@ -445,7 +476,7 @@ def run(args):
                 ProcessingLog(database_path, input_file)
     else:
         input_files = [
-            RemoteFile(input_cls, name, working_dir=working_dir)
+            RemoteFile(input_cls, name, working_dir=Path(working_dir))
             for name in ProcessingLog.get_failed(database_path)
         ]
         LOGGER.info(
@@ -469,6 +500,7 @@ def run(args):
         database_path=database_path,
         inpainted_mask=args.inpainted_mask,
         confidence_interval=args.confidence_interval,
+        transfer=args.transfer
     )
 
     # Use managed queue to pass files between download threads
@@ -483,7 +515,9 @@ def run(args):
     args = (processing_queue, result_queue, model, retrieval_settings)
     processing_process = Process(target=process_files, args=args)
     args = (result_queue, retrieval_settings, output)
-    output_process = Process(target=write_output, args=args)
+    output_processes = [
+        Process(target=write_output, args=args) for _ in range(4)
+    ]
 
     # Submit a download task for each file.
     for input_file in input_files:
@@ -492,8 +526,19 @@ def run(args):
 
     download_thread.start()
     processing_process.start()
-    output_process.start()
+    [proc.start() for proc in output_processes]
 
-    download_thread.join()
-    processing_process.join()
-    output_process.join()
+    running = [download_thread, processing_process] + output_processes
+    while True:
+        running = [proc for proc in running if proc.is_alive()]
+        if len(running) == 0:
+            break
+        if not processing_process.is_alive():
+            if processing_process.exitcode != 0:
+                LOGGER.error(
+                    "The processing terminated with a non-zero exit code. This "
+                    "indicates that the process was killed. Potentially due to "
+                    "memory issues."
+                )
+            return 1
+    return 0
