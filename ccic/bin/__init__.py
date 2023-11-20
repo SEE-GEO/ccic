@@ -25,7 +25,11 @@ def ccic():
     from ccic.bin import test
     from ccic.bin import run_radar_only_retrieval
 
-    logging.basicConfig(level="INFO")
+    logging.basicConfig(
+        level="INFO",
+        force=True,
+        format='[%(levelname)s] (%(name)s): %(message)s'
+    )
     warnings.filterwarnings("ignore", category=RuntimeWarning)
 
     description = "ccic: The Chalmers cloud-ice climatology"
