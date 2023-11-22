@@ -466,6 +466,7 @@ def run(args):
         LOGGER.info(
             f"Found {len(input_files)} failed input files in logging database "
             f" {database_path}."
+        )
 
     if ((args.credible_interval < 0.0) or
         (args.credible_interval > 1.0)):
@@ -486,7 +487,7 @@ def run(args):
         output_format=OutputFormat[output_format],
         database_path=database_path,
         inpainted_mask=args.inpainted_mask,
-        confidence_interval=args.confidence_interval,
+        credible_interval=args.credible_interval,
         transfer=args.transfer,
     )
 
@@ -513,6 +514,8 @@ def run(args):
     [proc.start() for proc in processing_processes]
 
     running = [download_thread] + processing_processes
+
+    any_failed = False
     while True:
         running = [proc for proc in running if proc.is_alive()]
         if len(running) == 0:
@@ -521,11 +524,13 @@ def run(args):
             if not processing_process.is_alive():
                 if processing_process.exitcode != 0:
                     LOGGER.warning(
-                        "The processing terminated with a non-zero exit code. This "
-                        "indicates that the process was killed. Potentially due to "
-                        "memory issues."
+                        "One of the processing processes terminated with a "
+                        " non-zero exit code. This indicates that the process "
+                        " was killed. Potentially due to memory issues."
                     )
+                any_failed = True
             processing_processes = [
                 proc for proc in processing_processes if proc.is_alive()
             ]
-    return 0
+
+    return not any_failed

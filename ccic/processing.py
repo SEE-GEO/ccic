@@ -633,60 +633,8 @@ def process_input(mrnn, x, retrieval_settings=None, lock=None):
     device = retrieval_settings.device
     precision = retrieval_settings.precision
 
-<<<<<<< HEAD
     if lock is not None:
         lock.acquire()
-=======
-    mrnn.model.to(device)
-
-    with torch.no_grad():
-        for i in range(tiler.M):
-
-            # Insert empty list into list of row results.
-            for target in targets:
-                if target in REGRESSION_TARGETS:
-                    means.setdefault(target, []).append([])
-                    if target in SCALAR_TARGETS:
-                        cred_ints.setdefault(target, []).append([])
-                        p_non_zeros.setdefault(target, []).append([])
-                elif target == "cloud_prob_2d":
-                    cloud_prob_2d.append([])
-                elif target == "cloud_prob_3d":
-                    cloud_prob_3d.append([])
-                elif target == "cloud_type":
-                    cloud_type.append([])
-
-            for j in range(tiler.N):
-                x_t = tiler.get_tile(i, j)
-
-                # Use torch autocast for mixed precision.
-                x_t = x_t.to(device)
-
-                if (x_t.shape[-2] % 32 > 0) or (x_t.shape[-1] % 32 > 0):
-                    padding = calculate_padding(x_t, 32)
-                    x_t = nn.functional.pad(x_t, padding, mode="reflect")
-                    slices = [
-                        slice(padding[2], x_t.shape[-2] - padding[3]),
-                        slice(padding[0], x_t.shape[-1] - padding[1])
-                    ]
-                else:
-                    slices = None
-
-                if precision == 16:
-                    with torch.autocast(device_type=device):
-                        y_pred = mrnn.predict(x_t)
-                else:
-                    y_pred = mrnn.predict(x_t)
-
-                # Remove padding if has been applied.
-                if slices is not None:
-                    x_t = x_t[..., slices[0], slices[1]]
-                    y_pred = {
-                        key: val[..., slices[0], slices[1]] for key, val in y_pred.items()
-                    }
-
-                invalid = get_invalid_mask(x_t)
->>>>>>> origin/main
 
     try:
         mrnn.model.to(device)
@@ -696,23 +644,10 @@ def process_input(mrnn, x, retrieval_settings=None, lock=None):
                 # Insert empty list into list of row results.
                 for target in targets:
                     if target in REGRESSION_TARGETS:
-<<<<<<< HEAD
                         means.setdefault(target, []).append([])
                         if target in SCALAR_TARGETS:
-                            conf_ints.setdefault(target, []).append([])
+                            cred_ints.setdefault(target, []).append([])
                             p_non_zeros.setdefault(target, []).append([])
-=======
-                        process_regression_target(
-                            retrieval_settings,
-                            mrnn,
-                            y_pred,
-                            invalid,
-                            target,
-                            means=means,
-                            cred_ints=cred_ints,
-                            p_non_zeros=p_non_zeros,
-                        )
->>>>>>> origin/main
                     elif target == "cloud_prob_2d":
                         cloud_prob_2d.append([])
                     elif target == "cloud_prob_3d":
@@ -759,7 +694,7 @@ def process_input(mrnn, x, retrieval_settings=None, lock=None):
                                 invalid,
                                 target,
                                 means=means,
-                                conf_ints=conf_ints,
+                                cred_ints=cred_ints,
                                 p_non_zeros=p_non_zeros,
                             )
                         elif target == "cloud_prob_2d":
@@ -923,17 +858,11 @@ def add_static_cf_attributes(retrieval_settings, dataset):
         ] = "Vertically-integrated concentration of frozen hydrometeors"
         dataset["tiwp"].attrs["ancillary_variables"] = "tiwp_ci p_tiwp"
 
-<<<<<<< HEAD
-        dataset["tiwp_ci"].attrs["long_name"] = (
-            f"{int(100 * retrieval_settings.confidence_interval)}% confidence"
-            " interval for the retrieved TIWP"
-=======
         dataset["tiwp_ci"].attrs[
             "long_name"
         ] = (
             f"{int(100 * retrieval_settings.credible_interval)}% equal-"
             "tailed credible interval for the retrieved TIWP"
->>>>>>> origin/main
         )
         dataset["tiwp_ci"].attrs["units"] = "kg m-2"
         
@@ -957,17 +886,11 @@ def add_static_cf_attributes(retrieval_settings, dataset):
             "ancillary_variables"
         ] = "tiwp_fpavg_ci p_tiwp_fpavg"
 
-<<<<<<< HEAD
-        dataset["tiwp_fpavg_ci"].attrs["long_name"] = (
-            f"{int(100 * retrieval_settings.confidence_interval)}% confidence"
-            " interval for the retrieved footprint-averaged TIWP"
-=======
         dataset["tiwp_fpavg_ci"].attrs[
             "long_name"
         ] = (
             f"{int(100 * retrieval_settings.credible_interval)}% equal-tailed"
             "credible interval for the retrieved footprint-averaged TIWP"
->>>>>>> origin/main
         )
         dataset["tiwp_fpavg_ci"].attrs["units"] = "kg m-2"
 
