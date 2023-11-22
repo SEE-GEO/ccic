@@ -267,7 +267,7 @@ class ProcessingLog(logging.Handler):
     @staticmethod
     def get_failed(database_path) -> List[str]:
         with sqlite3.connect(
-                f"file:{database_path}?mode=r",
+                f"file:{database_path}?mode=ro",
                 timeout=TIMEOUT,
                 uri=True
         ) as conn:
@@ -300,7 +300,7 @@ class ProcessingLog(logging.Handler):
             return None
 
         with sqlite3.connect(
-                f"file:{self.database_path}?mode=rw",
+                f"file:{self.database_path}?mode=rwc",
                 timeout=TIMEOUT,
                 uri=True
         ) as conn:
