@@ -124,7 +124,7 @@ class RetrievalSettings:
     output_format: OutputFormat = OutputFormat["NETCDF"]
     database_path: str = "ccic_processing.db"
     inpainted_mask: bool = False
-    confidence_interval: float = 0.9
+    credible_interval: float = 0.9
     transfer: Optional[str] = None
 
 
@@ -503,7 +503,7 @@ def process_regression_target(
     invalid,
     target,
     means,
-    conf_ints,
+    cred_ints,
     p_non_zeros,
 ):
     """
@@ -519,8 +519,8 @@ def process_regression_target(
         y_pred: The dictionary containing all predictions from the model.
         target: The retrieval target to process.
         means: Result dict to which to store the calculated posterior means.
-        conf_ints: Result dict to which to store the lower and upper bounds of
-            the calculated confidence intervals.
+        cred_ints: Result dict to which to store the lower and upper bounds of
+            the calculated credible intervals.
         p_non_zeros: Result dict to which to store the calculated probability that
             the target is larger than the corresponding minimum threshold.
     """
@@ -530,10 +530,10 @@ def process_regression_target(
     means[target][-1].append(mean)
 
     if target in SCALAR_TARGETS:
-        conf = retrieval_settings.confidence_interval
-        lower = 0.5 * (1.0 - conf)
+        cred = retrieval_settings.credible_interval
+        lower = 0.5 * (1.0 - cred)
         upper = 1.0 - lower
-        conf_int = (
+        cred_int = (
             mrnn.posterior_quantiles(
                 y_pred=y_pred[target], quantiles=[lower, upper], key=target
             )
@@ -542,9 +542,9 @@ def process_regression_target(
             .numpy()
         )
         for ind in range(invalid.shape[0]):
-            conf_int[ind, ..., invalid[ind]] = np.nan
+            cred_int[ind, ..., invalid[ind]] = np.nan
 
-        conf_ints[target][-1].append(conf_int)
+        cred_ints[target][-1].append(cred_int)
         p_non_zero = (
             mrnn.probability_larger_than(
                 y_pred=y_pred[target], y=THRESHOLDS[target], key=target
@@ -624,7 +624,7 @@ def process_input(mrnn, x, retrieval_settings=None, lock=None):
         wrap_columns=retrieval_settings.roi is None,
     )
     means = {}
-    conf_ints = {}
+    cred_ints = {}
     p_non_zeros = {}
     cloud_prob_2d = []
     cloud_prob_3d = []
@@ -633,8 +633,60 @@ def process_input(mrnn, x, retrieval_settings=None, lock=None):
     device = retrieval_settings.device
     precision = retrieval_settings.precision
 
+<<<<<<< HEAD
     if lock is not None:
         lock.acquire()
+=======
+    mrnn.model.to(device)
+
+    with torch.no_grad():
+        for i in range(tiler.M):
+
+            # Insert empty list into list of row results.
+            for target in targets:
+                if target in REGRESSION_TARGETS:
+                    means.setdefault(target, []).append([])
+                    if target in SCALAR_TARGETS:
+                        cred_ints.setdefault(target, []).append([])
+                        p_non_zeros.setdefault(target, []).append([])
+                elif target == "cloud_prob_2d":
+                    cloud_prob_2d.append([])
+                elif target == "cloud_prob_3d":
+                    cloud_prob_3d.append([])
+                elif target == "cloud_type":
+                    cloud_type.append([])
+
+            for j in range(tiler.N):
+                x_t = tiler.get_tile(i, j)
+
+                # Use torch autocast for mixed precision.
+                x_t = x_t.to(device)
+
+                if (x_t.shape[-2] % 32 > 0) or (x_t.shape[-1] % 32 > 0):
+                    padding = calculate_padding(x_t, 32)
+                    x_t = nn.functional.pad(x_t, padding, mode="reflect")
+                    slices = [
+                        slice(padding[2], x_t.shape[-2] - padding[3]),
+                        slice(padding[0], x_t.shape[-1] - padding[1])
+                    ]
+                else:
+                    slices = None
+
+                if precision == 16:
+                    with torch.autocast(device_type=device):
+                        y_pred = mrnn.predict(x_t)
+                else:
+                    y_pred = mrnn.predict(x_t)
+
+                # Remove padding if has been applied.
+                if slices is not None:
+                    x_t = x_t[..., slices[0], slices[1]]
+                    y_pred = {
+                        key: val[..., slices[0], slices[1]] for key, val in y_pred.items()
+                    }
+
+                invalid = get_invalid_mask(x_t)
+>>>>>>> origin/main
 
     try:
         mrnn.model.to(device)
@@ -644,10 +696,23 @@ def process_input(mrnn, x, retrieval_settings=None, lock=None):
                 # Insert empty list into list of row results.
                 for target in targets:
                     if target in REGRESSION_TARGETS:
+<<<<<<< HEAD
                         means.setdefault(target, []).append([])
                         if target in SCALAR_TARGETS:
                             conf_ints.setdefault(target, []).append([])
                             p_non_zeros.setdefault(target, []).append([])
+=======
+                        process_regression_target(
+                            retrieval_settings,
+                            mrnn,
+                            y_pred,
+                            invalid,
+                            target,
+                            means=means,
+                            cred_ints=cred_ints,
+                            p_non_zeros=p_non_zeros,
+                        )
+>>>>>>> origin/main
                     elif target == "cloud_prob_2d":
                         cloud_prob_2d.append([])
                     elif target == "cloud_prob_3d":
@@ -751,9 +816,9 @@ def process_input(mrnn, x, retrieval_settings=None, lock=None):
         results["p_" + target] = (dims, smpls)
 
     dims = ("time", "latitude", "longitude", "ci_bounds")
-    for target, conf_int in conf_ints.items():
-        conf_int = tiler.assemble(conf_int)
-        results[target + "_ci"] = (dims, np.transpose(conf_int, (0, 2, 3, 1)))
+    for target, cred_int in cred_ints.items():
+        cred_int = tiler.assemble(cred_int)
+        results[target + "_ci"] = (dims, np.transpose(cred_int, (0, 2, 3, 1)))
 
     dims = ("time", "latitude", "longitude")
     if len(cloud_prob_2d) > 0:
@@ -771,7 +836,13 @@ def process_input(mrnn, x, retrieval_settings=None, lock=None):
         cloud_type = determine_cloud_class(tiler.assemble(cloud_type))
         cloud_type = np.transpose(cloud_type, [0, 2, 3, 1])
         results["cloud_type"] = (dims, cloud_type)
+    
     results["altitude"] = (("altitude",), np.arange(20) * 1e3 + 500.0)
+    
+    if len(cred_ints) > 0:
+        lower_bound = 0.5 * (1.0 - retrieval_settings.credible_interval)
+        upper_bound = 1.0 - lower_bound
+        results["ci_bounds"] = (("ci_bounds",), [lower_bound, upper_bound])
 
     if retrieval_settings.inpainted_mask:
         # Assumes a quantnn.normalizer.MinMaxNormalizer is applied on x which
@@ -852,15 +923,30 @@ def add_static_cf_attributes(retrieval_settings, dataset):
         ] = "Vertically-integrated concentration of frozen hydrometeors"
         dataset["tiwp"].attrs["ancillary_variables"] = "tiwp_ci p_tiwp"
 
+<<<<<<< HEAD
         dataset["tiwp_ci"].attrs["long_name"] = (
             f"{int(100 * retrieval_settings.confidence_interval)}% confidence"
             " interval for the retrieved TIWP"
+=======
+        dataset["tiwp_ci"].attrs[
+            "long_name"
+        ] = (
+            f"{int(100 * retrieval_settings.credible_interval)}% equal-"
+            "tailed credible interval for the retrieved TIWP"
+>>>>>>> origin/main
         )
         dataset["tiwp_ci"].attrs["units"] = "kg m-2"
+        
         dataset["p_tiwp"].attrs[
             "long_name"
         ] = "Probability that 'tiwp' exceeds 1e-3 kg m-2"
         dataset["p_tiwp"].attrs["units"] = "1"
+        
+        dataset["ci_bounds"].attrs["standard_name"] = "credible_interval_bounds"
+        dataset["ci_bounds"].attrs["units"] = "1"
+        dataset["ci_bounds"].attrs["long_name"] = (
+            "Quantile levels of the credible interval"
+        )
 
     if "tiwp_fpavg" in dataset:
         dataset["tiwp_fpavg"].attrs["units"] = "kg m-2"
@@ -871,15 +957,30 @@ def add_static_cf_attributes(retrieval_settings, dataset):
             "ancillary_variables"
         ] = "tiwp_fpavg_ci p_tiwp_fpavg"
 
+<<<<<<< HEAD
         dataset["tiwp_fpavg_ci"].attrs["long_name"] = (
             f"{int(100 * retrieval_settings.confidence_interval)}% confidence"
             " interval for the retrieved footprint-averaged TIWP"
+=======
+        dataset["tiwp_fpavg_ci"].attrs[
+            "long_name"
+        ] = (
+            f"{int(100 * retrieval_settings.credible_interval)}% equal-tailed"
+            "credible interval for the retrieved footprint-averaged TIWP"
+>>>>>>> origin/main
         )
         dataset["tiwp_fpavg_ci"].attrs["units"] = "kg m-2"
+
         dataset["p_tiwp_fpavg"].attrs[
             "long_name"
         ] = "Probability that 'tiwp_fpavg' exceeds 1e-3 kg m-2"
         dataset["p_tiwp_fpavg"].attrs["units"] = "1"
+
+        dataset["ci_bounds"].attrs["standard_name"] = "credible_interval_bounds"
+        dataset["ci_bounds"].attrs["units"] = "1"
+        dataset["ci_bounds"].attrs["long_name"] = (
+            "Quantile levels of the credible interval"
+        )
 
     if "tiwc" in dataset:
         dataset["tiwc"].attrs["units"] = "g m-3"
@@ -954,6 +1055,10 @@ def get_encodings_zarr(variable_names):
             "filters": filters_iwp,
             "dtype": "float32",
         },
+        "ci_bounds": {
+            "compressor": compressor,
+            "dtype": "float32"
+        },
         "cloud_prob_2d": {
             "compressor": compressor,
             "scale_factor": 1 / 250,
@@ -1005,6 +1110,7 @@ def get_encodings_netcdf(variable_names):
             "_FillValue": 255,
             "zlib": True,
         },
+        "ci_bounds": {"dtype": "float32", "zlib": True},
         "cloud_prob_2d": {
             "scale_factor": 1 / 250,
             "_FillValue": 255,

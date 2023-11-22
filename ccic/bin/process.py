@@ -173,12 +173,12 @@ def add_parser(subparsers):
         ),
     )
     parser.add_argument(
-        "--confidence_interval",
+        "--credible_interval",
         type=float,
         default=0.9,
         help=(
-            "Width of the equal-tailed confidence interval to use to report "
-            "retrieval uncertainty of scalar retrieval targets. "
+            "Probability of the equal-tailed credible interval used to "
+            "report retrieval uncertainty of scalar retrieval targets. "
             "Must be within [0, 1]."
         ),
     )
@@ -466,10 +466,12 @@ def run(args):
         LOGGER.info(
             f"Found {len(input_files)} failed input files in logging database "
             f" {database_path}."
-        )
 
-    if (args.confidence_interval < 0.0) or (args.confidence_interval > 1.0):
-        LOGGER.error("Width of confidence interval must be within [0, 1].")
+    if ((args.credible_interval < 0.0) or
+        (args.credible_interval > 1.0)):
+        LOGGER.error(
+            "Probability of credible interval must be within [0, 1]."
+        )
         return 1
 
     n_processes = args.n_processes
