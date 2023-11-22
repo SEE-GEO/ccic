@@ -1,13 +1,46 @@
+import codecs
+from pathlib import Path
 from setuptools import setup, find_packages
-from os import path
 
-here = path.abspath(path.dirname(__file__))
-with open(path.join(here, "README.md"), encoding="utf-8") as f:
+here = Path(__file__).parent.absolute()
+with open(here / "README.md", encoding="utf-8") as f:
     long_description = f.read()
+
+
+def read(path):
+    """
+    Read file from a path relative to this file.
+
+    Args:
+        path: Path of a file specified relative to the directory containing
+            this setup.py.
+
+    Return:
+        A string containing the content of the file.
+    """
+    with codecs.open(here / path) as fp:
+        return fp.read()
+
+def get_version(path):
+    """
+    Extract version value from a given source file.
+
+    Args:
+        path: Relative path of the file from which to read the __version__
+            attribute.
+
+    Return:
+        A string representing the version value.
+    """
+    for line in read(path).splitlines():
+        if line.startswith('__version__'):
+            delim = '"' if '"' in line else "'"
+            return line.split(delim)[1]
+    return None
 
 setup(
     name="ccic",
-    version="0.0",
+    version=get_version("ccic/__init__.py"),
     description="Chalmers Cloud Ice Climatology",
     long_description=long_description,
     long_description_content_type="text/markdown",
