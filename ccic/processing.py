@@ -114,7 +114,7 @@ class RetrievalSettings:
     output_format: OutputFormat = OutputFormat["NETCDF"]
     database_path: str = "ccic_processing.db"
     inpainted_mask: bool = False
-    confidence_interval: float = 0.9
+    credible_interval: float = 0.9
 
 
 def get_input_files(
@@ -458,7 +458,7 @@ def process_regression_target(
     invalid,
     target,
     means,
-    conf_ints,
+    cred_ints,
     p_non_zeros,
 ):
     """
@@ -474,8 +474,8 @@ def process_regression_target(
         y_pred: The dictionary containing all predictions from the model.
         target: The retrieval target to process.
         means: Result dict to which to store the calculated posterior means.
-        conf_ints: Result dict to which to store the lower and upper bounds of
-            the calculated confidence intervals.
+        cred_ints: Result dict to which to store the lower and upper bounds of
+            the calculated credible intervals.
         p_non_zeros: Result dict to which to store the calculated probability that
             the target is larger than the corresponding minimum threshold.
     """
@@ -485,10 +485,10 @@ def process_regression_target(
     means[target][-1].append(mean)
 
     if target in SCALAR_TARGETS:
-        conf = retrieval_settings.confidence_interval
-        lower = 0.5 * (1.0 - conf)
+        cred = retrieval_settings.credible_interval
+        lower = 0.5 * (1.0 - cred)
         upper = 1.0 - lower
-        conf_int = (
+        cred_int = (
             mrnn.posterior_quantiles(
                 y_pred=y_pred[target],
                 quantiles=[lower, upper],
@@ -496,9 +496,9 @@ def process_regression_target(
             ).cpu().float().numpy()
         )
         for ind in range(invalid.shape[0]):
-            conf_int[ind, ..., invalid[ind]] = np.nan
+            cred_int[ind, ..., invalid[ind]] = np.nan
 
-        conf_ints[target][-1].append(conf_int)
+        cred_ints[target][-1].append(cred_int)
         p_non_zero = (
             mrnn.probability_larger_than(
                 y_pred=y_pred[target], y=THRESHOLDS[target], key=target
@@ -576,7 +576,7 @@ def process_input(mrnn, x, retrieval_settings=None):
         wrap_columns=retrieval_settings.roi is None
     )
     means = {}
-    conf_ints = {}
+    cred_ints = {}
     p_non_zeros = {}
     cloud_prob_2d = []
     cloud_prob_3d = []
@@ -595,7 +595,7 @@ def process_input(mrnn, x, retrieval_settings=None):
                 if target in REGRESSION_TARGETS:
                     means.setdefault(target, []).append([])
                     if target in SCALAR_TARGETS:
-                        conf_ints.setdefault(target, []).append([])
+                        cred_ints.setdefault(target, []).append([])
                         p_non_zeros.setdefault(target, []).append([])
                 elif target == "cloud_prob_2d":
                     cloud_prob_2d.append([])
@@ -644,7 +644,7 @@ def process_input(mrnn, x, retrieval_settings=None):
                             invalid,
                             target,
                             means=means,
-                            conf_ints=conf_ints,
+                            cred_ints=cred_ints,
                             p_non_zeros=p_non_zeros,
                         )
                     elif target == "cloud_prob_2d":
@@ -680,9 +680,9 @@ def process_input(mrnn, x, retrieval_settings=None):
         results["p_" + target] = (dims, smpls)
 
     dims = ("time", "latitude", "longitude", "ci_bounds")
-    for target, conf_int in conf_ints.items():
-        conf_int = tiler.assemble(conf_int)
-        results[target + "_ci"] = (dims, np.transpose(conf_int, (0, 2, 3, 1)))
+    for target, cred_int in cred_ints.items():
+        cred_int = tiler.assemble(cred_int)
+        results[target + "_ci"] = (dims, np.transpose(cred_int, (0, 2, 3, 1)))
 
     dims = ("time", "latitude", "longitude")
     if len(cloud_prob_2d) > 0:
@@ -700,7 +700,13 @@ def process_input(mrnn, x, retrieval_settings=None):
         cloud_type = determine_cloud_class(tiler.assemble(cloud_type))
         cloud_type = np.transpose(cloud_type, [0, 2, 3, 1])
         results["cloud_type"] = (dims, cloud_type)
+    
     results["altitude"] = (("altitude",), np.arange(20) * 1e3 + 500.0)
+    
+    if len(cred_ints) > 0:
+        lower_bound = 0.5 * (1.0 - retrieval_settings.credible_interval)
+        upper_bound = 1.0 - lower_bound
+        results["ci_bounds"] = (("ci_bounds",), [lower_bound, upper_bound])
 
     if retrieval_settings.inpainted_mask:
         # Assumes a quantnn.normalizer.MinMaxNormalizer is applied on x which
@@ -782,14 +788,21 @@ def add_static_cf_attributes(retrieval_settings, dataset):
         dataset["tiwp_ci"].attrs[
             "long_name"
         ] = (
-            f"{int(100 * retrieval_settings.confidence_interval)}% confidence"
-            " interval for the retrieved TIWP"
+            f"{int(100 * retrieval_settings.credible_interval)}% equal-"
+            "tailed credible interval for the retrieved TIWP"
         )
         dataset["tiwp_ci"].attrs["units"] = "kg m-2"
+        
         dataset["p_tiwp"].attrs[
             "long_name"
         ] = "Probability that 'tiwp' exceeds 1e-3 kg m-2"
         dataset["p_tiwp"].attrs["units"] = "1"
+        
+        dataset["ci_bounds"].attrs["standard_name"] = "credible_interval_bounds"
+        dataset["ci_bounds"].attrs["units"] = "1"
+        dataset["ci_bounds"].attrs["long_name"] = (
+            "Quantile levels of the credible interval"
+        )
 
     if "tiwp_fpavg" in dataset:
         dataset["tiwp_fpavg"].attrs["units"] = "kg m-2"
@@ -803,14 +816,21 @@ def add_static_cf_attributes(retrieval_settings, dataset):
         dataset["tiwp_fpavg_ci"].attrs[
             "long_name"
         ] = (
-            f"{int(100 * retrieval_settings.confidence_interval)}% confidence"
-            " interval for the retrieved footprint-averaged TIWP"
+            f"{int(100 * retrieval_settings.credible_interval)}% equal-tailed"
+            "credible interval for the retrieved footprint-averaged TIWP"
         )
         dataset["tiwp_fpavg_ci"].attrs["units"] = "kg m-2"
+
         dataset["p_tiwp_fpavg"].attrs[
             "long_name"
         ] = "Probability that 'tiwp_fpavg' exceeds 1e-3 kg m-2"
         dataset["p_tiwp_fpavg"].attrs["units"] = "1"
+
+        dataset["ci_bounds"].attrs["standard_name"] = "credible_interval_bounds"
+        dataset["ci_bounds"].attrs["units"] = "1"
+        dataset["ci_bounds"].attrs["long_name"] = (
+            "Quantile levels of the credible interval"
+        )
 
     if "tiwc" in dataset:
         dataset["tiwc"].attrs["units"] = "g m-3"
@@ -885,6 +905,10 @@ def get_encodings_zarr(variable_names):
             "filters": filters_iwp,
             "dtype": "float32"
         },
+        "ci_bounds": {
+            "compressor": compressor,
+            "dtype": "float32"
+        },
         "cloud_prob_2d": {
             "compressor": compressor,
             "scale_factor": 1 / 250,
@@ -936,6 +960,7 @@ def get_encodings_netcdf(variable_names):
             "_FillValue": 255,
             "zlib": True,
         },
+        "ci_bounds": {"dtype": "float32", "zlib": True},
         "cloud_prob_2d": {
             "scale_factor": 1 / 250,
             "_FillValue": 255,

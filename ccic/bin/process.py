@@ -160,12 +160,12 @@ def add_parser(subparsers):
         )
     )
     parser.add_argument(
-        "--confidence_interval",
+        "--credible_interval",
         type=float,
         default=0.9,
         help=(
-            "Width of the equal-tailed confidence interval to use to report "
-            "retrieval uncertainty of scalar retrieval targets. "
+            "Probability of the equal-tailed credible interval used to "
+            "report retrieval uncertainty of scalar retrieval targets. "
             "Must be within [0, 1]."
         )
     )
@@ -426,10 +426,10 @@ def run(args):
                 )
                 return 1
 
-        if ((args.confidence_interval < 0.0) or
-            (args.confidence_interval > 1.0)):
+        if ((args.credible_interval < 0.0) or
+            (args.credible_interval > 1.0)):
             LOGGER.error(
-                "Width of confidence interval must be within [0, 1]."
+                "Probability of credible interval must be within [0, 1]."
             )
             return 1
 
@@ -443,7 +443,7 @@ def run(args):
             output_format=OutputFormat[output_format],
             database_path=args.database_path,
             inpainted_mask=args.inpainted_mask,
-            confidence_interval=args.confidence_interval
+            credible_interval=args.credible_interval
         )
 
         # Use managed queue to pass files between download threads
