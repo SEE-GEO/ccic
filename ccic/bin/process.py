@@ -8,7 +8,7 @@ This sub-module implements the CLI to run the CCIC retrievals.
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 import hashlib
 import logging
-from multiprocessing import Manager, Process
+from multiprocessing import Manager, Process, Lock
 from pathlib import Path
 import shutil
 import subprocess
@@ -164,7 +164,6 @@ def add_parser(subparsers):
             " leat 256 pixels."
         ),
     )
-    parser.add_argument("--n_processes", metavar="n", type=int, default=1)
     parser.add_argument(
         "--inpainted_mask",
         action="store_true",
@@ -191,19 +190,29 @@ def add_parser(subparsers):
             "Optional ssh target to which the produced output file will be "
             " copied using scp. This requires ssh public-key authentication "
             " to be set up on the system."
-        )
+        ),
+    )
+    parser.add_argument(
+        "--n_processes",
+        type=int,
+        default=2,
+        help=(
+            "The number of concurrent processes to use for processing of the "
+            "retrieval."
+        ),
     )
     parser.set_defaults(func=run)
 
 
-def process_files(processing_queue, result_queue, model, retrieval_settings):
+def process_files(
+    processing_queue, model, retrieval_settings, output_path, device_lock
+):
     """
     Take a file from the queue, process it and write the output to
     the given folder.
 
     Args:
         processing_queue: Queue on which the downloaded input files are put.
-        results_queue: The queue to hold the results to store to disk.
         model: The neural network model to run the retrieval with.
         retrieval_settings: RetrievalSettings object specifying the retrieval
             settings.
@@ -212,7 +221,10 @@ def process_files(processing_queue, result_queue, model, retrieval_settings):
     from ccic.processing import (
         process_input_file,
         RemoteFile,
-        ProcessingLog
+        ProcessingLog,
+        get_encodings,
+        get_output_filename,
+        OutputFormat,
     )
 
     logging.basicConfig(level=logging.INFO)
@@ -225,6 +237,7 @@ def process_files(processing_queue, result_queue, model, retrieval_settings):
         args = processing_queue.get()
         if args is None:
             processing_queue.task_done()
+            processing_queue.put(None)
             break
         input_file, clean_up = args
 
@@ -234,12 +247,39 @@ def process_files(processing_queue, result_queue, model, retrieval_settings):
 
         with log.log(logger):
             try:
-                logger.info("Starting processing of input file '%s'.", input_file.filename)
-                results = process_input_file(
-                    mrnn, input_file, retrieval_settings=retrieval_settings
+                logger.info(
+                    "Starting processing of input file '%s'.", input_file.filename
                 )
-                result_queue.put((input_file, results))
+                results = process_input_file(
+                    mrnn,
+                    input_file,
+                    retrieval_settings=retrieval_settings,
+                    lock=device_lock,
+                )
+                output_file = get_output_filename(
+                    input_file, results.time.data[0], retrieval_settings
+                )
                 logger.info("Finished processing file '%s'.", input_file.filename)
+                logger.info("Writing retrieval results to '%s'.", output_file)
+                encodings = get_encodings(results.variables, retrieval_settings)
+                if retrieval_settings.output_format == OutputFormat["NETCDF"]:
+                    results.to_netcdf(output_path / output_file, encoding=encodings)
+                else:
+                    results.to_zarr(output_path / output_file, encoding=encodings)
+
+                if retrieval_settings.transfer is not None:
+                    output = output_path / output_file
+                    command = ["scp", "-r", str(output), retrieval_settings.transfer]
+                    subprocess.run(command, check=True)
+                    if output.is_dir():
+                        shutil.rmtree(output)
+                    else:
+                        output.unlink()
+
+                log.finalize(results, output_file)
+                logger.info(
+                    "Successfully processed input file '%s'.", input_file.filename
+                )
             except Exception as e:
                 logger.exception(e)
             finally:
@@ -247,20 +287,20 @@ def process_files(processing_queue, result_queue, model, retrieval_settings):
                     Path(input_file.filename).unlink()
                 processing_queue.task_done()
 
-    for i in range(4):
-        result_queue.put(None)
-    result_queue.join()
-
 
 def download_files(download_queue, processing_queue, retrieval_settings):
     """
-    Downloads file from download queue, if required.
+    This function implements a thread target that handles the download
+    of the input function. The function waits for RemoteFile objects to
+    be put on the 'download_queue' and will start downloading them. After
+    the files are downloaded, they are put on the processing queue.
 
     Args:
         download_queue: A queue object containing names of files to
             download.
         processing_queue: A queue object on which the downloaded files
             will be put.
+
     """
     from ccic.processing import RemoteFile, ProcessingLog
 
@@ -282,63 +322,6 @@ def download_files(download_queue, processing_queue, retrieval_settings):
     processing_queue.join()
 
 
-def write_output(result_queue, retrieval_settings, output_path):
-    """
-    Write output.
-
-    Args:
-        result_queue: Queue on which retrieval results are put.
-        retrieval_settings: The retrieval settings specifying the output
-            format.
-        output_path: The path to which to write the output.
-    """
-    from ccic.processing import (
-        OutputFormat,
-        get_encodings,
-        get_output_filename,
-        ProcessingLog,
-    )
-
-    logger = logging.getLogger(__name__)
-
-    while True:
-        results = result_queue.get()
-        if results is None:
-            result_queue.task_done()
-            break
-
-        input_file, data = results
-        log = ProcessingLog(retrieval_settings.database_path, input_file.filename.name)
-        output_file = get_output_filename(
-            input_file, data.time.data[0], retrieval_settings
-        )
-        with log.log(logger):
-            try:
-                logger.info("Writing retrieval results to '%s'.", output_file)
-                encodings = get_encodings(data.variables, retrieval_settings)
-                if retrieval_settings.output_format == OutputFormat["NETCDF"]:
-                    data.to_netcdf(output_path / output_file, encoding=encodings)
-                else:
-                    data.to_zarr(output_path / output_file, encoding=encodings)
-
-                if retrieval_settings.transfer is not None:
-                    output = output_path / output_file
-                    command = ["scp", "-r", str(output), retrieval_settings.transfer]
-                    subprocess.run(command, check=True)
-                    if output.is_dir():
-                        shutil.rmtree(output)
-                    else:
-                        output.unlink()
-
-                logger.info(
-                    "Successfully processed input file '%s'.", input_file.filename
-                )
-            except Exception as e:
-                logger.exception(e)
-        log.finalize(data, output_file)
-        result_queue.task_done()
-
-
 def _get_database_name(args) -> str:
     """Determine database name based on arguments."""
     hsh = hashlib.md5()
@@ -348,9 +331,8 @@ def _get_database_name(args) -> str:
             f"{args.roi}"
         ).encode()
     )
-    database_name =  f"ccic_processing_{hsh.hexdigest()[:32]}.db"
+    database_name = f"ccic_processing_{hsh.hexdigest()[:32]}.db"
     return database_name
-
 
 
 def run(args):
@@ -368,7 +350,7 @@ def run(args):
         RemoteFile,
         RetrievalSettings,
         OutputFormat,
-        ProcessingLog
+        ProcessingLog,
     )
 
     # Load model.
@@ -455,8 +437,7 @@ def run(args):
             database_path = database_path / database_name
         elif not database_path.parent.exists():
             LOGGER.error(
-                "If provided, database path must point to a file in an "
-                " directory."
+                "If provided, database path must point to a file in an " " directory."
             )
             return 1
 
@@ -468,7 +449,10 @@ def run(args):
 
     if not args.failed or database_path is None:
         input_files = get_input_files(
-            input_cls, start_time, end_time=end_time, path=working_dir,
+            input_cls,
+            start_time,
+            end_time=end_time,
+            path=working_dir,
         )
         # Initialize database with all found files.
         if database_path is not None:
@@ -484,10 +468,11 @@ def run(args):
             f" {database_path}."
         )
 
-
     if (args.confidence_interval < 0.0) or (args.confidence_interval > 1.0):
         LOGGER.error("Width of confidence interval must be within [0, 1].")
         return 1
+
+    n_processes = args.n_processes
 
     retrieval_settings = RetrievalSettings(
         tile_size=args.tile_size,
@@ -500,7 +485,7 @@ def run(args):
         database_path=database_path,
         inpainted_mask=args.inpainted_mask,
         confidence_interval=args.confidence_interval,
-        transfer=args.transfer
+        transfer=args.transfer,
     )
 
     # Use managed queue to pass files between download threads
@@ -508,15 +493,13 @@ def run(args):
     manager = Manager()
     download_queue = manager.Queue()
     processing_queue = manager.Queue(4)
-    result_queue = manager.Queue(4)
+    device_lock = manager.Lock()
 
     args = (download_queue, processing_queue, retrieval_settings)
     download_thread = Thread(target=download_files, args=args)
-    args = (processing_queue, result_queue, model, retrieval_settings)
-    processing_process = Process(target=process_files, args=args)
-    args = (result_queue, retrieval_settings, output)
-    output_processes = [
-        Process(target=write_output, args=args) for _ in range(4)
+    args = (processing_queue, model, retrieval_settings, output, device_lock)
+    processing_processes = [
+        Process(target=process_files, args=args) for i in range(n_processes)
     ]
 
     # Submit a download task for each file.
@@ -525,20 +508,22 @@ def run(args):
     download_queue.put(None)
 
     download_thread.start()
-    processing_process.start()
-    [proc.start() for proc in output_processes]
+    [proc.start() for proc in processing_processes]
 
-    running = [download_thread, processing_process] + output_processes
+    running = [download_thread] + processing_processes
     while True:
         running = [proc for proc in running if proc.is_alive()]
         if len(running) == 0:
             break
-        if not processing_process.is_alive():
-            if processing_process.exitcode != 0:
-                LOGGER.error(
-                    "The processing terminated with a non-zero exit code. This "
-                    "indicates that the process was killed. Potentially due to "
-                    "memory issues."
-                )
-            return 1
+        for processing_process in processing_processes:
+            if not processing_process.is_alive():
+                if processing_process.exitcode != 0:
+                    LOGGER.warning(
+                        "The processing terminated with a non-zero exit code. This "
+                        "indicates that the process was killed. Potentially due to "
+                        "memory issues."
+                    )
+            processing_processes = [
+                proc for proc in processing_processes if proc.is_alive()
+            ]
     return 0
