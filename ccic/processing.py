@@ -849,6 +849,7 @@ def add_static_cf_attributes(retrieval_settings, dataset):
     dataset.attrs["institution"] = "Chalmers University of Technology"
     dataset.attrs["source"] = f"framework: ccic-{__version__}"
     dataset.attrs["history"] = f"{datetime.now()}: Retrieval processing"
+    dataset.attrs["references"] = f"https://doi.org/10.5281/zenodo.8278127"
 
     if "tiwp" in dataset:
         dataset["tiwp"].attrs["standard_name"] = "atmosphere_mass_content_of_cloud_ice"
