@@ -437,7 +437,8 @@ def run(args):
             database_path = database_path / database_name
         elif not database_path.parent.exists():
             LOGGER.error(
-                "If provided, database path must point to a file in an " " directory."
+                "If provided, database path must point to a file in an "
+                "existing directory."
             )
             return 1
 
