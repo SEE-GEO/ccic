@@ -8,10 +8,12 @@ retrieval.
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
+import gc
 from io import StringIO
-from logging import Handler
+import logging
 from pathlib import Path
 import sqlite3
+from typing import List, Optional
 
 import numpy as np
 from pansat.time import to_datetime
@@ -27,6 +29,12 @@ from ccic.data.cpcir import CPCIR
 from ccic.data.gridsat import GridSat
 from ccic.data.utils import extract_roi
 from ccic.codecs import LogBins
+
+
+LOGGER = logging.getLogger(__name__)
+
+
+TIMEOUT = 120
 
 
 @dataclass
@@ -79,15 +87,17 @@ class RemoteFile:
             )
 
         output_path = Path(working_dir) / self.filename
+        if output_path.exists():
+            return self.file_cls(output_path), False
 
         # Check if file is pre-fetched.
         if self.prefetch_task is not None:
             self.prefetch_task.result()
             result = self.file_cls(output_path)
-            return result
+            return result, False
 
         self.file_cls.download(self.filename, output_path)
-        return self.file_cls(output_path)
+        return self.file_cls(output_path), False
 
 
 class OutputFormat(Enum):
@@ -115,10 +125,15 @@ class RetrievalSettings:
     database_path: str = "ccic_processing.db"
     inpainted_mask: bool = False
     credible_interval: float = 0.9
+    transfer: Optional[str] = None
 
 
 def get_input_files(
-    input_cls, start_time, end_time=None, path=None, thread_pool=None, working_dir=None
+    input_cls,
+    start_time,
+    end_time=None,
+    path=None,
+    thread_pool=None,
 ):
     """
     Determine local or remote input files.
@@ -138,28 +153,24 @@ def get_input_files(
         path: If given, will be used to look for local files.
         thread_pool: An optional thread pool to use for the prefetching
             of remote files.
-        working_dir: A temporary directory to use for the prefetching of files.
+
+    Return:
+        A list
     """
     start_time = to_datetime(start_time)
     if end_time is None:
         end_time = start_time
 
-    # Return remote files if no path if given.
-    if path is None:
-        files = input_cls.get_available_files(start_time=start_time, end_time=end_time)
-        return [
-            RemoteFile(
-                input_cls,
-                filename,
-                working_dir,
-                thread_pool=thread_pool,
-            )
-            for filename in files
-        ]
-
-    # Return local files if path if given.
-    files = input_cls.find_files(path=path, start_time=start_time, end_time=end_time)
-    return [input_cls(filename) for filename in files]
+    files = input_cls.get_available_files(start_time=start_time, end_time=end_time)
+    return [
+        RemoteFile(
+            input_cls,
+            filename,
+            path,
+            thread_pool=thread_pool,
+        )
+        for filename in files
+    ]
 
 
 def determine_cloud_class(class_probs, threshold=0.638, axis=1):
@@ -191,6 +202,7 @@ def determine_cloud_class(class_probs, threshold=0.638, axis=1):
     types[cloud_mask] = prob_types[cloud_mask]
     return types
 
+
 def determine_column_cloud_class(cloud_classes):
     """
     Determine the the type of column cloud class from CCIC
@@ -204,14 +216,14 @@ def determine_column_cloud_class(cloud_classes):
 
     An atmospheric column is classified as convective if it contains
     at least one parcel that is classified as Cu, Ns or DC.
-    
+
     Args:
         cloud_classes: Cloud class probabilities as predicted by CCIC.
-         
+
     Return:
         The corresponding column cloud class indices
     """
-    cc = np.zeros(cloud_classes.shape[:-1], dtype='int8')
+    cc = np.zeros(cloud_classes.shape[:-1], dtype="int8")
     cloudy = np.any(cloud_classes > 0, -1)
     cc[cloudy] = 1
     conv = np.any(cloud_classes > 5, -1)
@@ -219,6 +231,7 @@ def determine_column_cloud_class(cloud_classes):
     invalid = np.all(cloud_classes > 8, -1)
     cc[invalid] = -1
     return cc
+
 
 ###############################################################################
 # Database logging
@@ -246,10 +259,21 @@ class LogContext:
         self.handler.finish_logging(self.logger)
 
 
-class ProcessingLog(Handler):
+class ProcessingLog(logging.Handler):
     """
     A logging handler that logs processing info to a database.
     """
+
+    @staticmethod
+    def get_failed(database_path) -> List[str]:
+        with sqlite3.connect(
+                f"file:{database_path}?mode=ro",
+                timeout=TIMEOUT,
+                uri=True
+        ) as conn:
+            cursor = conn.cursor()
+            res = cursor.execute("SELECT input_file FROM files WHERE success=0")
+            return [tpl[0] for tpl in res.fetchall()]
 
     def __init__(self, database_path, input_file):
         super().__init__(level="DEBUG")
@@ -257,6 +281,9 @@ class ProcessingLog(Handler):
             self.database_path = Path(database_path)
         else:
             self.database_path = None
+
+        if isinstance(input_file, RemoteFile):
+            input_file = input_file.filename
 
         self.input_file = input_file
         self.buffer = StringIO()
@@ -272,15 +299,19 @@ class ProcessingLog(Handler):
         if self.database_path is None:
             return None
 
-        with sqlite3.connect(self.database_path) as conn:
+        with sqlite3.connect(
+                f"file:{self.database_path}?mode=rwc",
+                timeout=TIMEOUT,
+                uri=True
+        ) as conn:
             cursor = conn.cursor()
             cursor.execute(
                 """
                 CREATE TABLE files(
-                    name TEXT PRIMARY KEY,
+                    input_file TEXT PRIMARY KEY,
+                    output_file TEXT,
                     date date,
                     success INTEGER,
-                    output_file TEXT,
                     tiwp_min FLOAT,
                     tiwp_max FLOAT,
                     tiwp_mean FLOAT,
@@ -298,9 +329,15 @@ class ProcessingLog(Handler):
         if self.database_path is None:
             return None
 
-        with sqlite3.connect(self.database_path) as conn:
+        with sqlite3.connect(
+                    f"file:{self.database_path}?mode=rw",
+                    timeout=TIMEOUT,
+                    uri=True
+        ) as conn:
             cursor = conn.cursor()
-            res = cursor.execute("SELECT * FROM files WHERE name=?", (self.input_file,))
+            res = cursor.execute(
+                "SELECT * FROM files WHERE input_file=?", (self.input_file,)
+            )
             if res.fetchone() is None:
                 res = cursor.execute(
                     """
@@ -309,9 +346,9 @@ class ProcessingLog(Handler):
                     """,
                     (
                         self.input_file,
+                        "",
                         datetime.now(),
                         False,
-                        "",
                         np.nan,
                         np.nan,
                         np.nan,
@@ -354,15 +391,19 @@ class ProcessingLog(Handler):
         if self.database_path is None:
             return None
 
-        with sqlite3.connect(self.database_path) as conn:
+        with sqlite3.connect(
+                    f"file:{self.database_path}?mode=rw",
+                    timeout=TIMEOUT,
+                    uri=True
+        ) as conn:
             cursor = conn.cursor()
             res = cursor.execute(
-                "SELECT log FROM files WHERE name=?", (self.input_file,)
+                "SELECT log FROM files WHERE input_file=?", (self.input_file,)
             )
             self.buffer.seek(0)
             log = res.fetchone()[0] + self.buffer.read().encode()
             res = cursor.execute(
-                "UPDATE files SET log=? WHERE name=?",
+                "UPDATE files SET log=? WHERE input_file=?",
                 (log, self.input_file),
             )
         return None
@@ -386,10 +427,14 @@ class ProcessingLog(Handler):
             tiwp_max = results.tiwp.max().item()
             n_missing = int(np.isnan(results.tiwp.data).sum())
 
-        with sqlite3.connect(self.database_path) as conn:
+        with sqlite3.connect(
+                    f"file:{self.database_path}?mode=rw",
+                    timeout=TIMEOUT,
+                    uri=True
+        ) as conn:
             cursor = conn.cursor()
             res = cursor.execute(
-                "SELECT log FROM files WHERE name=?", (self.input_file,)
+                "SELECT log FROM files WHERE input_file=?", (self.input_file,)
             )
 
             if res.fetchone() is not None:
@@ -401,7 +446,7 @@ class ProcessingLog(Handler):
                 tiwp_max=?,
                 tiwp_mean=?,
                 n_missing=?
-            WHERE name=?
+            WHERE input_file=?
             """
                 data = (
                     True,
@@ -490,10 +535,11 @@ def process_regression_target(
         upper = 1.0 - lower
         cred_int = (
             mrnn.posterior_quantiles(
-                y_pred=y_pred[target],
-                quantiles=[lower, upper],
-                key=target
-            ).cpu().float().numpy()
+                y_pred=y_pred[target], quantiles=[lower, upper], key=target
+            )
+            .cpu()
+            .float()
+            .numpy()
         )
         for ind in range(invalid.shape[0]):
             cred_int[ind, ..., invalid[ind]] = np.nan
@@ -540,7 +586,7 @@ def get_invalid_mask(x_in):
     return ~np.stack(masks)
 
 
-def process_input(mrnn, x, retrieval_settings=None):
+def process_input(mrnn, x, retrieval_settings=None, lock=None):
     """
     Process given retrieval input using tiling.
 
@@ -549,6 +595,8 @@ def process_input(mrnn, x, retrieval_settings=None):
         x: A 'torch.Tensor' containing the retrieval input.
         retrieval_settings: A RetrievalSettings object defining the settings
             for the retrieval
+        lock: Optional multiprocessing.Lock to synchronize device
+            access.
 
     Return:
         An 'xarray.Dataset' containing the results of the retrieval.
@@ -573,7 +621,7 @@ def process_input(mrnn, x, retrieval_settings=None):
         x,
         tile_size=tile_size,
         overlap=overlap,
-        wrap_columns=retrieval_settings.roi is None
+        wrap_columns=retrieval_settings.roi is None,
     )
     means = {}
     cred_ints = {}
@@ -585,84 +633,107 @@ def process_input(mrnn, x, retrieval_settings=None):
     device = retrieval_settings.device
     precision = retrieval_settings.precision
 
-    mrnn.model.to(device)
+    if lock is not None:
+        lock.acquire()
 
-    with torch.no_grad():
-        for i in range(tiler.M):
-
-            # Insert empty list into list of row results.
-            for target in targets:
-                if target in REGRESSION_TARGETS:
-                    means.setdefault(target, []).append([])
-                    if target in SCALAR_TARGETS:
-                        cred_ints.setdefault(target, []).append([])
-                        p_non_zeros.setdefault(target, []).append([])
-                elif target == "cloud_prob_2d":
-                    cloud_prob_2d.append([])
-                elif target == "cloud_prob_3d":
-                    cloud_prob_3d.append([])
-                elif target == "cloud_type":
-                    cloud_type.append([])
-
-            for j in range(tiler.N):
-                x_t = tiler.get_tile(i, j)
-
-                # Use torch autocast for mixed precision.
-                x_t = x_t.to(device)
-
-                if (x_t.shape[-2] % 32 > 0) or (x_t.shape[-1] % 32 > 0):
-                    padding = calculate_padding(x_t, 32)
-                    x_t = nn.functional.pad(x_t, padding, mode="reflect")
-                    slices = [
-                        slice(padding[2], x_t.shape[-2] - padding[3]),
-                        slice(padding[0], x_t.shape[-1] - padding[1])
-                    ]
-                else:
-                    slices = None
-
-                if precision == 16:
-                    with torch.autocast(device_type=device):
-                        y_pred = mrnn.predict(x_t)
-                else:
-                    y_pred = mrnn.predict(x_t)
-
-                # Remove padding if has been applied.
-                if slices is not None:
-                    x_t = x_t[..., slices[0], slices[1]]
-                    y_pred = {
-                        key: val[..., slices[0], slices[1]] for key, val in y_pred.items()
-                    }
-
-                invalid = get_invalid_mask(x_t)
-
+    try:
+        mrnn.model.to(device)
+        LOGGER.info(f"Starting processing tiles.")
+        with torch.no_grad():
+            for i in range(tiler.M):
+                # Insert empty list into list of row results.
                 for target in targets:
                     if target in REGRESSION_TARGETS:
-                        process_regression_target(
-                            retrieval_settings,
-                            mrnn,
-                            y_pred,
-                            invalid,
-                            target,
-                            means=means,
-                            cred_ints=cred_ints,
-                            p_non_zeros=p_non_zeros,
-                        )
+                        means.setdefault(target, []).append([])
+                        if target in SCALAR_TARGETS:
+                            cred_ints.setdefault(target, []).append([])
+                            p_non_zeros.setdefault(target, []).append([])
                     elif target == "cloud_prob_2d":
-                        cloud_prob_2d[-1].append(
-                            y_pred["cloud_mask"].cpu().float().numpy()[:, 0]
-                        )
-                        cloud_prob_2d[-1][-1][invalid] = np.nan
+                        cloud_prob_2d.append([])
                     elif target == "cloud_prob_3d":
-                        cp = 1.0 - y_pred["cloud_class"]
-                        cloud_prob_3d[-1].append(cp[:, 0].cpu().float().numpy())
-                        for ind in range(invalid.shape[0]):
-                            cloud_prob_3d[-1][-1][ind, ..., invalid[ind]] = np.nan
+                        cloud_prob_3d.append([])
                     elif target == "cloud_type":
-                        ct = torch.softmax(y_pred["cloud_class"][:, 1:], 1)
-                        cloud_type[-1].append(ct.cpu().float().numpy())
-                        for ind in range(invalid.shape[0]):
-                            cloud_type[-1][-1][ind, ..., invalid[ind]] = -1
+                        cloud_type.append([])
 
+                for j in range(tiler.N):
+                    x_t = tiler.get_tile(i, j)
+                    x_t = x_t.to(device)
+
+                    if (x_t.shape[-2] % 32 > 0) or (x_t.shape[-1] % 32 > 0):
+                        padding = calculate_padding(x_t, 32)
+                        x_t = nn.functional.pad(x_t, padding, mode="reflect")
+                        slices = [
+                            slice(padding[2], x_t.shape[-2] - padding[3]),
+                            slice(padding[0], x_t.shape[-1] - padding[1]),
+                        ]
+                    else:
+                        slices = None
+
+                    if precision == 16:
+                        with torch.autocast(device_type=device):
+                            y_pred = mrnn.predict(x_t)
+                    else:
+                        y_pred = mrnn.predict(x_t)
+
+                    # Remove padding if has been applied.
+                    if slices is not None:
+                        x_t = x_t[..., slices[0], slices[1]]
+                        y_pred = {
+                            key: val[..., slices[0], slices[1]]
+                            for key, val in y_pred.items()
+                        }
+
+                    invalid = get_invalid_mask(x_t)
+
+                    for target in targets:
+                        if target in REGRESSION_TARGETS:
+                            process_regression_target(
+                                retrieval_settings,
+                                mrnn,
+                                y_pred,
+                                invalid,
+                                target,
+                                means=means,
+                                cred_ints=cred_ints,
+                                p_non_zeros=p_non_zeros,
+                            )
+                        elif target == "cloud_prob_2d":
+                            cloud_prob_2d[-1].append(
+                                y_pred["cloud_mask"].cpu().float().numpy()[:, 0]
+                            )
+                            cloud_prob_2d[-1][-1][invalid] = np.nan
+                        elif target == "cloud_prob_3d":
+                            cp = 1.0 - y_pred["cloud_class"]
+                            cloud_prob_3d[-1].append(cp[:, 0].cpu().float().numpy())
+                            for ind in range(invalid.shape[0]):
+                                cloud_prob_3d[-1][-1][ind, ..., invalid[ind]] = np.nan
+                            del cp
+                        elif target == "cloud_type":
+                            ct = torch.softmax(y_pred["cloud_class"][:, 1:], 1)
+                            cloud_type[-1].append(ct.cpu().float().numpy())
+                            for ind in range(invalid.shape[0]):
+                                cloud_type[-1][-1][ind, ..., invalid[ind]] = -1
+                            del ct
+
+                    # Explicitly delete tensors to make sure GPU memory is freed.
+                    del x_t
+                    del invalid
+                    for key in y_pred:
+                        y_pred[key] = y_pred[key].cpu()
+                    del y_pred
+
+        torch.cuda.synchronize()
+        mrnn.model.cpu()
+        mrnn.model = None
+        gc.collect()
+        torch.cuda.synchronize()
+        torch.cuda.empty_cache()
+
+    finally:
+        if lock is not None:
+            lock.release()
+
+    LOGGER.info(f"Assembling results.")
     results = xr.Dataset()
     for target, mean in means.items():
         mean = tiler.assemble(mean)
@@ -713,13 +784,13 @@ def process_input(mrnn, x, retrieval_settings=None):
         # replaces NaNs with -1.5 and normalizes everything else between -1 and +1
         results["inpainted"] = (
             ("time", "latitude", "longitude"),
-            x.reshape(-1, *x.shape[-2:]) < -1.4
+            x.reshape(-1, *x.shape[-2:]) < -1.4,
         )
 
     return results
 
 
-def process_input_file(mrnn, input_file, retrieval_settings=None):
+def process_input_file(mrnn, input_file, retrieval_settings=None, lock=None):
     """
     Processes an input file and returns the retrieval result together with
     meta data.
@@ -729,6 +800,7 @@ def process_input_file(mrnn, input_file, retrieval_settings=None):
         input_file: The file containing the input data.
         retrieval_settings: A RetrievalSettings object specifying the settings for
             the retrieval.
+        lock: Optional multiprocessing.Lock to synchronize device access.
 
     Return:
         A 'xarray.Dataset' containing the retrival results.
@@ -737,9 +809,10 @@ def process_input_file(mrnn, input_file, retrieval_settings=None):
         retrieval_settings = RetrievalSettings()
     roi = retrieval_settings.roi
 
+    LOGGER.info(f"Loading retrieval input from file {input_file.filename}.")
     retrieval_input = input_file.get_retrieval_input(roi=roi)
     results = process_input(
-        mrnn, retrieval_input, retrieval_settings=retrieval_settings
+        mrnn, retrieval_input, retrieval_settings=retrieval_settings, lock=lock
     )
 
     # Copy values of dimension
@@ -776,6 +849,7 @@ def add_static_cf_attributes(retrieval_settings, dataset):
     dataset.attrs["institution"] = "Chalmers University of Technology"
     dataset.attrs["source"] = f"framework: ccic-{__version__}"
     dataset.attrs["history"] = f"{datetime.now()}: Retrieval processing"
+    dataset.attrs["references"] = f"https://doi.org/10.5281/zenodo.8278127"
 
     if "tiwp" in dataset:
         dataset["tiwp"].attrs["standard_name"] = "atmosphere_mass_content_of_cloud_ice"
@@ -838,25 +912,33 @@ def add_static_cf_attributes(retrieval_settings, dataset):
 
     if "cloud_prob_2d" in dataset:
         dataset["cloud_prob_2d"].attrs["units"] = "1"
-        dataset["cloud_prob_2d"].attrs["long_name"] = "Probability of presence of a cloud anywhere in the atmosphere"
+        dataset["cloud_prob_2d"].attrs[
+            "long_name"
+        ] = "Probability of presence of a cloud anywhere in the atmosphere"
 
     if "cloud_prob_3d" in dataset:
         dataset["cloud_prob_3d"].attrs["units"] = "1"
-        dataset["cloud_prob_3d"].attrs["long_name"] = "Probability of presence of a cloud"
+        dataset["cloud_prob_3d"].attrs[
+            "long_name"
+        ] = "Probability of presence of a cloud"
 
     if "cloud_type" in dataset:
         dataset["cloud_type"].attrs["units"] = "1"
         dataset["cloud_type"].attrs["long_name"] = "Most likely cloud type"
         dataset["cloud_type"].attrs["flag_values"] = "0, 1, 2, 3, 4, 5, 6, 7, 8"
-        dataset["cloud_type"].attrs["flag_meanings"] = "No cloud, Cirrus, Altostratus, Altocumulus, Stratus, Stratocumulus, Cumulus, Nimbostratus, Deep convection"
-    
+        dataset["cloud_type"].attrs[
+            "flag_meanings"
+        ] = "No cloud, Cirrus, Altostratus, Altocumulus, Stratus, Stratocumulus, Cumulus, Nimbostratus, Deep convection"
+
     if "inpainted" in dataset:
         dataset["inpainted"].attrs["units"] = "1"
-        dataset["inpainted"].attrs["long_name"] = "Inpainted pixel from input pixel with NaN"
+        dataset["inpainted"].attrs[
+            "long_name"
+        ] = "Inpainted pixel from input pixel with NaN"
         dataset["inpainted"].attrs["flag_values"] = "0, 1"
-        dataset["inpainted"].attrs["flag_meanings"] = "Pixel not inpainted, pixel inpainted"
-
-
+        dataset["inpainted"].attrs[
+            "flag_meanings"
+        ] = "Pixel not inpainted, pixel inpainted"
 
 
 def get_encodings_zarr(variable_names):
@@ -868,16 +950,8 @@ def get_encodings_zarr(variable_names):
     filters_iwp = [LogBins(1e-3, 1e2)]
     filters_iwc = [LogBins(1e-4, 1e2)]
     all_encodings = {
-        "tiwp": {
-            "compressor": compressor,
-            "filters": filters_iwp,
-            "dtype": "float32"
-        },
-        "tiwc": {
-            "compressor": compressor,
-            "filters": filters_iwc,
-            "dtype": "float32"
-        },
+        "tiwp": {"compressor": compressor, "filters": filters_iwp, "dtype": "float32"},
+        "tiwc": {"compressor": compressor, "filters": filters_iwc, "dtype": "float32"},
         "p_tiwp": {
             "compressor": compressor,
             "dtype": "uint8",
@@ -887,7 +961,7 @@ def get_encodings_zarr(variable_names):
         "tiwp_ci": {
             "compressor": compressor,
             "filters": filters_iwp,
-            "dtype": "float32"
+            "dtype": "float32",
         },
         "tiwp_fpavg": {
             "compressor": compressor,
@@ -903,7 +977,7 @@ def get_encodings_zarr(variable_names):
         "tiwp_fpavg_ci": {
             "compressor": compressor,
             "filters": filters_iwp,
-            "dtype": "float32"
+            "dtype": "float32",
         },
         "ci_bounds": {
             "compressor": compressor,
@@ -976,7 +1050,7 @@ def get_encodings_netcdf(variable_names):
         "cloud_type": {"dtype": "uint8", "zlib": True},
         "longitude": {"dtype": "float32", "zlib": True},
         "latitude": {"dtype": "float32", "zlib": True},
-        "inpainted": {"dtype": "uint8", "zlib": True}
+        "inpainted": {"dtype": "uint8", "zlib": True},
     }
     return {
         name: all_encodings[name] for name in variable_names if name in all_encodings

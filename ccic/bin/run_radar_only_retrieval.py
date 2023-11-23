@@ -171,7 +171,7 @@ def download_data(
         input_data: An input data object providing an interface to download
             and read input data.
     """
-    logger = logging.getLogger(__file__)
+    logger = logging.getLogger(__name__)
     while True:
         task = download_queue.get()
         if task is None:
@@ -210,7 +210,7 @@ def process_files(
         output_path: The path to which to write the retrieval results.
     """
     from ccic.validation.retrieval import process_day
-    logger = logging.getLogger()
+    logger = logging.getLogger(__name__)
 
     while True:
         task = processing_queue.get()

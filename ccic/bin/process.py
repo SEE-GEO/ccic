@@ -6,9 +6,12 @@ ccic.bin.process
 This sub-module implements the CLI to run the CCIC retrievals.
 """
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
+import hashlib
 import logging
-from multiprocessing import Manager, Process
+from multiprocessing import Manager, Process, Lock
 from pathlib import Path
+import shutil
+import subprocess
 from tempfile import TemporaryDirectory
 from threading import Thread
 
@@ -80,7 +83,11 @@ def add_parser(subparsers):
         ),
     )
     parser.add_argument(
-        "--targets", metavar="target", type=str, nargs="+", default=["tiwp", "tiwp_fpavg"]
+        "--targets",
+        metavar="target",
+        type=str,
+        nargs="+",
+        default=["tiwp", "tiwp_fpavg"],
     )
     parser.add_argument(
         "--tile_size",
@@ -101,7 +108,7 @@ def add_parser(subparsers):
         metavar="dev",
         type=str,
         help="The name of the torch device to use for processing.",
-        default="cpu"
+        default="cpu",
     )
     parser.add_argument(
         "--precision",
@@ -111,7 +118,7 @@ def add_parser(subparsers):
             "The precision with which to run the retrieval. Only has an "
             "effect for GPU processing."
         ),
-        default=32
+        default=32,
     )
     parser.add_argument(
         "--output_format",
@@ -123,16 +130,23 @@ def add_parser(subparsers):
             " storing 'tiwp' fields as 8-bit integer, which significantly"
             " reduces the size of the output files."
         ),
-        default="netcdf"
+        default="netcdf",
     )
     parser.add_argument(
         "--database_path",
         metavar="path",
         type=str,
+        help=("Path to the database to use to log processing progress."),
+        default=None,
+    )
+    parser.add_argument(
+        "--failed",
+        action="store_true",
         help=(
-            "Path to the database to use to log processing progress."
+            "If this flag is set, the retrieval will be run only for input "
+            "whose processing is flagged as failed in the processing log "
+            " database."
         ),
-        default=None
     )
     parser.add_argument(
         "--roi",
@@ -148,16 +162,15 @@ def add_parser(subparsers):
             " given ROI. "
             "NOTE: that the minimum size of the output will be at "
             " leat 256 pixels."
-        )
+        ),
     )
-    parser.add_argument("--n_processes", metavar="n", type=int, default=1)
     parser.add_argument(
         "--inpainted_mask",
-        action='store_true',
+        action="store_true",
         help=(
             "Create a variable `inpainted` indicating if "
             "the retrieved pixel is inpainted (the input data was NaN)."
-        )
+        ),
     )
     parser.add_argument(
         "--credible_interval",
@@ -167,19 +180,39 @@ def add_parser(subparsers):
             "Probability of the equal-tailed credible interval used to "
             "report retrieval uncertainty of scalar retrieval targets. "
             "Must be within [0, 1]."
-        )
+        ),
+    )
+    parser.add_argument(
+        "--transfer",
+        type=str,
+        default=None,
+        help=(
+            "Optional ssh target to which the produced output file will be "
+            " copied using scp. This requires ssh public-key authentication "
+            " to be set up on the system."
+        ),
+    )
+    parser.add_argument(
+        "--n_processes",
+        type=int,
+        default=2,
+        help=(
+            "The number of concurrent processes to use for processing of the "
+            "retrieval."
+        ),
     )
     parser.set_defaults(func=run)
 
 
-def process_files(processing_queue, result_queue, model, retrieval_settings):
+def process_files(
+    processing_queue, model, retrieval_settings, output_path, device_lock
+):
     """
     Take a file from the queue, process it and write the output to
     the given folder.
 
     Args:
         processing_queue: Queue on which the downloaded input files are put.
-        results_queue: The queue to hold the results to store to disk.
         model: The neural network model to run the retrieval with.
         retrieval_settings: RetrievalSettings object specifying the retrieval
             settings.
@@ -188,9 +221,14 @@ def process_files(processing_queue, result_queue, model, retrieval_settings):
     from ccic.processing import (
         process_input_file,
         RemoteFile,
-        ProcessingLog
+        ProcessingLog,
+        get_encodings,
+        get_output_filename,
+        OutputFormat,
     )
-    logger = logging.getLogger(__file__)
+
+    logging.basicConfig(level=logging.INFO)
+    logger = logging.getLogger(__name__)
 
     mrnn = MRNN.load(model)
     mrnn.model.eval()
@@ -198,46 +236,75 @@ def process_files(processing_queue, result_queue, model, retrieval_settings):
     while True:
         args = processing_queue.get()
         if args is None:
+            processing_queue.task_done()
+            processing_queue.put(None)
             break
         input_file, clean_up = args
 
         log = ProcessingLog(
-            retrieval_settings.database_path,
-            Path(input_file.filename).name
+            retrieval_settings.database_path, Path(input_file.filename).name
         )
 
         with log.log(logger):
             try:
-                logger.info("Starting processing input file '%s'.", input_file.filename)
-                results = process_input_file(
-                    mrnn, input_file, retrieval_settings=retrieval_settings
+                logger.info(
+                    "Starting processing of input file '%s'.", input_file.filename
                 )
-                result_queue.put((input_file, results))
+                results = process_input_file(
+                    mrnn,
+                    input_file,
+                    retrieval_settings=retrieval_settings,
+                    lock=device_lock,
+                )
+                output_file = get_output_filename(
+                    input_file, results.time.data[0], retrieval_settings
+                )
                 logger.info("Finished processing file '%s'.", input_file.filename)
+                logger.info("Writing retrieval results to '%s'.", output_file)
+                encodings = get_encodings(results.variables, retrieval_settings)
+                if retrieval_settings.output_format == OutputFormat["NETCDF"]:
+                    results.to_netcdf(output_path / output_file, encoding=encodings)
+                else:
+                    results.to_zarr(output_path / output_file, encoding=encodings)
+
+                if retrieval_settings.transfer is not None:
+                    output = output_path / output_file
+                    command = ["scp", "-r", str(output), retrieval_settings.transfer]
+                    subprocess.run(command, check=True)
+                    if output.is_dir():
+                        shutil.rmtree(output)
+                    else:
+                        output.unlink()
+
+                log.finalize(results, output_file)
+                logger.info(
+                    "Successfully processed input file '%s'.", input_file.filename
+                )
             except Exception as e:
                 logger.exception(e)
             finally:
                 if clean_up:
                     Path(input_file.filename).unlink()
-
-    result_queue.put(None)
+                processing_queue.task_done()
 
 
 def download_files(download_queue, processing_queue, retrieval_settings):
     """
-    Downloads file from download queue, if required.
+    This function implements a thread target that handles the download
+    of the input function. The function waits for RemoteFile objects to
+    be put on the 'download_queue' and will start downloading them. After
+    the files are downloaded, they are put on the processing queue.
 
     Args:
         download_queue: A queue object containing names of files to
             download.
         processing_queue: A queue object on which the downloaded files
             will be put.
+
     """
-    from ccic.processing import (
-        RemoteFile,
-        ProcessingLog
-    )
-    logger = logging.getLogger(__file__)
+    from ccic.processing import RemoteFile, ProcessingLog
+
+    logger = logging.getLogger(__name__)
 
     while True:
         input_file = download_queue.get()
@@ -245,74 +312,27 @@ def download_files(download_queue, processing_queue, retrieval_settings):
             break
 
         log = ProcessingLog(
-            retrieval_settings.database_path,
-            Path(input_file.filename).name
+            retrieval_settings.database_path, Path(input_file.filename).name
         )
         with log.log(logger):
-            try:
-                if isinstance(input_file, RemoteFile):
-                    logger.info(
-                        "Input file not locally available, download required."
-                    )
-                    input_file = input_file.get()
-                    clean_up = True
-                else:
-                    logger.info("Input file locally available.")
-                    clean_up = False
-            except Exception as e:
-                logger.exception(e)
+            input_file, clean_up = input_file.get()
         processing_queue.put((input_file, clean_up))
+
     processing_queue.put(None)
+    processing_queue.join()
 
 
-def write_output(result_queue, retrieval_settings, output_path):
-    """
-    Write output.
-
-    Args:
-        result_queue: Queue on which retrieval results are put.
-        retrieval_settings: The retrieval settings specifying the output
-            format.
-        output_path: The path to which to write the output.
-    """
-    from ccic.processing import (
-        OutputFormat,
-        get_encodings,
-        get_output_filename,
-        ProcessingLog
+def _get_database_name(args) -> str:
+    """Determine database name based on arguments."""
+    hsh = hashlib.md5()
+    hsh.update(
+        (
+            f"{args.model}{args.input_type}{args.start_time}{args.end_time}"
+            f"{args.roi}"
+        ).encode()
     )
-    logger = logging.getLogger(__file__)
-
-    while True:
-        results = result_queue.get()
-        if results is None:
-            break
-
-        input_file, data = results
-        log = ProcessingLog(
-            retrieval_settings.database_path,
-            input_file.filename.name
-        )
-        output_file = get_output_filename(
-            input_file,
-            data.time.data[0],
-            retrieval_settings
-        )
-        with log.log(logger):
-            try:
-                logger.info("Writing retrieval results to '%s'.", output_file)
-                encodings = get_encodings(data.variables, retrieval_settings)
-                if retrieval_settings.output_format == OutputFormat["NETCDF"]:
-                    data.to_netcdf(output_path / output_file, encoding=encodings)
-                else:
-                    data.to_zarr(output_path / output_file, encoding=encodings)
-                logger.info(
-                    "Successfully processed input file '%s'.",
-                    input_file.filename
-                )
-            except Exception as e:
-                logger.exception(e)
-        log.finalize(data, output_file)
+    database_name = f"ccic_processing_{hsh.hexdigest()[:32]}.db"
+    return database_name
 
 
 def run(args):
@@ -327,17 +347,16 @@ def run(args):
     from ccic.processing import (
         process_input_file,
         get_input_files,
+        RemoteFile,
         RetrievalSettings,
-        OutputFormat
+        OutputFormat,
+        ProcessingLog,
     )
 
     # Load model.
     model = Path(args.model)
     if not model.exists():
-        LOGGER.error(
-            "The provided CCIC retrieval model '%s' does not exist.",
-            model
-        )
+        LOGGER.error("The provided CCIC retrieval model '%s' does not exist.", model)
         return 1
 
     # Determine input data.
@@ -386,90 +405,133 @@ def run(args):
             )
             return 1
 
-    with TemporaryDirectory() as tmp:
+    # Retrieval settings
+    valid_targets = [
+        "tiwp",
+        "tiwp_fpavg",
+        "tiwc",
+        "cloud_type",
+        "cloud_prob_2d",
+        "cloud_prob_3d",
+    ]
+    targets = args.targets
+    if any([target not in valid_targets for target in targets]):
+        LOGGER.error("Targets must be a subset of %s.", valid_targets)
+
+    output_format = None
+    if not args.output_format.upper() in ["NETCDF", "ZARR"]:
+        LOGGER.error("'output_format' must be one of 'NETCDF' or 'ZARR'.")
+        return 1
+    output_format = args.output_format.upper()
+
+    database_path = args.database_path
+    if database_path is not None:
+        database_path = Path(database_path)
+        database_path.is_dir() and database_path.exists()
+        if database_path.is_dir() and database_path.exists():
+            command_hash = hash(
+                f"{args.model}{args.input_type}{args.start_time}{args.end_time}"
+                f"{args.roi}"
+            )
+            database_name = _get_database_name(args)
+            database_path = database_path / database_name
+        elif not database_path.parent.exists():
+            LOGGER.error(
+                "If provided, database path must point to a file in an "
+                "existing directory."
+            )
+            return 1
+
+    if input_path is None:
+        tmp = TemporaryDirectory()
+        working_dir = Path(tmp.name)
+    else:
+        working_dir = input_path
+
+    if not args.failed or database_path is None:
         input_files = get_input_files(
             input_cls,
             start_time,
             end_time=end_time,
-            working_dir=tmp,
-            path=input_path
+            path=working_dir,
         )
-
-        # Retrieval settings
-        valid_targets = [
-            "tiwp",
-            "tiwp_fpavg",
-            "tiwc",
-            "cloud_type",
-            "cloud_prob_2d",
-            "cloud_prob_3d",
+        # Initialize database with all found files.
+        if database_path is not None:
+            for input_file in input_files:
+                ProcessingLog(database_path, input_file)
+    else:
+        input_files = [
+            RemoteFile(input_cls, name, working_dir=Path(working_dir))
+            for name in ProcessingLog.get_failed(database_path)
         ]
-        targets = args.targets
-        if any([target not in valid_targets for target in targets]):
-            LOGGER.error("Targets must be a subset of %s.", valid_targets)
-
-        output_format = None
-        if not args.output_format.upper() in ["NETCDF", "ZARR"]:
-            LOGGER.error(
-                "'output_format' must be one of 'NETCDF' or 'ZARR'."
-            )
-            return 1
-        output_format = args.output_format.upper()
-
-        database_path = args.database_path
-        if not database_path is None:
-            database_path = Path(database_path)
-            if not database_path.parent.exists():
-                LOGGER.error(
-                    "If provided, database path must point to a file in an "
-                    " directory."
-                )
-                return 1
-
-        if ((args.credible_interval < 0.0) or
-            (args.credible_interval > 1.0)):
-            LOGGER.error(
-                "Probability of credible interval must be within [0, 1]."
-            )
-            return 1
-
-        retrieval_settings = RetrievalSettings(
-            tile_size=args.tile_size,
-            overlap=args.overlap,
-            targets=targets,
-            roi=args.roi,
-            device=args.device,
-            precision=args.precision,
-            output_format=OutputFormat[output_format],
-            database_path=args.database_path,
-            inpainted_mask=args.inpainted_mask,
-            credible_interval=args.credible_interval
+        LOGGER.info(
+            f"Found {len(input_files)} failed input files in logging database "
+            f" {database_path}."
         )
 
-        # Use managed queue to pass files between download threads
-        # and processing processes.
-        manager = Manager()
-        download_queue = manager.Queue()
-        processing_queue = manager.Queue(4)
-        result_queue = manager.Queue(4)
+    if ((args.credible_interval < 0.0) or
+        (args.credible_interval > 1.0)):
+        LOGGER.error(
+            "Probability of credible interval must be within [0, 1]."
+        )
+        return 1
 
-        args = (download_queue, processing_queue, retrieval_settings)
-        download_thread = Thread(target=download_files, args=args)
-        args = (processing_queue, result_queue, model, retrieval_settings)
-        processing_process = Process(target=process_files, args=args)
-        args = (result_queue, retrieval_settings, output)
-        output_process = Process(target=write_output, args=args)
+    n_processes = args.n_processes
 
-        # Submit a download task for each file.
-        for input_file in input_files:
-            download_queue.put(input_file)
-        download_queue.put(None)
+    retrieval_settings = RetrievalSettings(
+        tile_size=args.tile_size,
+        overlap=args.overlap,
+        targets=targets,
+        roi=args.roi,
+        device=args.device,
+        precision=args.precision,
+        output_format=OutputFormat[output_format],
+        database_path=database_path,
+        inpainted_mask=args.inpainted_mask,
+        credible_interval=args.credible_interval,
+        transfer=args.transfer,
+    )
 
-        download_thread.start()
-        processing_process.start()
-        output_process.start()
+    # Use managed queue to pass files between download threads
+    # and processing processes.
+    manager = Manager()
+    download_queue = manager.Queue()
+    processing_queue = manager.Queue(4)
+    device_lock = manager.Lock()
 
-        download_thread.join()
-        processing_process.join()
-        output_process.join()
+    args = (download_queue, processing_queue, retrieval_settings)
+    download_thread = Thread(target=download_files, args=args)
+    args = (processing_queue, model, retrieval_settings, output, device_lock)
+    processing_processes = [
+        Process(target=process_files, args=args) for i in range(n_processes)
+    ]
 
+    # Submit a download task for each file.
+    for input_file in input_files:
+        download_queue.put(input_file)
+    download_queue.put(None)
+
+    download_thread.start()
+    [proc.start() for proc in processing_processes]
+
+    running = [download_thread] + processing_processes
+
+    any_failed = False
+    while True:
+        running = [proc for proc in running if proc.is_alive()]
+        if len(running) == 0:
+            break
+        for processing_process in processing_processes:
+            if not processing_process.is_alive():
+                if processing_process.exitcode != 0:
+                    LOGGER.warning(
+                        "One of the processing processes terminated with a "
+                        " non-zero exit code. This indicates that the process "
+                        " was killed. Potentially due to memory issues."
+                    )
+                any_failed = True
+            processing_processes = [
+                proc for proc in processing_processes if proc.is_alive()
+            ]
+
+    return not any_failed

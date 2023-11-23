@@ -211,7 +211,7 @@ class CPCIR:
             filename: Name of the file to download.
             destination: Destination to store the file.
         """
-        logger = logging.getLogger(__file__)
+        logger = logging.getLogger(__name__)
         logger.info(
             "Starting download of file '%s' to '%s'.",
             filename,
@@ -316,7 +316,7 @@ class CPCIR:
         Return:
             List of ``xarray.Dataset`` object with the extracted matches.
         """
-        logger = logging.getLogger(__file__)
+        logger = logging.getLogger(__name__)
         data = self.to_xarray_dataset()
 
         new_names = {"Tb": "ir_win", "lat": "latitude", "lon": "longitude"}

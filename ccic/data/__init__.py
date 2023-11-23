@@ -108,7 +108,7 @@ def process_cloudsat_files(
     Return:
         A list of match-up scenes.
     """
-    logger = logging.getLogger(__file__)
+    logger = logging.getLogger(__name__)
 
     seed = hash("".join([cs_file.filename.name for cs_file in cloudsat_files]))
     rng = np.random.default_rng(abs(seed))

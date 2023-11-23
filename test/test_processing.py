@@ -230,7 +230,7 @@ def test_processing_logger(tmp_path):
     """
     # Check that disabling the database log works.
     db_path = None
-    pl = ProcessingLog(db_path, "test_file.nc")
+    pl = ProcessingLog(db_path, "input_file.nc")
     LOGGER = getLogger()
     with pl.log(LOGGER):
         LOGGER.error("THIS IS A LOG.")
@@ -241,13 +241,12 @@ def test_processing_logger(tmp_path):
     results = xr.Dataset({
         "tiwp": (("x", "y"), data)
     })
-    pl.finalize(results, "filename")
+    pl.finalize(results, "output_file.nc")
     assert len(list(tmp_path.glob("*"))) == 0
 
     # Check that log events are captured
     db_path = tmp_path / "processing.db"
-    pl = ProcessingLog(db_path, "test_file.nc")
-    pl = ProcessingLog(db_path, "test_file.nc")
+    pl = ProcessingLog(db_path, "input_file_2.nc")
     LOGGER = getLogger()
     with pl.log(LOGGER):
         LOGGER.error("THIS IS A LOG.")
@@ -258,7 +257,7 @@ def test_processing_logger(tmp_path):
     results = xr.Dataset({
         "tiwp": (("x", "y"), data)
     })
-    pl.finalize(results, "filename")
+    pl.finalize(results, "output_file_2")
 
     with sqlite3.connect(db_path) as conn:
         cursor = conn.cursor()
@@ -266,6 +265,21 @@ def test_processing_logger(tmp_path):
         entry = res.fetchone()
         assert entry is not None
         assert len(entry[0]) > 0
+
+    # Check retrieval of failed files.
+    failed = ProcessingLog.get_failed(db_path)
+    assert len(failed) == 0
+
+    pl = ProcessingLog(db_path, "input_file_3.nc")
+    LOGGER = getLogger()
+    with pl.log(LOGGER):
+        LOGGER.error("THIS IS A LOG.")
+    with pl.log(LOGGER):
+        LOGGER.error("THIS IS ANOTHER LOG.")
+
+    # Check retrieval of failed files.
+    failed = ProcessingLog.get_failed(db_path)
+    assert len(failed) == 1
 
 
 @NEEDS_TEST_DATA
