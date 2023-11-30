@@ -8,6 +8,7 @@ from datetime import datetime
 import logging
 from pathlib import Path
 import re
+import warnings
 
 import ccic
 import numpy as np
@@ -50,10 +51,17 @@ def process_month(files: list[Path], product: str) -> xr.Dataset:
         time_deltas = [i * np.timedelta64(3, 'h') for i in range(8)]
     else:
         time_deltas = [i * np.timedelta64(30, 'm') for i in range(24 * 2)]
-    time_offset = ds.time.values[0].astype('datetime64[M]').astype(ds.time.dtype)
+    time_offset = ds.time.values[0].astype('datetime64[M]').astype('datetime64[m]')
     time_values = [time_offset + delta for delta in time_deltas]
     
-    ds = ds.reindex({'time': time_values}, method=None, fill_value=0)
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", message=(
+            "Converting non-nanosecond precision datetime "
+            "values to nanosecond precision."
+            )
+        )
+        ds['time'] = ds['time'].astype('datetime64[m]')
+        ds = ds.reindex({'time': time_values}, method=None, fill_value=0)
 
     # Initialize all variables to zero and create a count variable
     variables = set(ds.variables) - set(ds.coords)
@@ -69,9 +77,16 @@ def process_month(files: list[Path], product: str) -> xr.Dataset:
     # Accumulate values
     for f in tqdm(files, dynamic_ncols=True):
         ds_f = xr.open_zarr(f).load()
-        
-        # Reindex to deal with time dimension
-        ds_f = ds_f.reindex({'time': time_values}, method=None, fill_value=0)
+
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", message=(
+                "Converting non-nanosecond precision datetime "
+                "values to nanosecond precision."
+                )
+            )
+            # Reindex to deal with time dimension
+            ds_f['time'] = ds_f['time'].astype('datetime64[m]')
+            ds_f = ds_f.reindex({'time': time_values}, method=None, fill_value=0)
         
         for v in variables:
             is_finite = np.isfinite(ds_f[v])
@@ -92,11 +107,12 @@ def process_month(files: list[Path], product: str) -> xr.Dataset:
             ),
             deep=True
         ).astype(np.float32)
+        ds[f'{v}_count'] = ds[f'{v}_count'].astype(np.int16)
 
 
     # Update attributes
     ds.attrs = attrs
-    ds.attrs["history"] = f"{datetime.now}: Monthly means computation"
+    ds.attrs["history"] = f"{datetime.now()}: Monthly means computation"
     ds.attrs["input_filename"] = [f.name for f in files]
     for v in variables:
         ds[v].attrs = attrs_data[v]
