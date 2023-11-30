@@ -89,9 +89,9 @@ def process_month(files: list[Path], product: str) -> xr.Dataset:
             ds_f = ds_f.reindex({'time': time_values}, method=None, fill_value=0)
         
         for v in variables:
-            is_finite = np.isfinite(ds_f[v])
+            is_finite = np.isfinite(ds_f[v].data)
             ds[v] = ds[v] + ds[v].copy(
-                data=np.where(is_finite, ds_f[v], 0), deep=True
+                data=np.where(is_finite, ds_f[v].data, 0), deep=True
             )
             ds[f'{v}_count'] = ds[f'{v}_count'] + ds[f'{v}_count'].copy(
                 data=is_finite, deep=True
@@ -101,10 +101,9 @@ def process_month(files: list[Path], product: str) -> xr.Dataset:
     for v in variables:
         non_zero_count = ds[f'{v}_count'].data > 0
         ds[v] = ds[v].copy(
-            data=np.where(
-                non_zero_count,
-                ds[v].data / ds[f'{v}_count'].data, np.nan
-            ),
+            data=np.divide(ds[v].data, ds[f'{v}_count'].data,
+                           out=np.full_like(ds[v].data, np.nan),
+                           where=non_zero_count),
             deep=True
         ).astype(np.float32)
         ds[f'{v}_count'] = ds[f'{v}_count'].astype(np.int16)
