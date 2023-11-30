@@ -4,9 +4,14 @@ This script computes the monthly means from the existing CCIC data record.
 
 import argparse
 import calendar
+from datetime import datetime
+import logging
 from pathlib import Path
 import re
 
+import ccic
+import numpy as np
+from tqdm import tqdm
 import xarray as xr
 
 def get_year_month(month_i: int, year_offset: int,
@@ -23,14 +28,89 @@ def find_files(year: int, month: int, source: Path, product: str) -> list[Path]:
     """
     files = source.rglob(f'ccic_{product}_{year}{month:02d}*.zarr')
     pattern = re.compile(r'ccic_gridsat_201001[0-3]{1}[0-9]{1}[0-2]{1}[0-9]{1}00.zarr')
-    files = [f for f in files if pattern.match(f.name)]
+    files = sorted([f for f in files if pattern.match(f.name)])
     return files
 
-def process_month(files: list[Path]) -> xr.Dataset:
+def process_month(files: list[Path], product: str) -> xr.Dataset:
     """
     Compute the monthly means for the given month.
     """
-    pass
+    # Create a dataset to populate with means
+    ds = xr.open_zarr(files[0]).load()
+
+    # Save the original attributes for later
+    attrs = ds.attrs
+    attrs_data = {}
+    for name in list(ds.variables):
+        attrs_data[name] = ds[name].attrs
+    ds.attrs = {}
+
+    # Set the time dimension
+    if product == 'gridsat':
+        time_deltas = [i * np.timedelta64(3, 'h') for i in range(8)]
+    else:
+        time_deltas = [i * np.timedelta64(30, 'm') for i in range(24 * 2)]
+    time_offset = ds.time.values[0].astype('datetime64[M]').astype(ds.time.dtype)
+    time_values = [time_offset + delta for delta in time_deltas]
+    
+    ds = ds.reindex({'time': time_values}, method=None, fill_value=0)
+
+    # Initialize all variables to zero and create a count variable
+    variables = set(ds.variables) - set(ds.coords)
+    for v in variables:
+        # float instead of float32 to avoid any limitations accumulating
+        ds[v] = ds[v].copy(
+            data=np.zeros_like(ds[v]), deep=True
+        ).astype(float)
+        ds[f'{v}_count'] = ds[v].copy(
+            data=np.zeros_like(ds[v]), deep=True
+        ).astype(int)
+
+    # Accumulate values
+    for f in tqdm(files, dynamic_ncols=True):
+        ds_f = xr.open_zarr(f).load()
+        
+        # Reindex to deal with time dimension
+        ds_f = ds_f.reindex({'time': time_values}, method=None, fill_value=0)
+        
+        for v in variables:
+            is_finite = np.isfinite(ds_f[v])
+            ds[v] = ds[v] + ds[v].copy(
+                data=np.where(is_finite, ds_f[v], 0), deep=True
+            )
+            ds[f'{v}_count'] = ds[f'{v}_count'] + ds[f'{v}_count'].copy(
+                data=is_finite, deep=True
+            )
+
+    # Divide by the total count
+    for v in variables:
+        non_zero_count = ds[f'{v}_count'].data > 0
+        ds[v] = ds[v].copy(
+            data=np.where(
+                non_zero_count,
+                ds[v].data / ds[f'{v}_count'].data, np.nan
+            ),
+            deep=True
+        ).astype(np.float32)
+
+
+    # Update attributes
+    ds.attrs = attrs
+    ds.attrs["history"] = f"{datetime.now}: Monthly means computation"
+    ds.attrs["input_filename"] = [f.name for f in files]
+    for v in variables:
+        ds[v].attrs = attrs_data[v]
+        ds[f'{v}_count'].attrs['long_name'] = "Count of '{:}' values used \
+            for the monthly mean".format(ds[v].attrs['long_name'])
+        ds[f'{v}_count'].attrs['units'] = '1'
+        ds[v].attrs['long_name'] = '{:}, monthly mean'.format(
+            ds[v].attrs['long_name']
+        )
+    for coord in ds.coords:
+        ds[coord].attrs = attrs_data[coord]
+
+    return ds
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -89,8 +169,18 @@ if __name__ == '__main__':
         n_expected_files = n_days * (8 if args.product == 'gridsat' else 24)
         n_observed_files = len(files)
 
-        if (n_observed_files != n_expected_files) and (not args.ignore_missing_files):
-            raise ValueError(f"Expected {n_expected_files} retrievals "
-                             f"but found {n_observed_files} retrievals")
-        
-        ds = process_month(files)
+        if (n_observed_files != n_expected_files):
+            if args.ignore_missing_files:
+                logging.warning(f"Using {n_observed_files}/{n_expected_files}"
+                                f" retrievals to compute the means")
+            else:
+                raise ValueError(f"Expected {n_expected_files} retrievals "
+                                 f"but found {n_observed_files} retrievals")
+
+        logging.info(f"Processing {year}-{month}")
+        ds = process_month(files, args.product)
+
+        fname_dst = f'ccic_{args.product}_{year}{month:02d}_monthlymean.nc'
+        f_dst = args.destination / fname_dst
+        logging.info(f'Writing {f_dst}')
+        ds.to_netcdf(f_dst)
