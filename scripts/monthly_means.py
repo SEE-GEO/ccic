@@ -55,6 +55,9 @@ def process_month(files: list[Path], product: str) -> xr.Dataset:
         time_deltas = [i * np.timedelta64(3, 'h') for i in range(8)]
     else:
         time_deltas = [i * np.timedelta64(30, 'm') for i in range(24 * 2)]
+    
+    # .astype('datetime64[M]').astype('datetime64[m]'):
+    # hack to avoid dealing with days, i.e. date set to YYYYmmddT00:00
     time_offset = ds.time.values[0].astype('datetime64[M]').astype('datetime64[m]')
     time_values = [time_offset + delta for delta in time_deltas]
     
@@ -64,7 +67,7 @@ def process_month(files: list[Path], product: str) -> xr.Dataset:
             "values to nanosecond precision."
             )
         )
-        ds['time'] = ds['time'].astype('datetime64[m]')
+        ds['time'] = ds['time'].astype('datetime64[M]').astype('datetime64[m]')
         ds = ds.reindex({'time': time_values}, method=None, fill_value=0)
 
     # Initialize all variables to zero and create a count variable
@@ -88,9 +91,12 @@ def process_month(files: list[Path], product: str) -> xr.Dataset:
                 "values to nanosecond precision."
                 )
             )
-            # Reindex to deal with time dimension
-            ds_f['time'] = ds_f['time'].astype('datetime64[m]')
-            ds_f = ds_f.reindex({'time': time_values}, method=None, fill_value=0)
+            # Reindex to handle time dimension
+            time_delta_from_month_start = ds_f['time'] - ds_f['time'].astype('datetime64[M]')
+            days_from_month_start = time_delta_from_month_start.astype('timedelta64[D]')
+            time_f = ds_f['time'] - days_from_month_start
+            ds_f['time'] = time_f.astype('datetime64[m]')
+            ds_f = ds_f.reindex({'time': time_values}, method=None, fill_value=np.nan)
         
         for v in variables:
             is_finite = np.isfinite(ds_f[v].data)
@@ -98,7 +104,7 @@ def process_month(files: list[Path], product: str) -> xr.Dataset:
                 data=np.where(is_finite, ds_f[v].data, 0), deep=True
             )
             ds[f'{v}_count'] = ds[f'{v}_count'] + ds[f'{v}_count'].copy(
-                data=is_finite, deep=True
+                data=is_finite.astype(int), deep=True
             )
 
     # Divide by the total count
