@@ -87,8 +87,7 @@ def process_month(files: list[Path], product: str) -> xr.Dataset:
 
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", message=(
-                "Converting non-nanosecond precision datetime "
-                "values to nanosecond precision."
+                "Converting non-nanosecond precision"
                 )
             )
             # Reindex to handle time dimension
@@ -175,8 +174,16 @@ if __name__ == '__main__':
         action='store_true',
         help="ignore missing expected retrievals"
     )
+    parser.add_argument(
+        '--verbose',
+        action='store_true',
+        help='verbose mode'
+    )
 
     args = parser.parse_args()
+
+    if args.verbose:
+        logging.basicConfig(level=logging.INFO)
 
     if (args.month_end is None) or args.month_end < args.month:
         args.month_end = args.month
@@ -202,7 +209,7 @@ if __name__ == '__main__':
                 raise ValueError(f"Expected {n_expected_files} retrievals "
                                  f"but found {n_observed_files} retrievals")
 
-        logging.info(f"Processing {year}-{month}")
+        logging.info(f"Processing {year}-{month:02d}")
         ds = process_month(files, args.product)
 
         fname_dst = f'ccic_{args.product}_{year}{month:02d}_monthlymean.nc'
