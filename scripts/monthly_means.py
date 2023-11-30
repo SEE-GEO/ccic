@@ -39,6 +39,10 @@ def process_month(files: list[Path], product: str) -> xr.Dataset:
     # Create a dataset to populate with means
     ds = xr.open_zarr(files[0]).load()
 
+    # Drop credibile interval variable
+    if 'tiwp_ci' in ds:
+        ds = ds.drop_vars('tiwp_ci')
+
     # Save the original attributes for later
     attrs = ds.attrs
     attrs_data = {}
