@@ -117,7 +117,12 @@ def process_month(files: list[Path], product: str) -> xr.Dataset:
     ds['month'] = (('month',), [ds.time.data.min()])
     for v in variables:
         ds[f'{v}_aggregated'] = (
-            (ds[v] * ds[f'{v}_count']).sum('time') / ds[f'{v}_count'].sum('time')
+            np.divide(
+                (ds[v] * ds[f'{v}_count']).sum('time', skipna=True),
+                ds[f'{v}_count'].sum('time', skipna=True),
+                out=np.full_like(ds[v].sum('time'), np.nan),
+                where=(ds[f'{v}_count'].sum('time', skipna=True).data > 0)
+            )
         ).expand_dims({'month': 1})
     
     # Set attributes for this additional data
