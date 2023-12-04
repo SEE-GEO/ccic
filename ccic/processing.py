@@ -771,9 +771,10 @@ def process_input(mrnn, x, retrieval_settings=None, lock=None):
         cloud_type = determine_cloud_class(tiler.assemble(cloud_type))
         cloud_type = np.transpose(cloud_type, [0, 2, 3, 1])
         results["cloud_type"] = (dims, cloud_type)
-    
-    results["altitude"] = (("altitude",), np.arange(20) * 1e3 + 500.0)
-    
+
+    if "altitude" in results.dims:
+        results["altitude"] = (("altitude",), np.arange(20) * 1e3 + 500.0)
+
     if len(cred_ints) > 0:
         lower_bound = 0.5 * (1.0 - retrieval_settings.credible_interval)
         upper_bound = 1.0 - lower_bound
@@ -840,10 +841,12 @@ def add_static_cf_attributes(retrieval_settings, dataset):
     dataset["longitude"].attrs["units"] = "degrees_east"
     dataset["longitude"].attrs["axis"] = "X"
     dataset["longitude"].attrs["standard_name"] = "longitude"
-    dataset["altitude"].attrs["axis"] = "Z"
-    dataset["altitude"].attrs["standard_name"] = "altitude"
-    dataset["altitude"].attrs["units"] = "meters"
-    dataset["altitude"].attrs["positive"] = "up"
+
+    if "altitude" in dataset:
+        dataset["altitude"].attrs["axis"] = "Z"
+        dataset["altitude"].attrs["standard_name"] = "altitude"
+        dataset["altitude"].attrs["units"] = "meters"
+        dataset["altitude"].attrs["positive"] = "up"
 
     dataset.attrs["title"] = "The Chalmers Cloud Ice Climatology"
     dataset.attrs["institution"] = "Chalmers University of Technology"
