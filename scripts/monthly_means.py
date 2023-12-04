@@ -25,7 +25,10 @@ def find_files(year: int, month: int, source: Path, product: str) -> list[Path]:
 
 def process_month(files: list[Path], product: str) -> xr.Dataset:
     """
-    Compute the monthly means for the given month.
+    Compute the monthly means for the given month, stratified by the
+    product temporal resolution (represented by the original variable
+    name + `_stratified`) as well as monthly averages regardless of the
+    timestamp (represented by the original variable name + `_aggregated`)
     """
     # Create a dataset to populate with means
     ds = xr.open_zarr(files[0]).load()
@@ -110,6 +113,19 @@ def process_month(files: list[Path], product: str) -> xr.Dataset:
         ).astype(np.float32)
         ds[f'{v}_count'] = ds[f'{v}_count'].astype(np.int16)
 
+    # Compute the monthly aggregates
+    ds['month'] = (('month',), [ds.time.data.min()])
+    for v in variables:
+        ds[f'{v}_aggregated'] = (
+            (ds[v] * ds[f'{v}_count']).sum('time') / ds[f'{v}_count'].sum('time')
+        ).expand_dims({'month': 1})
+    
+    # Set attributes for this additional data
+    attrs_data['month'] = {'long_name': 'month', 'standard_name': 'month'}
+    for v in variables:
+        attrs_data[f'{v}_aggregated'] =  attrs_data[v].copy()
+        attrs_data[f'{v}_aggregated']['long_name'] = \
+            '{:}, aggregated monthly mean'.format(attrs_data[v]['long_name'])
 
     # Update attributes
     ds.attrs = attrs
@@ -117,14 +133,21 @@ def process_month(files: list[Path], product: str) -> xr.Dataset:
     ds.attrs["input_filename"] = [f.name for f in files]
     for v in variables:
         ds[v].attrs = attrs_data[v]
-        ds[f'{v}_count'].attrs['long_name'] = "Count of '{:}' values used \
-            for the monthly mean".format(ds[v].attrs['long_name'])
+        ds[f'{v}_aggregated'].attrs = attrs_data[f'{v}_aggregated']
         ds[f'{v}_count'].attrs['units'] = '1'
-        ds[v].attrs['long_name'] = '{:}, monthly mean'.format(
+        ds[f'{v}_count'].attrs['long_name'] = (
+            "Count of '{:}' values used "
+            "for the stratified monthly mean"
+            ).format(ds[v].attrs['long_name'])
+        ds[v].attrs['long_name'] = '{:}, stratified monthly mean'.format(
             ds[v].attrs['long_name']
         )
     for coord in ds.coords:
         ds[coord].attrs = attrs_data[coord]
+
+    # Append `_stratified` to the required variables
+    ds = ds.rename({v: f'{v}_stratified' for v in variables})
+    ds = ds.rename({f'{v}_count': f'{v}_stratified_count' for v in variables})
 
     return ds
 
