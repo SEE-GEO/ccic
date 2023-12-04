@@ -58,7 +58,10 @@ def process_month(files: list[Path], product: str) -> xr.Dataset:
             "values to nanosecond precision."
             )
         )
-        ds['time'] = ds['time'].astype('datetime64[M]').astype('datetime64[m]')
+        # Floor day to first day of the month
+        ds['time'] = ds['time'] - np.array(
+            [np.timedelta64(d - 1, 'D') for d in ds.time.dt.day.values]
+        )
         ds = ds.reindex({'time': time_values}, method=None, fill_value=0)
 
     # Initialize all variables to zero and create a count variable
@@ -81,12 +84,13 @@ def process_month(files: list[Path], product: str) -> xr.Dataset:
                 "Converting non-nanosecond precision"
                 )
             )
-            # Reindex to handle time dimension
-            time_delta_from_month_start = ds_f['time'] - ds_f['time'].astype('datetime64[M]')
-            days_from_month_start = time_delta_from_month_start.astype('timedelta64[D]')
-            time_f = ds_f['time'] - days_from_month_start
-            ds_f['time'] = time_f.astype('datetime64[m]')
-            ds_f = ds_f.reindex({'time': time_values}, method=None, fill_value=np.nan)
+            # Replace the timestamps day with first day of the month
+            # and reindex to handle time dimension
+            ds_f['time'] = ds_f['time'] - np.array(
+                [np.timedelta64(d - 1, 'D') for d in ds_f.time.dt.day.values]
+            )
+            ds_f = ds_f.reindex({'time': time_values},
+                                method=None, fill_value=np.nan)
         
         for v in variables:
             is_finite = np.isfinite(ds_f[v].data)
