@@ -152,14 +152,12 @@ if __name__ == '__main__':
     parser.add_argument(
         '--month',
         required=True,
-        type=int,
         help="month to process in the format YYYYmm"
     )
     parser.add_argument(
         '--month_end',
         nargs='?',
         default=None,
-        type=int,
         help="process until this month in the format YYYYmm"
     )
     parser.add_argument(
@@ -212,5 +210,5 @@ if __name__ == '__main__':
         logging.info(f'Writing {f_dst}')
         ds.to_netcdf(f_dst)
 
-        # Replace datetime object's `month` with `month + 1`
-        current_month += relativedelta(month=1)
+        # Increment datetime instance by one month
+        current_month += relativedelta(months=1)
