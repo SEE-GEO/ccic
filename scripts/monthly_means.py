@@ -7,20 +7,13 @@ import calendar
 from datetime import datetime
 import logging
 from pathlib import Path
-import re
 import warnings
 
 import ccic
+from dateutil.relativedelta import relativedelta
 import numpy as np
 from tqdm import tqdm
 import xarray as xr
-
-def get_year_month(month_i: int, year_offset: int,
-                   month_offset: int) -> tuple[int, int]:
-    """Auxiliary function to that returns a (year, month) from an offset."""
-    year_plus, month_plus = divmod((month_offset - 1) + month_i, 12)
-
-    return (year_offset + year_plus, month_offset + month_plus)
 
 def find_files(year: int, month: int, source: Path, product: str) -> list[Path]:
     """
@@ -158,14 +151,14 @@ if __name__ == '__main__':
         '--month',
         required=True,
         type=int,
-        help="month to process in the format YYYYMM"
+        help="month to process in the format YYYYmm"
     )
     parser.add_argument(
         '--month_end',
         nargs='?',
         default=None,
         type=int,
-        help="process until this month in the format YYYYMM"
+        help="process until this month in the format YYYYmm"
     )
     parser.add_argument(
         '--ignore_missing_files',
@@ -185,14 +178,16 @@ if __name__ == '__main__':
 
     if (args.month_end is None) or args.month_end < args.month:
         args.month_end = args.month
-    
-    n_months_to_process = sum(divmod(args.month_end - args.month, 12)) + 1
 
-    year_offset, month_offset = divmod(args.month, 100)
+    current_month = datetime.strptime(args.month, '%Y%m')
+    month_end = datetime.strptime(args.month_end, '%Y%m')
 
-    for month_i in range(n_months_to_process):
-        year, month = get_year_month(month_i, year_offset, month_offset)
-        files = find_files(year, month, args.source, args.product)
+    while current_month <= month_end:
+        year = current_month.year
+        month = current_month.month
+        logging.info(f"Finding {args.product} files for {year}-{month:02d}")
+        files = find_files(year, month,
+                           args.source, args.product)
 
         # Check that there is the expected number of files
         _, n_days = calendar.monthrange(year, month)
@@ -214,3 +209,6 @@ if __name__ == '__main__':
         f_dst = args.destination / fname_dst
         logging.info(f'Writing {f_dst}')
         ds.to_netcdf(f_dst)
+
+        # Replace datetime object's `month` with `month + 1`
+        current_month += relativedelta(month=1)
