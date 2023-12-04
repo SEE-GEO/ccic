@@ -315,7 +315,13 @@ def download_files(download_queue, processing_queue, retrieval_settings):
             retrieval_settings.database_path, Path(input_file.filename).name
         )
         with log.log(logger):
-            input_file, clean_up = input_file.get()
+            try:
+                input_file, clean_up = input_file.get()
+            except Exception:
+                logger.exception(
+                    "Downloading of input file '%s' failed.",
+                    input_file.filename
+                )
         processing_queue.put((input_file, clean_up))
 
     processing_queue.put(None)
