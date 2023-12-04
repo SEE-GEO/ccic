@@ -28,9 +28,7 @@ def find_files(year: int, month: int, source: Path, product: str) -> list[Path]:
     at directory `source` for product `product`.
     """
     files = source.rglob(f'ccic_{product}_{year}{month:02d}*.zarr')
-    pattern = re.compile(r'ccic_gridsat_201001[0-3]{1}[0-9]{1}[0-2]{1}[0-9]{1}00.zarr')
-    files = sorted([f for f in files if pattern.match(f.name)])
-    return files
+    return sorted(list(files))
 
 def process_month(files: list[Path], product: str) -> xr.Dataset:
     """
