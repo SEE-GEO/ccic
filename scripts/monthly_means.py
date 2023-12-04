@@ -68,6 +68,7 @@ def process_month(files: list[Path], product: str) -> xr.Dataset:
     variables = set(ds.variables) - set(ds.coords)
     for v in variables:
         # float instead of float32 to avoid any limitations accumulating
+        # .copy to assign coordinates correctly
         ds[v] = ds[v].copy(
             data=np.zeros_like(ds[v]), deep=True
         ).astype(float)
@@ -94,16 +95,13 @@ def process_month(files: list[Path], product: str) -> xr.Dataset:
         
         for v in variables:
             is_finite = np.isfinite(ds_f[v].data)
-            ds[v] = ds[v] + ds[v].copy(
-                data=np.where(is_finite, ds_f[v].data, 0), deep=True
-            )
-            ds[f'{v}_count'] = ds[f'{v}_count'] + ds[f'{v}_count'].copy(
-                data=is_finite.astype(int), deep=True
-            )
+            ds[v] = ds[v] + np.where(is_finite, ds_f[v].data, 0)
+            ds[f'{v}_count'] = ds[f'{v}_count'] + is_finite.astype(int)
 
     # Divide by the total count
     for v in variables:
         non_zero_count = ds[f'{v}_count'].data > 0
+        # .copy to set dimensions correctly
         ds[v] = ds[v].copy(
             data=np.divide(ds[v].data, ds[f'{v}_count'].data,
                            out=np.full_like(ds[v].data, np.nan),
