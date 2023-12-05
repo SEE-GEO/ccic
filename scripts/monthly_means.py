@@ -113,32 +113,12 @@ def process_month(files: list[Path], product: str) -> xr.Dataset:
         ).astype(np.float32)
         ds[f'{v}_count'] = ds[f'{v}_count'].astype(np.int16)
 
-    # Compute the monthly aggregates
-    ds['month'] = (('month',), [ds.time.data.min()])
-    for v in variables:
-        ds[f'{v}_aggregated'] = (
-            np.divide(
-                (ds[v] * ds[f'{v}_count']).sum('time', skipna=True),
-                ds[f'{v}_count'].sum('time', skipna=True),
-                out=np.full_like(ds[v].sum('time'), np.nan),
-                where=(ds[f'{v}_count'].sum('time', skipna=True).data > 0)
-            )
-        ).expand_dims({'month': 1})
-    
-    # Set attributes for this additional data
-    attrs_data['month'] = {'long_name': 'month', 'standard_name': 'month'}
-    for v in variables:
-        attrs_data[f'{v}_aggregated'] =  attrs_data[v].copy()
-        attrs_data[f'{v}_aggregated']['long_name'] = \
-            '{:}, aggregated monthly mean'.format(attrs_data[v]['long_name'])
-
     # Update attributes
     ds.attrs = attrs
     ds.attrs["history"] = f"{datetime.now()}: Monthly means computation"
     ds.attrs["input_filename"] = [f.name for f in files]
     for v in variables:
         ds[v].attrs = attrs_data[v]
-        ds[f'{v}_aggregated'].attrs = attrs_data[f'{v}_aggregated']
         ds[f'{v}_count'].attrs['units'] = '1'
         ds[f'{v}_count'].attrs['long_name'] = (
             "Count of '{:}' values used "
@@ -150,9 +130,28 @@ def process_month(files: list[Path], product: str) -> xr.Dataset:
     for coord in ds.coords:
         ds[coord].attrs = attrs_data[coord]
 
-    # Append `_stratified` to the required variables
+    # Append `_stratified` the stratified variables
     ds = ds.rename({v: f'{v}_stratified' for v in variables})
     ds = ds.rename({f'{v}_count': f'{v}_stratified_count' for v in variables})
+
+    # Compute monthly means irrespective of timestamp
+    # Setting dtype='datetime64[M]' seems to not have effect
+    ds['month'] = (('month',), [ds.time.data.min()])
+    for v in variables:
+        ds[v] = (
+            np.divide(
+                (ds[f'{v}_stratified'] * ds[f'{v}_stratified_count']).sum('time', skipna=True),
+                ds[f'{v}_stratified_count'].sum('time', skipna=True),
+                out=np.full_like(ds[f'{v}_stratified'].sum('time'), np.nan),
+                where=(ds[f'{v}_stratified_count'].sum('time', skipna=True).data > 0)
+            )
+        ).expand_dims({'month': 1})
+    
+    # Set attributes for the full monthly mean data
+    attrs_data['month'] = {'long_name': 'month', 'standard_name': 'month'}
+    for v in variables:
+        ds[v].attrs = attrs_data[v]
+        ds[v].attrs['long_name'] = '{:}, monthly mean'.format(attrs_data[v]['long_name'])
 
     return ds
 
