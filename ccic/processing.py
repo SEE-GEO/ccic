@@ -55,6 +55,22 @@ class RemoteFile:
         if thread_pool is not None and working_dir is not None:
             self.prefetch(thread_pool)
 
+    def __eq__(self, other):
+        """
+        Two remote files are considered equal if the refer to files with the
+        same filename.
+        """
+        if isinstance(other, RemoteFile):
+            return self.filename == other.filename
+        return NotImplemented
+
+    def __hash__(self):
+        """
+        The hash of a RemoteFile object is the hash of its filename.
+        """
+        return hash(self.filename)
+
+
     def prefetch(self, thread_pool):
         """
         Uses a thread pool to schedule prefetching of the remote file.
