@@ -48,20 +48,23 @@ setup(
     author="Simon Pfreundschuh",
     author_email="simon.pfreundschuh@chalmers.se",
     install_requires=[
-        "metpy",
-        "numpy",
-        "quantnn>=0.0.5",
-        "torch",
-        "pytorch-lightning",
-        "pansat",
-        "xarray",
         "zarr",
-        "netCDF4",
-        "dask",
-        "beautifulsoup4",
-        "lxml",
-        "artssat @ git+https://github.com/simonpf/artssat.git"
     ],
+    extras_require={
+        "complete": [
+            "metpy",
+            "numpy",
+            "quantnn>=0.0.5", "torch",
+            "pytorch-lightning",
+            "pansat",
+            "xarray",
+            "netCDF4",
+            "dask",
+            "beautifulsoup4",
+            "lxml",
+            "artssat @ git+https://github.com/simonpf/artssat.git"
+        ]
+    },
     packages=find_packages(),
     python_requires=">=3.8",
     project_urls={
