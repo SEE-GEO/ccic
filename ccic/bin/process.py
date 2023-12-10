@@ -315,7 +315,13 @@ def download_files(download_queue, processing_queue, retrieval_settings):
             retrieval_settings.database_path, Path(input_file.filename).name
         )
         with log.log(logger):
-            input_file, clean_up = input_file.get()
+            try:
+                input_file, clean_up = input_file.get()
+            except Exception:
+                logger.exception(
+                    "Downloading of input file '%s' failed.",
+                    input_file.filename
+                )
         processing_queue.put((input_file, clean_up))
 
     processing_queue.put(None)
@@ -448,26 +454,42 @@ def run(args):
     else:
         working_dir = input_path
 
-    if not args.failed or database_path is None:
-        input_files = get_input_files(
-            input_cls,
-            start_time,
-            end_time=end_time,
-            path=working_dir,
-        )
-        # Initialize database with all found files.
-        if database_path is not None:
-            for input_file in input_files:
-                ProcessingLog(database_path, input_file)
-    else:
-        input_files = [
+    input_files = get_input_files(
+        input_cls,
+        start_time,
+        end_time=end_time,
+        path=working_dir,
+    )
+    if args.failed:
+        if database_path is None:
+            LOGGER.error(
+                "To reprocess failed files the path to a processing database must "
+                " be provided using the '--database_path' argument."
+            )
+            return 1
+        if not database_path.exists():
+            LOGGER.error(
+                "The database path '%s' doesn't yet exist, so there are no "
+                "failed files to process. ",
+                database_path
+            )
+            return 1
+        failed_files = [
             RemoteFile(input_cls, name, working_dir=Path(working_dir))
             for name in ProcessingLog.get_failed(database_path)
+        ]
+        input_files = [
+            input_file for input_file in input_files if input_file in failed_files
         ]
         LOGGER.info(
             f"Found {len(input_files)} failed input files in logging database "
             f" {database_path}."
         )
+    else:
+        # Initialize database with all found files.
+        if database_path is not None:
+            for input_file in input_files:
+                ProcessingLog(database_path, input_file)
 
     if ((args.credible_interval < 0.0) or
         (args.credible_interval > 1.0)):
