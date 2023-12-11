@@ -1,0 +1,5 @@
+format: jb-book
+root: intro
+chapters:
+  - file: getting_started
+  - file: dataset_and_file_structure

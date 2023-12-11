@@ -1,0 +1,7 @@
+# In _config.yml
+title: The Chalmers Cloud Ice Climatology (CCIC)
+author: Adrià Amell, Simon Pfreundschuh
+
+# Add a bibtex file so that we can create citations
+bibtex_bibfiles:
+  - references.bib
