@@ -14,7 +14,7 @@ From: ccic_conda.sif
 %post
     /opt/conda/envs/ccic/bin/python3 -m pip install --no-cache-dir /pansat
     /opt/conda/envs/ccic/bin/python3 -m pip install quantnn
-    /opt/conda/envs/ccic/bin/python3 -m pip install --no-cache-dir /ccic
+    /opt/conda/envs/ccic/bin/python3 -m pip install --no-cache-dir /ccic[complete]
     /opt/conda/envs/ccic/bin/python3 -m pip install notebook tensorboard
 
     echo ". /singularity_shell_init.sh" >> $SINGULARITY_ENVIRONMENT

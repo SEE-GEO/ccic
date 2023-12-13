@@ -22,6 +22,6 @@ jobs:
         shell: bash -l {0}
         run: mamba env create --quiet --file ccic.yml &&
              conda activate ccic &&
-             pip install -e . &&
+             pip install -e .[complete] &&
              pip install pytest &&
              pytest test
