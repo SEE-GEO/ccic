@@ -13,7 +13,7 @@ pip install ccic
 Then, CCIC data files can be read using xarray. 
 
 ```
-import ccic # Required pripr to reading CCIC .zarr files.
+import ccic # Required prior to reading CCIC .zarr files.
 import xarray as xr
 
 data = xr.open_zarr("ccic_gridsat_xxxxxxxxxxxx.zarr")
