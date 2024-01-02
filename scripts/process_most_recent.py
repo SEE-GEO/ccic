@@ -18,8 +18,8 @@ def run(args):
     Args:
         args: The namespace object provided by the top-level parser.
     """
-    start_time = datetime.now()
-    end_time = start_time - timedelta(days=args.days)
+    end_time = datetime.now()
+    start_time = end_time - timedelta(days=args.days)
     start_time = start_time.strftime("%Y-%m-%dT%H:%M:%S")
     end_time = end_time.strftime("%Y-%m-%dT%H:%M:%S")
     output = args.output
