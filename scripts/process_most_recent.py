@@ -58,11 +58,14 @@ def run(args):
 
     transfer = args.transfer
     if transfer is not None:
-        command += " --transfer {transfer}"
+        command += f" --transfer {transfer}"
 
     input_path = args.input_path
     if input_path is not None:
         command += f" --input_path {input_path}"
+
+    command += " --failed"
+    command += " --database_path processing_cpcir.db"
 
     slurm = args.slurm
     if slurm is not None:
