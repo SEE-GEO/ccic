@@ -467,23 +467,34 @@ def run(args):
                 " be provided using the '--database_path' argument."
             )
             return 1
+
         if not database_path.exists():
-            LOGGER.error(
+            LOGGER.warning(
                 "The database path '%s' doesn't yet exist, so there are no "
                 "failed files to process. ",
                 database_path
             )
-            return 1
-        failed_files = [
-            RemoteFile(input_cls, name, working_dir=Path(working_dir))
-            for name in ProcessingLog.get_failed(database_path)
-        ]
-        input_files = [
-            input_file for input_file in input_files if input_file in failed_files
-        ]
+            failed_files = []
+        else:
+            failed_files = [
+                RemoteFile(input_cls, name, working_dir=Path(working_dir))
+                for name in ProcessingLog.get_failed(database_path)
+            ]
+
+        failed_files = set(failed_files)
+        input_files = set(input_files)
+
+        failed = input_files.intersection(failed_files)
+        new_files = input_files.difference(failed_files)
+
+        # Initialize database with files that weren't in DB.
+        for input_file in new_files:
+            ProcessingLog(database_path, input_file)
+
+        input_files = sorted(list(failed) + list(new_files))
         LOGGER.info(
-            f"Found {len(input_files)} failed input files in logging database "
-            f" {database_path}."
+            f"Found {len(failed)} failed input files in logging database "
+            f" {database_path}. {len(new_files)} were not yet in the database."
         )
     else:
         # Initialize database with all found files.
