@@ -5,10 +5,14 @@ ccic.plotting
 Helper functions for plotting results.
 """
 from pathlib import Path
+from typing import List
 
 import cartopy.crs as ccrs
 import cmocean
 import matplotlib.pyplot as plt
+from matplotlib import animation
+from matplotlib import gridspec
+from matplotlib.colors import LogNorm
 from matplotlib.patches import Rectangle
 from matplotlib.cm import ScalarMappable, get_cmap
 from matplotlib.colors import (
@@ -18,6 +22,8 @@ from matplotlib.colors import (
 )
 from matplotlib.ticker import FixedLocator
 import numpy as np
+from pansat.time import to_datetime
+import xarray as xr
 
 from ccic.data.cloudsat import CLOUD_CLASSES
 
@@ -398,3 +404,73 @@ def add_ticks(ax, lons, lats, left=True, bottom=True):
     gl.bottom_labels = bottom
     gl.xlocator = FixedLocator(lons)
     gl.ylocator = FixedLocator(lats)
+
+
+def animate_tiwp(
+        results: List[Path],
+        output_path: Path,
+        temporal_resolution: np.timedelta64 = np.timedelta64(15 * 60, "s")
+) -> None:
+    """
+    Make animation of TIWP.
+
+    Args:
+        results: List of CCIC output files from which to create the animation.
+        output_path: Filename to which to write the animation.
+        temporal_resolution: The temporal resolution of each frame.
+
+    Return:
+        The figure object used to generate the animation.
+    """
+    gs = gridspec.GridSpec(1, 2, width_ratios=[1.0, 0.03])
+    fig = plt.figure(figsize=(18, 6))
+    ax = fig.add_subplot(gs[0, 0], projection=ccrs.PlateCarree())
+    norm = LogNorm(1e-2, 1e1)
+
+    # Set up formatting for the movie files
+    Writer = animation.writers['ffmpeg']
+    writer = Writer(fps=10, bitrate=1800)
+
+    results = xr.open_mfdataset(results)[{
+        "latitude": slice(0, None, 8),
+        "longitude": slice(0, None, 8)
+    }]
+    start_time = results.time.min().data
+    end_time = results.time.max().data
+
+    ax.set_xlim(-180, 180)
+    ax.set_ylim(-60, 60)
+    lons = np.arange(-180, 181, 30)
+    lats = np.arange(-60, 61, 20)
+    add_ticks(ax, lons, lats)
+    ax.coastlines(color="grey")
+
+    m_inpt = ScalarMappable(
+        cmap="cmo.dense",
+        norm=norm
+    )
+    cax = fig.add_subplot(gs[0, 1])
+    plt.colorbar(m_inpt, label="TIWP [kg m$^{-2}$]", cax=cax)
+
+    def draw_frame(time):
+        date = to_datetime(time)
+        time_str = date.strftime('%Y-%m-%d %H:%M:%S')
+        print(f"time = {time_str}")
+
+        results_t = results.interp(time=time, kwargs={"fill_value": "extrapolate"}).compute()
+        lons = results_t.longitude.data
+        lats = results_t.latitude.data
+        tiwp = results_t.tiwp.data
+
+        m = ax.pcolormesh(lons, lats, tiwp, norm=norm)
+        ax.set_title(f"{time_str}", loc="center")
+
+        return m,
+
+    times = np.arange(start_time, end_time, temporal_resolution)
+
+    ani = animation.FuncAnimation(
+        fig, draw_frame, times, interval=50, blit=True
+    )
+    ani.save(output_path, savefig_kwargs={"bbox_inches": "tight"})
+    return fig
