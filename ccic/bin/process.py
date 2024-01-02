@@ -491,7 +491,7 @@ def run(args):
         for input_file in new_files:
             ProcessingLog(database_path, input_file)
 
-        input_files = sorted(list(failed) + list(new_files))
+        input_files = list(failed) + list(new_files)
         LOGGER.info(
             f"Found {len(failed)} failed input files in logging database "
             f" {database_path}. {len(new_files)} were not yet in the database."
