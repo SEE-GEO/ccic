@@ -431,7 +431,7 @@ def animate_tiwp(
     Writer = animation.writers['ffmpeg']
     writer = Writer(fps=10, bitrate=1800)
 
-    results = xr.open_mfdataset(results)[{
+    results = xr.open_mfdataset(results)["tiwp"][{
         "latitude": slice(0, None, 8),
         "longitude": slice(0, None, 8)
     }]
@@ -460,7 +460,7 @@ def animate_tiwp(
         results_t = results.interp(time=time, kwargs={"fill_value": "extrapolate"}).compute()
         lons = results_t.longitude.data
         lats = results_t.latitude.data
-        tiwp = results_t.tiwp.data
+        tiwp = results_t.data
 
         m = ax.pcolormesh(lons, lats, tiwp, norm=norm)
         ax.set_title(f"{time_str}", loc="center")
