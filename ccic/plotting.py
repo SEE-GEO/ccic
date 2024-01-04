@@ -422,9 +422,9 @@ def animate_tiwp(
     Return:
         The figure object used to generate the animation.
     """
-    gs = gridspec.GridSpec(1, 2, width_ratios=[1.0, 0.03])
-    fig = plt.figure(figsize=(18, 6))
-    ax = fig.add_subplot(gs[0, 0], projection=ccrs.PlateCarree())
+    gs = gridspec.GridSpec(2, 4, height_ratios=[1.0, 0.05])
+    fig = plt.figure(figsize=(12, 5))
+    ax = fig.add_subplot(gs[0, :], projection=ccrs.PlateCarree())
     norm = LogNorm(1e-2, 1e1)
 
     # Set up formatting for the movie files
@@ -449,8 +449,8 @@ def animate_tiwp(
         cmap="cmo.dense",
         norm=norm
     )
-    cax = fig.add_subplot(gs[0, 1])
-    plt.colorbar(m_inpt, label="TIWP [kg m$^{-2}$]", cax=cax)
+    cax = fig.add_subplot(gs[1, 1:3])
+    plt.colorbar(m_inpt, label="TIWP [kg m$^{-2}$]", cax=cax, orientation="horizontal", extend="both")
 
     def draw_frame(time):
         date = to_datetime(time)
