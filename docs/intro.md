@@ -1,7 +1,8 @@
 # The Chalmers Cloud Ice Climatology (CCIC)
 
-The Chalmers Cloud Ice Climatology is a novel, deep-learning-based climate record of ice-particle-concentrations in the atmosphere.
-It provides spatially and temporally continuous coverage for most longitudes and latitudes between 60º S and 60º N.
+The Chalmers Cloud Ice Climatology is a novel, deep-learning-based climate
+record of ice-particle-concentrations in the atmosphere. CCIC is 
+
 
 ## Example results
 
@@ -16,12 +17,11 @@ concentrations, the total ice water path (TIWP), for the first week in January
 
 ## Relevance
 
-The TIWP quantifies the amount of ice particles in clouds. Non-zero TIWP occurs
-where water vapor is lifted up high-enough in the atmosphere to condense and
-temperatures are low enough and/or concentrations of ice-nucleating particles
-are high for cloud droplets to freeze. TIWP thus traces intensive convective
-activity. Furthermore, ice particles play a crucial role in regulating the
-radiative energy balance of the atmosphere.
+The TIWP quantifies the amount of ice particles in clouds. High TIWP values
+occur in clouds that are high or thick enough to reach temperatures where cloud
+droplets freeze. TIWP thus traces clouds in the atmosphere and can be used to
+study and track storms. Moreover, ice clouds play a crucial role in regulating
+the radiative energy balance of the atmosphere.
 
 The CCIC TIWP estimates have been thoroughly validated and shown to be
 consistent with in-situ and air-borne and ground-based cloud-radar measurements
