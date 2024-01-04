@@ -26,6 +26,34 @@ import xarray as xr
 data = xr.open_zarr("ccic_gridsat_xxxxxxxxxxxx.zarr")
 ```
 
+
+The Zarr format allows to store the data arrays in a compressed format suitable for distributed environments and cloud computing. In practice, this means that you do not need to download the full file to access a subset of the data, if you are accessing it remotely.
+
+The CCIC data uses a custom compression codec to encode the numeric data, because it helps to save an enormous amount of disk space. This is why importing the ``ccic`` package is required prior to loading CCIC data in Zarr format.
+
+```{warning} If you forget to import ``ccic`` prior to reading a file in Zarr format you will encounter the exception `ValueError: codec not available: 'log_bins'`. To register the necessary codec, please import the CCIC Python package `ccic` in every script where you load CCIC data files.
+```
+
+The code above also shows how we recommend opening the CCIC Zarr files, which is
+using the [xarray](https://docs.xarray.dev) Python library. Xarray will do a
+lazy loading of the CCIC file into an
+[xarray.Dataset](https://docs.xarray.dev/en/stable/generated/xarray.Dataset.html).
+Using lazy loading helps to work with large datasets, since several operations
+can be executed without loading the full dataset, thus saves memory and network
+traffic, if accessed remotely. There are multiple guides online on how to work
+with xarray objects.
+
+The xarray guide [shows how to access Zarr files stored in cloud storage buckets](https://docs.xarray.dev/en/stable/user-guide/io.html#cloud-storage-buckets). For instance, we have tested that the following works with a private Amazon S3 bucket (with user-bucket policies and AWS CLI and properly configured):
+
+```python
+import ccic
+import xarray as xr
+# Lazy load a CCIC file
+ds = xr.open_zarr('s3://<private-bucket>/gridsat/2020/ccic_gridsat_202001010000.zarr')
+# Load `cloud_prob_2d` into memory
+ds.cloud_prob_2d.load()
+# Do stuff with ds.cloud_prob_2d...
+
 ## CCIC processing and development
 
 Advanced use cases of CCIC include running retrievals or extending the ``ccic``
