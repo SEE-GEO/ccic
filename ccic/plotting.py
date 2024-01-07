@@ -423,8 +423,8 @@ def animate_tiwp(
         The figure object used to generate the animation.
     """
     gs = gridspec.GridSpec(2, 4, height_ratios=[1.0, 0.05])
-    fig = plt.figure(figsize=(12, 5))
-    ax = fig.add_subplot(gs[0, :], projection=ccrs.PlateCarree())
+    fig = plt.figure(figsize=(9, 5))
+    ax = fig.add_subplot(gs[0, :], projection=ccrs.Mollweide())
     norm = LogNorm(1e-2, 1e1)
 
     # Set up formatting for the movie files
@@ -438,21 +438,21 @@ def animate_tiwp(
     start_time = results.time.min().data
     end_time = results.time.max().data
 
-    ax.set_xlim(-180, 180)
-    ax.set_ylim(-60, 60)
     lons = np.arange(-180, 181, 30)
     lats = np.arange(-60, 61, 20)
-    add_ticks(ax, lons, lats)
     ax.coastlines(color="grey")
 
+    cmap = get_cmap()
+    cmap.set_bad("grey")
     m_inpt = ScalarMappable(
-        cmap="cmo.dense",
+        cmap=cmap,
         norm=norm
     )
     cax = fig.add_subplot(gs[1, 1:3])
     plt.colorbar(m_inpt, label="TIWP [kg m$^{-2}$]", cax=cax, orientation="horizontal", extend="both")
 
     def draw_frame(time):
+        ax.clear()
         date = to_datetime(time)
         time_str = date.strftime('%Y-%m-%d %H:%M:%S')
         print(f"time = {time_str}")
@@ -462,7 +462,7 @@ def animate_tiwp(
         lats = results_t.latitude.data
         tiwp = results_t.data
 
-        m = ax.pcolormesh(lons, lats, tiwp, norm=norm)
+        m = ax.pcolormesh(lons, lats, tiwp, norm=norm, transform=ccrs.PlateCarree(), cmap=cmap)
         ax.set_title(f"{time_str}", loc="center")
 
         return m,
