@@ -106,3 +106,5 @@ After setting up ``pansat`` like this, you should be able to run the ``ccic proc
 ``` shell
 ccic process ccic.pckl gridsat results 2020-01-01T00:00:00 2020-01-02T00:00:00 --targets tiwp tiwc cloud_prob_2d cloud_prob_3d 
 ```
+
+To avoid having to enter your pansat password every time when you want to run a retrieval, you can set the ``PANSAT_PASSWORD`` environment variable to your password.
