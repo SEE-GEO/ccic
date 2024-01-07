@@ -65,7 +65,7 @@ ccic process --help
 
 ### Setup ``pansat``
 
-``ccic`` relies on the [``pansat``](https://github.com/SEE-GEO/pansat) package to autmatically download required input data. To automatically download the CPCIR input data, you need to provide ``pansat`` with your credentials for the NASA GES DISC server.
+``ccic`` relies on the [``pansat``](https://github.com/SEE-GEO/pansat) package to automatically download required input data. To automatically download the CPCIR input data, you need to provide ``pansat`` with your credentials for the NASA GES DISC server.
 
 
 > NOTE: We recommend creating a new account with throw-away credential for this purpose.
@@ -76,6 +76,6 @@ After setting up your account you can configure ``pansat`` as follows:
 pansat --add "GES DISC" <username>
 ```
 
-Pansat will then first prompt you to setup a password for ``pansat``. ``pansat`` will use this password to encrypt the loging data it stores for different data portals. Following this, it will query your password for the NASA GES DISC server. After setting up ``pansat`` like this, you should be able to run the ``ccic process`` command for CPCIR input data by simply replacing the ``gridsat`` argument with ``cpcir``.
+Pansat will then first prompt you to setup a password for ``pansat``. ``pansat`` will use this password to encrypt the log-in data it stores for different data portals. Following this, it will query your password for the NASA GES DISC server. After setting up ``pansat`` like this, you should be able to run the ``ccic process`` command for CPCIR input data by simply replacing the ``gridsat`` argument with ``cpcir``.
 
 GridSat data does not require any credentials.
