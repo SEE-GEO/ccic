@@ -13,7 +13,7 @@ from tempfile import NamedTemporaryFile
 
 def run(args):
     """
-    Process input files.
+    Process most recent CPCIR files.
 
     Args:
         args: The namespace object provided by the top-level parser.
@@ -30,7 +30,7 @@ def run(args):
 
     input_path = args.input_path
     if input_path is not None:
-        command += f" --input_path input_path"
+        command += f" --input_path {input_path}"
 
     targets = args.targets
     command += f" --targets {' '.join(targets)}"
@@ -65,7 +65,8 @@ def run(args):
         command += f" --input_path {input_path}"
 
     command += " --failed"
-    command += " --database_path processing_cpcir.db"
+    database_path = args.database_path
+    command += f" --database_path {database_path}"
 
     slurm = args.slurm
     if slurm is not None:
@@ -87,7 +88,7 @@ if __name__ == "__main__":
         "process_most_recent",
         description=(
             """
-            Run CCIC retrieval for most recent CPCIR files..
+            Run CCIC retrieval for most recent CPCIR files.
             """
         ),
     )
@@ -202,6 +203,14 @@ if __name__ == "__main__":
             "Probability of the equal-tailed credible interval used to "
             "report retrieval uncertainty of scalar retrieval targets. "
             "Must be within [0, 1]."
+        ),
+    )
+    parser.add_argument(
+        "--database_path",
+        type=str,
+        default="processing_cpcir.db",
+        help=(
+            "Name of the processing database to use."
         ),
     )
     parser.add_argument(
