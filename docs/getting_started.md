@@ -54,6 +54,7 @@ ds = xr.open_zarr('s3://<private-bucket>/gridsat/2020/ccic_gridsat_202001010000.
 # Load `cloud_prob_2d` into memory
 ds.cloud_prob_2d.load()
 # Do stuff with ds.cloud_prob_2d...
+```
 
 ## CCIC processing and development
 
