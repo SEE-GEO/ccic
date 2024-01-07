@@ -1,13 +1,11 @@
 # Dataset and file structure
 
-The CCIC record is dervied from two satellite observations datasets, CPCIR and GridSat. These two products define the temporal and spatial characteristics of the corresponding CCIC results.
-
 ## CPCIR and GridSat
 
-CCIC is derived from two observational datasets: The GridSat-B1 dataset
+CCIC is derived from two satellite-observations datasets: The GridSat-B1 dataset
 {cite:p}`Knapp_2014_CDR` and the NCEP/CPC Merged IR dataset
 {cite:p}`Janowiak_2017_CPCIR`. In the following, these two datasets will be
-referred to as **GridSat** and ***CPCIR***, respectively.
+referred to as **GridSat** and **CPCIR**, respectively.
 
 CCIC provides estimates for both the GridSat and the CPCIR datasets. The
 estimates are provided on the same grid as the observations and thus inherit
@@ -15,7 +13,7 @@ their temporospatial resolution and coverage. With temporospatial resolution
 of 3h @ 0.07 degree, the GridSat-based data offers lower resolution than
 the CPCIR data, which has 30 min @ 0.036 degree resolution. However, GridSat
 is available from 1980, whereas CPCIR only from 2000. The temporospatial coverage
-and resolution is summarized in table {numref}``resolution_and_coverage`
+and resolution is summarized in table {numref}`table %s <resolution_and_coverage>`.
 
 ```{list-table} Temporospatial coverage and resolution of the GridSat and CPCIR variants of CCIC
 :header-rows: 1
@@ -37,7 +35,8 @@ and resolution is summarized in table {numref}``resolution_and_coverage`
 
 ## Data organization
 
-The CCIC data is organized by input product in the following structure:
+The CCIC record is organized  into results derived from GridSat input data results derived from CPCIR input data. Below that files are organized into folder by year.
+
 ```
 .
 ├── cpcir
@@ -54,11 +53,16 @@ The CCIC data is organized by input product in the following structure:
     └── 2023
 ```
 
-Each folder contains the retrievals in the given year. The files follow this name pattern: `ccic_{product}_{YYYYmmddHH}00.zarr`, where `{product}` is either `cpcir` or `gridsat`, and `YYYYmmddHH` is the timestamp. Each GridSat file contains the retrieval for one timestamp, and each CPCIR file contains the retrieval for two timestamps, those contained in the hour of the filename: this matches how each input data product files are distributed. Consequently, GridSat files will have `HH` = 00, 03, 06, 09, 12, 15, 18, and 21, while CPCIR files will have `HH` = 00, 01, ..., 22, 23.
+The files follow the naming pattern
+
+```
+ccic_{product}_{YYYYmmddHH}00.zarr
+```
+ where `{product}` is either `cpcir` or `gridsat`, and `YYYYmmddHH` is the timestamp. Each GridSat file contains the retrieval for one timestamp, and each CPCIR file contains the retrieval for two timestamps, the full hour and 30 minutes after the full hour. For each day, GridSat are available at hours  `HH` = 00, 03, 06, 09, 12, 15, 18, and 21, while CPCIR files are available at hours `HH` = 00, 01, ..., 22, 23.
 
 ## Variables
 
-The CCIC climate data record provides esimtates of the total ice water path (TIWP) and a 2D cloud probability. The data files follow  CF conventions. The variables and their significance are listed in {numref}`table %s <variables>`. 
+The CCIC climate data record provides esimtates of the total ice water path (TIWP) and a 2D cloud probability. The data files follow  CF conventions. The variables and their meaning are listed in {numref}`table %s <variables>`. 
 
 ```{list-table} CCIC Variables and their significance 
 :header-rows: 1
@@ -110,12 +114,8 @@ These variables are gridded on the coordinates from the table below, where the s
   - [-180, +180)
   - Longitude
 * - `time` 
-  - s
+  - ns
   - [numpy's `datetime64[ns]`](https://numpy.org/doc/stable/reference/arrays.scalars.html#numpy.datetime64)<br/>(nanoseconds since Unix epoch)|
   -  Nominal retrieval time
 ```
 
-## References
-
-```{bibliography}
-```

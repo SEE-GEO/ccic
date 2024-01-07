@@ -31,7 +31,8 @@ The Zarr format allows to store the data arrays in a compressed format suitable 
 
 The CCIC data uses a custom compression codec to encode the numeric data, because it helps to save an enormous amount of disk space. This is why importing the ``ccic`` package is required prior to loading CCIC data in Zarr format.
 
-```{warning} If you forget to import ``ccic`` prior to reading a file in Zarr format you will encounter the exception `ValueError: codec not available: 'log_bins'`. To register the necessary codec, please import the CCIC Python package `ccic` in every script where you load CCIC data files.
+```{note}
+If you forget to import ``ccic`` prior to reading a file in Zarr format you will encounter the exception `ValueError: codec not available: 'log_bins'`. To register the necessary codec, please import the CCIC Python package `ccic` in every script where you load CCIC data files.
 ```
 
 The code above also shows how we recommend opening the CCIC Zarr files, which is
@@ -100,7 +101,7 @@ pansat --add "GES DISC" <username>
 
 Pansat will then first prompt you to setup a password for ``pansat``. ``pansat`` will use this password to encrypt the log-in data it stores for different data portals. Following this, it will query your password for the NASA GES DISC server. 
 
-After setting up ``pansat`` like this, you should be able to run the ``ccic process`` command for CPCIR input data by simply replacing the ``gridsat`` argument with ``cpcir``:
+After setting up ``pansat`` like this, you should be able to run the ``ccic process`` command for CPCIR input data by simply replacing the ``cpcir`` argument with ``gridsat``:
 
 ``` shell
 ccic process ccic.pckl gridsat results 2020-01-01T00:00:00 2020-01-02T00:00:00 --targets tiwp tiwc cloud_prob_2d cloud_prob_3d 

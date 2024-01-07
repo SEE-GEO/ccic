@@ -54,7 +54,7 @@ def run(args):
         command += f" --roi {' '.join(roi)}"
 
     if args.inpainted_mask:
-        command += " --inpainted mask"
+        command += " --inpainted_mask"
 
     transfer = args.transfer
     if transfer is not None:
@@ -109,7 +109,7 @@ if __name__ == "__main__":
         metavar="n",
         type=int,
         help="How many days to go back in time.",
-        default=7
+        default=7,
     )
     parser.add_argument(
         "--input_path",
@@ -239,9 +239,6 @@ if __name__ == "__main__":
             "Filename of a bash script that will be used to submit the processing "
             " to a slurm cluster."
         ),
-        default=None
+        default=None,
     )
     run(parser.parse_args())
-
-
-

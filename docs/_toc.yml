@@ -3,3 +3,7 @@ root: intro
 chapters:
   - file: getting_started
   - file: dataset_and_file_structure
+  - file: applications
+    sections:
+    - file: applications/cloud_tracking
+  - file: references
