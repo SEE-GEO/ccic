@@ -460,7 +460,7 @@ def animate_tiwp(
         results_t = results.interp(time=time, kwargs={"fill_value": "extrapolate"}).compute()
         lons = results_t.longitude.data
         lats = results_t.latitude.data
-        tiwp = results_t.data
+        tiwp = np.maximum(results_t.data, 1e-3)
 
         m = ax.pcolormesh(lons, lats, tiwp, norm=norm, transform=ccrs.PlateCarree(), cmap=cmap)
         ax.set_title(f"{time_str}", loc="center")
