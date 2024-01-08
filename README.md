@@ -1,12 +1,11 @@
 # The Chalmers Cloud Ice Climatology
 
-This repository contains the all source code for the training and processing of
-the retrieval underlying Chalmers Cloud Ice Climatology (CCIC) retrieval and
-data records.
+This repository contains all source code for the training and processing of the
+retrieval underlying the Chalmers Cloud Ice Climatology (CCIC) data record.
 
 ## Documentation
 
-Documentation describing the CCIC, it uses, and how to run you own retrievals can be found [here](https://ccic.readthedocs.io/en/latest/intro.html)
+Documentation describing the CCIC data, its uses, and how to run the retrievals can be found [here](https://ccic.readthedocs.io/en/latest/intro.html).
 
 ## References
 
