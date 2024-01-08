@@ -21,6 +21,7 @@ def read(path):
     with codecs.open(here / path) as fp:
         return fp.read()
 
+
 def get_version(path):
     """
     Extract version value from a given source file.
@@ -33,10 +34,11 @@ def get_version(path):
         A string representing the version value.
     """
     for line in read(path).splitlines():
-        if line.startswith('__version__'):
+        if line.startswith("__version__"):
             delim = '"' if '"' in line else "'"
             return line.split(delim)[1]
     return None
+
 
 setup(
     name="ccic",
@@ -54,7 +56,8 @@ setup(
         "complete": [
             "metpy",
             "numpy",
-            "quantnn>=0.0.5", "torch",
+            "quantnn>=0.0.5",
+            "torch",
             "pytorch-lightning",
             "pansat",
             "xarray",
@@ -62,7 +65,8 @@ setup(
             "dask",
             "beautifulsoup4",
             "lxml",
-            "artssat @ git+https://github.com/simonpf/artssat.git"
+            "artssat @ git+https://github.com/simonpf/artssat.git",
+            "jupyter-book",
         ]
     },
     packages=find_packages(),
@@ -71,12 +75,8 @@ setup(
         "Source": "https://github.com/see-geo/ccic/",
     },
     include_package_data=True,
-    package_data={
-        "ccic" : [
-            "files/ccic.mplstyle"
-        ]
-    },
-    entry_points = {
-        'console_scripts': ['ccic=ccic.bin:ccic'],
+    package_data={"ccic": ["files/ccic.mplstyle"]},
+    entry_points={
+        "console_scripts": ["ccic=ccic.bin:ccic"],
     },
 )

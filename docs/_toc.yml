@@ -1,0 +1,9 @@
+format: jb-book
+root: intro
+chapters:
+  - file: getting_started
+  - file: dataset_and_file_structure
+  - file: applications
+    sections:
+    - file: applications/storm_tracking
+  - file: references
