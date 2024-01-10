@@ -51,6 +51,10 @@ setup(
     author_email="simon.pfreundschuh@chalmers.se",
     install_requires=[
         "zarr",
+        "netCDF4",
+        "dask",
+        "beautifulsoup4",
+        "lxml",
     ],
     extras_require={
         "complete": [
@@ -65,7 +69,6 @@ setup(
             "dask",
             "beautifulsoup4",
             "lxml",
-            "artssat @ git+https://github.com/simonpf/artssat.git",
             "jupyter-book",
         ]
     },
