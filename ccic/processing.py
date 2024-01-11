@@ -281,14 +281,17 @@ class ProcessingLog(logging.Handler):
     """
 
     @staticmethod
-    def get_failed(database_path) -> List[str]:
+    def get_input_file(database_path, success: bool=None) -> List[str]:
         with sqlite3.connect(
                 f"file:{database_path}?mode=ro",
                 timeout=TIMEOUT,
                 uri=True
         ) as conn:
             cursor = conn.cursor()
-            res = cursor.execute("SELECT input_file FROM files WHERE success=0")
+            query = "SELECT input_file FROM files"
+            if success is not None:
+                query = f"{query} WHERE success={int(success)}"
+            res = cursor.execute(query)
             return [tpl[0] for tpl in res.fetchall()]
 
     def __init__(self, database_path, input_file):
