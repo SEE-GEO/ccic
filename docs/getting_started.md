@@ -109,3 +109,11 @@ ccic process ccic.pckl gridsat results 2020-01-01T00:00:00 2020-01-02T00:00:00 -
 ```
 
 To avoid having to enter your pansat password every time when you want to run a retrieval, you can set the ``PANSAT_PASSWORD`` environment variable to your password.
+
+### Reproducing validation retrievals
+
+The ``ccic.validation`` sub-module contains the implementation of the radar retrieval used to validate the CCIC retrievals. The validation code relies on the ``artssat`` package, which will need to be installed to use this functionality. The required package can be installed using
+
+``` shell
+pip install pip install git+ssh://git@github.com/simonpf/artssat
+```
