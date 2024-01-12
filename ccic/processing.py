@@ -103,17 +103,29 @@ class RemoteFile:
             )
 
         output_path = Path(working_dir) / self.filename
+        result = None
         if output_path.exists():
-            return self.file_cls(output_path), False
-
-        # Check if file is pre-fetched.
-        if self.prefetch_task is not None:
+            # If file is in disk
+            try:
+                result = self.file_cls(output_path)
+            except:
+                output_path.unlink(missing_ok=True)
+        elif self.prefetch_task is not None:
+            # Check if file is pre-fetched
             self.prefetch_task.result()
-            result = self.file_cls(output_path)
-            return result, False
-
-        self.file_cls.download(self.filename, output_path)
-        return self.file_cls(output_path), False
+            try:
+                result = self.file_cls(output_path)
+            except:
+                output_path.unlink(missing_ok=True)
+        else:
+            # Download file
+            self.file_cls.download(self.filename, output_path)
+            try:
+                result = self.file_cls(output_path)
+            except:
+                output_path.unlink(missing_ok=True)
+        
+        return result, False
 
 
 class OutputFormat(Enum):
