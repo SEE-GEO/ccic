@@ -322,6 +322,10 @@ def download_files(download_queue, processing_queue, retrieval_settings):
                     "Downloading of input file '%s' failed.",
                     input_file.filename
                 )
+                continue
+            if input_file is None:
+                # Something went wrong when opening the file
+                continue
         processing_queue.put((input_file, clean_up))
 
     processing_queue.put(None)
