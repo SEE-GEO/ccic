@@ -259,6 +259,10 @@ def test_processing_logger(tmp_path):
     })
     pl.finalize(results, "output_file_2")
 
+    # Check retrieval of successful file
+    success = ProcessingLog.get_input_file(db_path, success=True)
+    assert len(success) == 1
+
     with sqlite3.connect(db_path) as conn:
         cursor = conn.cursor()
         res = cursor.execute("SELECT log FROM files")
@@ -267,7 +271,7 @@ def test_processing_logger(tmp_path):
         assert len(entry[0]) > 0
 
     # Check retrieval of failed files.
-    failed = ProcessingLog.get_failed(db_path)
+    failed = ProcessingLog.get_input_file(db_path, success=False)
     assert len(failed) == 0
 
     pl = ProcessingLog(db_path, "input_file_3.nc")
@@ -278,8 +282,20 @@ def test_processing_logger(tmp_path):
         LOGGER.error("THIS IS ANOTHER LOG.")
 
     # Check retrieval of failed files.
-    failed = ProcessingLog.get_failed(db_path)
+    failed = ProcessingLog.get_input_file(db_path, success=False)
     assert len(failed) == 1
+
+    # Check retrieval of sucessful files
+    pl.finalize({}, 'output_file_3.nc')
+    success = ProcessingLog.get_input_file(db_path, success=True)
+    assert len(success) == 2
+
+    # Check that all files can be recovered
+    pl = ProcessingLog(db_path, "input_file_4.nc")
+    all = ProcessingLog.get_input_file(db_path)
+    success = ProcessingLog.get_input_file(db_path, success=True)
+    failed = ProcessingLog.get_input_file(db_path, success=False)
+    assert len(all) == len(success + failed)
 
 
 @NEEDS_TEST_DATA

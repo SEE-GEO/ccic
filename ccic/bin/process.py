@@ -433,7 +433,6 @@ def run(args):
     database_path = args.database_path
     if database_path is not None:
         database_path = Path(database_path)
-        database_path.is_dir() and database_path.exists()
         if database_path.is_dir() and database_path.exists():
             command_hash = hash(
                 f"{args.model}{args.input_type}{args.start_time}{args.end_time}"
@@ -476,26 +475,40 @@ def run(args):
             )
             failed_files = []
         else:
+            processed_files = [
+                RemoteFile(input_cls, name, working_dir=Path(working_dir))
+                for name in ProcessingLog.get_input_file(database_path, success=True)
+            ]
             failed_files = [
                 RemoteFile(input_cls, name, working_dir=Path(working_dir))
-                for name in ProcessingLog.get_failed(database_path)
+                for name in ProcessingLog.get_input_file(database_path, success=False)
             ]
-
+        
+        processed_files = set(processed_files)
         failed_files = set(failed_files)
         input_files = set(input_files)
 
+        processed = input_files.intersection(processed_files)
         failed = input_files.intersection(failed_files)
-        new_files = input_files.difference(failed_files)
+        new_files = input_files.difference(processed).difference(failed_files)
 
         # Initialize database with files that weren't in DB.
         for input_file in new_files:
             ProcessingLog(database_path, input_file)
 
-        input_files = list(failed) + list(new_files)
-        LOGGER.info(
-            f"Found {len(failed)} failed input files in logging database "
-            f" {database_path}. {len(new_files)} were not yet in the database."
+        # Sort files, to process them chronologically
+        input_files = sorted(
+            list(failed) + list(new_files),
+            key=lambda x: x.filename
         )
+        message = (
+            f"Found {len(failed)} failed input files "
+            f"in logging database {database_path}."
+        )
+        if len(new_files) > 0:
+            message = f"{message} {len(new_files)} were not yet in the database."
+        
+        LOGGER.info(message)
     else:
         # Initialize database with all found files.
         if database_path is not None:
