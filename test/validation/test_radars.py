@@ -6,14 +6,21 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-import xarray as xr
 
-from ccic.validation.radars import (
-    cloudnet_punta_arenas,
-    arm_manacapuru,
-    crs_olympex,
-    rasta_haic_up,
-    rasta_haic_down
+try:
+    import artssat
+    from ccic.validation.radars import (
+        cloudnet_punta_arenas,
+        arm_manacapuru,
+        crs_olympex,
+        rasta_haic_up,
+        rasta_haic_down
+    )
+    HAS_ARTSSAT = True
+except ImportError:
+    HAS_ARTSSAT = False
+NEEDS_ARTSSAT = pytest.mark.skipif(
+    not HAS_ARTSSAT, reason="Needs 'artssat' package installed."
 )
 
 
