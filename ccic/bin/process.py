@@ -496,7 +496,11 @@ def run(args):
         for input_file in new_files:
             ProcessingLog(database_path, input_file)
 
-        input_files = list(failed) + list(new_files)
+        # Sort files, to process them chronologically
+        input_files = sorted(
+            list(failed) + list(new_files),
+            key=lambda x: x.filename
+        )
         message = (
             f"Found {len(failed)} failed input files "
             f"in logging database {database_path}."
