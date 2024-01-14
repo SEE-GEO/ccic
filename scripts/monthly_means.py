@@ -4,8 +4,11 @@ This script computes the monthly means from the existing CCIC data record.
 
 import argparse
 import calendar
+from concurrent.futures import ProcessPoolExecutor
 from datetime import datetime
+import gc
 import logging
+import sys
 from pathlib import Path
 import warnings
 
@@ -20,10 +23,11 @@ def find_files(year: int, month: int, source: Path, product: str) -> list[Path]:
     Find the files for year `year` and month `month`
     at directory `source` for product `product`.
     """
-    files = source.rglob(f'ccic_{product}_{year}{month:02d}*.zarr')
+    files = source.glob(f'ccic_{product}_{year}{month:02d}*.*')
     return sorted(list(files))
 
-def process_month(files: list[Path], product: str) -> xr.Dataset:
+
+def process_month(files: list[Path], product: str, status_bar: bool = True) -> xr.Dataset:
     """
     Compute the monthly means for the given month, stratified by the
     product temporal resolution (represented by the original variable
@@ -31,7 +35,7 @@ def process_month(files: list[Path], product: str) -> xr.Dataset:
     timestamp (represented by the original variable name + `_aggregated`)
     """
     # Create a dataset to populate with means
-    ds = xr.open_zarr(files[0]).load()
+    ds = xr.load_dataset(files[0])
 
     # Drop credibile interval variable
     if 'tiwp_ci' in ds:
@@ -49,12 +53,14 @@ def process_month(files: list[Path], product: str) -> xr.Dataset:
         time_deltas = [i * np.timedelta64(3, 'h') for i in range(8)]
     else:
         time_deltas = [i * np.timedelta64(30, 'm') for i in range(24 * 2)]
-    
+
     # .astype('datetime64[M]').astype('datetime64[m]'):
     # hack to avoid dealing with days, i.e. date set to YYYYmmddT00:00
     time_offset = ds.time.values[0].astype('datetime64[M]').astype('datetime64[m]')
-    time_values = [time_offset + delta for delta in time_deltas]
-    
+    time_values = np.array([time_offset + delta for delta in time_deltas])
+    time_bounds = time_values[:-1] + 0.5 * (time_values[1:] - time_values[:-1])
+    bnds_dtype = time_bounds.dtype
+
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", message=(
             "Converting non-nanosecond precision datetime "
@@ -74,32 +80,37 @@ def process_month(files: list[Path], product: str) -> xr.Dataset:
         # .copy to assign coordinates correctly
         ds[v] = ds[v].copy(
             data=np.zeros_like(ds[v]), deep=True
-        ).astype(float)
+        ).astype(np.float32)
         ds[f'{v}_count'] = ds[v].copy(
             data=np.zeros_like(ds[v]), deep=True
-        ).astype(int)
+        ).astype(np.int16)
 
     # Accumulate values
-    for f in tqdm(files, dynamic_ncols=True):
-        ds_f = xr.open_zarr(f).load()
+    itr = files
+    if status_bar:
+        itr = tqdm(files, dynamic_ncols=True)
+
+    for path in itr:
+        ds_f = xr.load_dataset(path)
 
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", message=(
                 "Converting non-nanosecond precision"
-                )
             )
+                                    )
             # Replace the timestamps day with first day of the month
             # and reindex to handle time dimension
             ds_f['time'] = ds_f['time'] - np.array(
                 [np.timedelta64(d - 1, 'D') for d in ds_f.time.dt.day.values]
             )
-            ds_f = ds_f.reindex({'time': time_values},
-                                method=None, fill_value=np.nan)
-        
+        time_ind = np.digitize(
+            ds_f.time.data.astype(bnds_dtype).astype(np.int64),
+            time_bounds.astype(np.int64)
+        )
         for v in variables:
             is_finite = np.isfinite(ds_f[v].data)
-            ds[v] = ds[v] + np.where(is_finite, ds_f[v].data, 0)
-            ds[f'{v}_count'] = ds[f'{v}_count'] + is_finite.astype(int)
+            ds[v][{"time": time_ind}] += np.where(is_finite, ds_f[v].data, 0)
+            ds[f'{v}_count'][{"time": time_ind}] += is_finite.astype(int)
 
     # Divide by the total count
     for v in variables:
@@ -146,7 +157,7 @@ def process_month(files: list[Path], product: str) -> xr.Dataset:
                 where=(ds[f'{v}_stratified_count'].sum('time', skipna=True).data > 0)
             )
         ).expand_dims({'month': 1})
-    
+
     # Set attributes for the full monthly mean data
     attrs_data['month'] = {'long_name': 'month', 'standard_name': 'month'}
     for v in variables:
@@ -155,6 +166,44 @@ def process_month(files: list[Path], product: str) -> xr.Dataset:
 
     return ds
 
+
+def calculate_mean(current_month: datetime, status_bar: bool) -> None:
+    """
+    Helper function encapsulating all processing for calculating means for
+    a given month.
+
+    Args:
+        current_month: A numpy datetime.datetime object representing the month
+            for which to calculate the averages.
+        status_bar: Whether or not to display the progress for each month using
+            a progress bar.
+    """
+    year = current_month.year
+    month = current_month.month
+    logging.info(f"Finding {args.product} files for {year}-{month:02d}")
+    files = find_files(year, month,
+                        args.source, args.product)
+
+    # Check that there is the expected number of files
+    _, n_days = calendar.monthrange(year, month)
+    n_expected_files = n_days * (8 if args.product == 'gridsat' else 24)
+    n_observed_files = len(files)
+
+    if (n_observed_files != n_expected_files):
+        if args.ignore_missing_files:
+            logging.warning(f"Using {n_observed_files}/{n_expected_files}"
+                            f" retrievals to compute the means")
+        else:
+            raise ValueError(f"Expected {n_expected_files} retrievals "
+                                f"but found {n_observed_files} retrievals")
+
+    logging.info(f"Processing {year}-{month:02d}")
+    ds = process_month(files, args.product, status_bar=status_bar)
+
+    fname_dst = f'ccic_{args.product}_{year}{month:02d}_monthlymean.nc'
+    f_dst = args.destination / fname_dst
+    logging.info(f'Writing {f_dst}')
+    ds.to_netcdf(f_dst)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -197,6 +246,12 @@ if __name__ == '__main__':
         action='store_true',
         help='verbose mode'
     )
+    parser.add_argument(
+        '--n_processes',
+        type=int,
+        default=1,
+        help="The number of processes to use for parallel processing. If '1', files will be processes sequentially."
+    )
 
     args = parser.parse_args()
 
@@ -208,34 +263,27 @@ if __name__ == '__main__':
 
     current_month = datetime.strptime(args.month, '%Y%m')
     month_end = datetime.strptime(args.month_end, '%Y%m')
+    n_processes = args.n_processes
 
+
+    if n_processes == 1:
+        while current_month <= month_end:
+            calculate_mean(current_month, True)
+            current_month += relativedelta(months=1)
+        sys.exit(0)
+
+    pool = ProcessPoolExecutor(max_workers=n_processes)
+    tasks = []
+    months = []
     while current_month <= month_end:
-        year = current_month.year
-        month = current_month.month
-        logging.info(f"Finding {args.product} files for {year}-{month:02d}")
-        files = find_files(year, month,
-                           args.source, args.product)
-
-        # Check that there is the expected number of files
-        _, n_days = calendar.monthrange(year, month)
-        n_expected_files = n_days * (8 if args.product == 'gridsat' else 24)
-        n_observed_files = len(files)
-
-        if (n_observed_files != n_expected_files):
-            if args.ignore_missing_files:
-                logging.warning(f"Using {n_observed_files}/{n_expected_files}"
-                                f" retrievals to compute the means")
-            else:
-                raise ValueError(f"Expected {n_expected_files} retrievals "
-                                 f"but found {n_observed_files} retrievals")
-
-        logging.info(f"Processing {year}-{month:02d}")
-        ds = process_month(files, args.product)
-
-        fname_dst = f'ccic_{args.product}_{year}{month:02d}_monthlymean.nc'
-        f_dst = args.destination / fname_dst
-        logging.info(f'Writing {f_dst}')
-        ds.to_netcdf(f_dst)
-
-        # Increment datetime instance by one month
+        tasks.append(pool.submit(calculate_mean, current_month, False))
+        months.append(current_month)
         current_month += relativedelta(months=1)
+
+    for month, task in zip(months, tasks):
+        try:
+            task.result()
+        except Exception:
+            logging.exception("The following error was encountered when processing %s.", month)
+    sys.exit(0)
+
