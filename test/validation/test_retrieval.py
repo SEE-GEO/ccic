@@ -6,19 +6,27 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-import xarray as xr
 
-from ccic.validation.retrieval import RadarRetrieval
-from ccic.validation.input_data import (
-    RetrievalInput,
+
+try:
+    from ccic.validation.retrieval import RadarRetrieval
+    from ccic.validation.input_data import (
+        RetrievalInput,
+    )
+    from ccic.validation.radars import (
+        cloudnet_punta_arenas,
+        arm_manacapuru,
+        crs_olympex,
+        rasta_haic_up
+    )
+    HAS_ARTSSAT = True
+except ImportError as e:
+    HAS_ARTSSAT = False
+    print(e)
+NEEDS_ARTSSAT = pytest.mark.skipif(
+    not HAS_ARTSSAT, reason="Needs 'artssat' package installed."
 )
-from ccic.validation.radars import (
-    cloudnet_punta_arenas,
-    arm_manacapuru,
-    crs_olympex,
-    rasta_haic_down,
-    rasta_haic_up
-)
+
 
 try:
     TEST_DATA = Path(os.environ.get("CCIC_TEST_DATA", None))
@@ -32,6 +40,7 @@ NEEDS_TEST_DATA = pytest.mark.skipif(
 )
 
 
+@NEEDS_ARTSSAT
 @NEEDS_TEST_DATA
 def test_retrieval_cloudnet():
     """Test running the retrieval for the Cloudnet radar in Punta Arenas."""
@@ -56,6 +65,7 @@ def test_retrieval_cloudnet():
     assert "radar_reflectivity_fitted" in results
 
 
+@NEEDS_ARTSSAT
 @NEEDS_TEST_DATA
 def test_retrieval_arm():
     """Test running the retrieval for the ARM WACR radar in Manacapuru."""
@@ -80,6 +90,7 @@ def test_retrieval_arm():
     assert "radar_reflectivity_fitted" in results
 
 
+@NEEDS_ARTSSAT
 @NEEDS_TEST_DATA
 def test_retrieval_olympex():
     """Test running the retrieval for the CRS radar during Olympex campaign."""
@@ -104,6 +115,7 @@ def test_retrieval_olympex():
     assert "radar_reflectivity_fitted" in results
 
 
+@NEEDS_ARTSSAT
 @NEEDS_TEST_DATA
 def test_retrieval_haic():
     """Test running the retrieval for the HAIC campaing."""

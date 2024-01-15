@@ -1,11 +1,21 @@
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+import pytest
 import numpy as np
 import xarray as xr
-from ccic.validation import resample_data
+
+try:
+    from ccic.validation import resample_data
+    HAS_ARTSSAT = True
+except ImportError:
+    HAS_ARTSSAT = False
+NEEDS_ARTSSAT = pytest.mark.skipif(
+    not HAS_ARTSSAT, reason="Needs 'artssat' package installed."
+)
 
 
+@NEEDS_ARTSSAT
 def test_resample_data():
     """
     Test resampling or flight campaign data to CCIC grids for
