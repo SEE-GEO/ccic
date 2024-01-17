@@ -23,5 +23,6 @@ jobs:
         run: mamba env create --quiet --file ccic.yml &&
              conda activate ccic &&
              pip install -e .[complete] &&
+             pip install git+ssh://git@github.com/simonpf/artssat &&
              pip install pytest &&
              pytest test
