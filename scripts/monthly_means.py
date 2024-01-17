@@ -27,7 +27,12 @@ def find_files(year: int, month: int, source: Path, product: str) -> list[Path]:
     return sorted(list(files))
 
 
-def process_month(files: list[Path], product: str, status_bar: bool = True) -> xr.Dataset:
+def process_month(
+        files: list[Path],
+        product: str,
+        status_bar: bool = True,
+        precision: str = "single"
+) -> xr.Dataset:
     """
     Compute the monthly means for the given month, stratified by the
     product temporal resolution (represented by the original variable
@@ -75,12 +80,17 @@ def process_month(files: list[Path], product: str, status_bar: bool = True) -> x
 
     # Initialize all variables to zero and create a count variable
     variables = set(ds.variables) - set(ds.coords)
+
+    float_type = np.float32
+    if precision == "double":
+        float_type = np.float64
+
     for v in variables:
         # float instead of float32 to avoid any limitations accumulating
         # .copy to assign coordinates correctly
         ds[v] = ds[v].copy(
             data=np.zeros_like(ds[v]), deep=True
-        ).astype(np.float32)
+        ).astype(float_type)
         ds[f'{v}_count'] = ds[v].copy(
             data=np.zeros_like(ds[v]), deep=True
         ).astype(np.int16)
@@ -167,7 +177,7 @@ def process_month(files: list[Path], product: str, status_bar: bool = True) -> x
     return ds
 
 
-def calculate_mean(current_month: datetime, status_bar: bool) -> None:
+def calculate_mean(current_month: datetime, status_bar: bool, precision: str) -> None:
     """
     Helper function encapsulating all processing for calculating means for
     a given month.
@@ -198,7 +208,7 @@ def calculate_mean(current_month: datetime, status_bar: bool) -> None:
                                 f"but found {n_observed_files} retrievals")
 
     logging.info(f"Processing {year}-{month:02d}")
-    ds = process_month(files, args.product, status_bar=status_bar)
+    ds = process_month(files, args.product, status_bar=status_bar, precision=precision)
 
     fname_dst = f'ccic_{args.product}_{year}{month:02d}_monthlymean.nc'
     f_dst = args.destination / fname_dst
@@ -252,6 +262,12 @@ if __name__ == '__main__':
         default=1,
         help="The number of processes to use for parallel processing. If '1', files will be processes sequentially."
     )
+    parser.add_argument(
+        "--precision",
+        type=str,
+        default="double",
+        help="Whether to use double or single precision for accumulating data."
+    )
 
     args = parser.parse_args()
 
@@ -265,10 +281,16 @@ if __name__ == '__main__':
     month_end = datetime.strptime(args.month_end, '%Y%m')
     n_processes = args.n_processes
 
+    precision = args.precision
+    if not precision in ["single", "double"]:
+        logging.error(
+            "Precision should be one of ['single', 'double'] got '%s'.",
+            precision
+        )
 
     if n_processes == 1:
         while current_month <= month_end:
-            calculate_mean(current_month, True)
+            calculate_mean(current_month, True, precision)
             current_month += relativedelta(months=1)
         sys.exit(0)
 
@@ -276,13 +298,14 @@ if __name__ == '__main__':
     tasks = []
     months = []
     while current_month <= month_end:
-        tasks.append(pool.submit(calculate_mean, current_month, False))
+        tasks.append(pool.submit(calculate_mean, current_month, False, precision))
         months.append(current_month)
         current_month += relativedelta(months=1)
 
     for month, task in zip(months, tasks):
         try:
             task.result()
+            del task
         except Exception:
             logging.exception("The following error was encountered when processing %s.", month)
     sys.exit(0)
