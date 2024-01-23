@@ -40,7 +40,14 @@ def process_month(
     timestamp (represented by the original variable name + `_aggregated`)
     """
     # Create a dataset to populate with means
-    ds = xr.load_dataset(files[0])
+    with warnings.catch_warnings():
+        # If file is in zarr, xarray will yield these warnings until
+        # using the zarr engine
+        warnings.filterwarnings(
+            "ignore",
+            message="('netcdf4'|'scipy'|'h5netcdf') fails while guessing"
+        )
+        ds = xr.load_dataset(files[0])
 
     # Drop credibile interval variable
     if 'tiwp_ci' in ds:
@@ -101,7 +108,12 @@ def process_month(
         itr = tqdm(files, dynamic_ncols=True)
 
     for path in itr:
-        ds_f = xr.load_dataset(path)
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message="('netcdf4'|'scipy'|'h5netcdf') fails while guessing"
+            )
+            ds_f = xr.load_dataset(path)
 
         with warnings.catch_warnings():
             warnings.filterwarnings(
