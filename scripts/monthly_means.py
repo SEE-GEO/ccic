@@ -40,7 +40,14 @@ def process_month(
     timestamp (represented by the original variable name + `_aggregated`)
     """
     # Create a dataset to populate with means
-    ds = xr.load_dataset(files[0])
+    with warnings.catch_warnings():
+        # If file is in zarr, xarray will yield these warnings until
+        # using the zarr engine
+        warnings.filterwarnings(
+            "ignore",
+            message="('netcdf4'|'scipy'|'h5netcdf') fails while guessing"
+        )
+        ds = xr.load_dataset(files[0])
 
     # Drop credibile interval variable
     if 'tiwp_ci' in ds:
@@ -101,13 +108,18 @@ def process_month(
         itr = tqdm(files, dynamic_ncols=True)
 
     for path in itr:
-        ds_f = xr.load_dataset(path)
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message="('netcdf4'|'scipy'|'h5netcdf') fails while guessing"
+            )
+            ds_f = xr.load_dataset(path)
 
         with warnings.catch_warnings():
-            warnings.filterwarnings("ignore", message=(
-                "Converting non-nanosecond precision"
+            warnings.filterwarnings(
+                "ignore",
+                message=("Converting non-nanosecond precision")
             )
-                                    )
             # Replace the timestamps day with first day of the month
             # and reindex to handle time dimension
             ds_f['time'] = ds_f['time'] - np.array(
@@ -167,6 +179,17 @@ def process_month(
                 where=(ds[f'{v}_stratified_count'].sum('time', skipna=True).data > 0)
             )
         ).expand_dims({'month': 1})
+
+    # Change the name and data type of variable `time`
+    ds = ds.rename({'time': 'hour_of_day'})
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message=("Converting non-nanosecond precision")
+        )
+        ds['hour_of_day'] = (
+            ds.hour_of_day - ds.hour_of_day.astype('datetime64[D]').astype(ds.hour_of_day.dtype)
+        )
 
     # Set attributes for the full monthly mean data
     attrs_data['month'] = {'long_name': 'month', 'standard_name': 'month'}
