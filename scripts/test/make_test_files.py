@@ -4,13 +4,20 @@ All 2D times are filled with the value corresponding to the hour of
 the day, so the monthly means should reproduce this value.
 """
 from pathlib import Path
+import warnings
+
 import numpy as np
 import xarray as xr
 
 output_folder = Path("gridsat_test")
 start = np.datetime64("2020-01-01T00:00:00")
 end = np.datetime64("2020-02-01T00:00:00")
-times = xr.DataArray(np.arange(start, end, np.timedelta64(3, "h")))
+with warnings.catch_warnings():
+    warnings.filterwarnings(
+        "ignore",
+        message="Converting non-nanosecond precision datetime values"
+    )
+    times = xr.DataArray(np.arange(start, end, np.timedelta64(3, "h")))
 n_lats = 180
 n_lons = 360
 
@@ -41,4 +48,5 @@ for ind in range(times.size):
     for var in data.variables:
         data[var].attrs["long_name"] = "long_name"
 
+    output_folder.mkdir(parents=True, exist_ok=True)
     data.to_netcdf(output_folder / filename)
