@@ -177,7 +177,7 @@ def process_month(
         )
         ds['hour_of_day'] = (
             ds.hour_of_day - ds.hour_of_day.astype('datetime64[D]').astype(ds.hour_of_day.dtype)
-        ) / np.timedelta64(1, 'h')
+        )
 
     # Set attributes for the full monthly mean data
     attrs_data['month'] = {'long_name': 'month', 'standard_name': 'month'}
