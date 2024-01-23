@@ -104,10 +104,10 @@ def process_month(
         ds_f = xr.load_dataset(path)
 
         with warnings.catch_warnings():
-            warnings.filterwarnings("ignore", message=(
-                "Converting non-nanosecond precision"
+            warnings.filterwarnings(
+                "ignore",
+                message=("Converting non-nanosecond precision")
             )
-                                    )
             # Replace the timestamps day with first day of the month
             # and reindex to handle time dimension
             ds_f['time'] = ds_f['time'] - np.array(
@@ -167,6 +167,17 @@ def process_month(
                 where=(ds[f'{v}_stratified_count'].sum('time', skipna=True).data > 0)
             )
         ).expand_dims({'month': 1})
+
+    # Change the name and data type of variable `time`
+    ds = ds.rename({'time': 'hour_of_day'})
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message=("Converting non-nanosecond precision")
+        )
+        ds['hour_of_day'] = (
+            ds.hour_of_day - ds.hour_of_day.astype('datetime64[D]').astype(ds.hour_of_day.dtype)
+        ) / np.timedelta64(1, 'h')
 
     # Set attributes for the full monthly mean data
     attrs_data['month'] = {'long_name': 'month', 'standard_name': 'month'}
