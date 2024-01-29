@@ -64,7 +64,7 @@ def run(args):
         norm = LogNorm(1e-2, 1e1)
         mappable = ScalarMappable(norm=norm)
         img = Image.fromarray(
-            (mappable.to_rgba(np.maximum(tiwp.data, 1e-3) * 255)).astype(np.uint8)
+            (mappable.to_rgba(np.maximum(tiwp.data, 1e-3)) * 255).astype(np.uint8)
         )
         img.save(output_path / "tiwp.png")
 
