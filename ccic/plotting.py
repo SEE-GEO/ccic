@@ -427,20 +427,12 @@ def animate_tiwp(
     ax = fig.add_subplot(gs[0, :], projection=ccrs.Mollweide())
     norm = LogNorm(1e-2, 1e1)
 
-    # Set up formatting for the movie files
-    Writer = animation.writers['ffmpeg']
-    writer = Writer(fps=10, bitrate=1800)
-
     results = xr.open_mfdataset(results)["tiwp"][{
         "latitude": slice(0, None, 8),
         "longitude": slice(0, None, 8)
     }]
     start_time = results.time.min().data
     end_time = results.time.max().data
-
-    lons = np.arange(-180, 181, 30)
-    lats = np.arange(-60, 61, 20)
-    ax.coastlines(color="grey")
 
     cmap = get_cmap()
     cmap.set_bad("grey")
@@ -461,6 +453,8 @@ def animate_tiwp(
         lons = results_t.longitude.data
         lats = results_t.latitude.data
         tiwp = np.maximum(results_t.data, 1e-3)
+
+        ax.coastlines(color="grey")
 
         m = ax.pcolormesh(lons, lats, tiwp, norm=norm, transform=ccrs.PlateCarree(), cmap=cmap)
         ax.set_title(f"{time_str}", loc="center")
