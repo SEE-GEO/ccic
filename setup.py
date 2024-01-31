@@ -55,6 +55,7 @@ setup(
         "dask",
         "beautifulsoup4",
         "lxml",
+        "xarray",
     ],
     extras_require={
         "complete": [
