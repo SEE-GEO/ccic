@@ -48,12 +48,12 @@ The xarray guide [shows how to access Zarr files stored in cloud storage buckets
 
 ```python
 import ccic
-import fsspec
+import s3fs
 import xarray as xr
 # Create a filesystem for S3
-fs = fsspec.filesystem('s3', anon=True)
+s3 = s3fs.S3FileSystem(anon=True)
 # Lazy load a CCIC file
-ds = xr.open_zarr(fs.get_mapper('s3://<public-bucket>/gridsat/2020/ccic_gridsat_202001010000.zarr'))
+ds = xr.open_zarr(s3.get_mapper('<public-bucket>/gridsat/2020/ccic_gridsat_202001010000.zarr'))
 # Load `cloud_prob_2d` into memory
 ds.cloud_prob_2d.load()
 # Do stuff with ds.cloud_prob_2d...
