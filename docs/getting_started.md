@@ -44,13 +44,16 @@ can be executed without loading the full dataset, thus saves memory and network
 traffic, if accessed remotely. There are multiple guides online on how to work
 with xarray objects.
 
-The xarray guide [shows how to access Zarr files stored in cloud storage buckets](https://docs.xarray.dev/en/stable/user-guide/io.html#cloud-storage-buckets). For instance, we have tested that the following works with a private Amazon S3 bucket (with user-bucket policies and AWS CLI and properly configured):
+The xarray guide [shows how to access Zarr files stored in cloud storage buckets](https://docs.xarray.dev/en/stable/user-guide/io.html#cloud-storage-buckets). For instance, we have tested that an equivalent case works with a public Amazon S3 bucket:
 
 ```python
 import ccic
+import fsspec
 import xarray as xr
+# Create a filesystem for S3
+fs = fsspec.filesystem('s3', anon=True)
 # Lazy load a CCIC file
-ds = xr.open_zarr('s3://<private-bucket>/gridsat/2020/ccic_gridsat_202001010000.zarr')
+ds = xr.open_zarr(fs.get_mapper('s3://<public-bucket>/gridsat/2020/ccic_gridsat_202001010000.zarr'))
 # Load `cloud_prob_2d` into memory
 ds.cloud_prob_2d.load()
 # Do stuff with ds.cloud_prob_2d...
