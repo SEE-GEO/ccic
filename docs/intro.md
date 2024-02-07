@@ -53,6 +53,11 @@ The two principal applications of CCIC are
  1. the study of cloud processes in individual weather systems,
  2. the validation of climate and weather models.
  
-Example application of CCIC can be found in the {doc}`applications` chapter.
+Example applications of CCIC can be found in the {doc}`applications` chapter.
 
 
+## Citing CCIC
+
+If you are using CCIC for research or other purposes, please cite the following publication:
+
+Amell, A., Pfreundschuh, S., and Eriksson, P.: The Chalmers Cloud Ice Climatology: Retrieval implementation and validation, EGUsphere [preprint], https://doi.org/10.5194/egusphere-2023-1953, 2023.
