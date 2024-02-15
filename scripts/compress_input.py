@@ -3,7 +3,9 @@ This script is intended to compress input files
 using the zlib option with maximum compression
 when saving an xarray to a netCDF.
 
-Using this compression saves a great amount of space.
+Using this compression not only saves a great amount of
+disk space (can be about 25% per file) but also decreases
+the time required to read the input file (by about 10%).
 
 The script is somewhat complicated, but it is designed
 to match the characteristics of the computer system on
