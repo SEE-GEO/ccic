@@ -136,6 +136,7 @@ def wrapper(f: Path) -> None:
             # This should be faster
             with tempfile.TemporaryDirectory() as tmpdir:
                 tmp_fpath = Path(tmpdir) / f.name
+                # Saving to netCDF with compression is what takes more time
                 ds.to_netcdf(
                     tmp_fpath,
                     encoding={
