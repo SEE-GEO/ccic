@@ -1,3 +1,15 @@
+"""
+This script is intended to compress input files
+using the zlib option with maximum compression
+when saving an xarray to a netCDF.
+
+Using this compression saves a great amount of space.
+
+The script is somewhat complicated, but it is designed
+to match the characteristics of the computer system on
+which it is meant to be executed.
+"""
+
 import argparse
 from concurrent.futures import ProcessPoolExecutor
 import datetime
