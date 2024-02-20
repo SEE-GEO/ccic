@@ -53,7 +53,7 @@ import xarray as xr
 # Create a filesystem for S3
 s3 = s3fs.S3FileSystem(anon=True)
 # Lazy load a CCIC file
-ds = xr.open_zarr(s3.get_mapper('chalmers-ccic/gridsat/2020/ccic_gridsat_202001010000.zarr'))
+ds = xr.open_zarr(s3.get_mapper('ccic/gridsat/2020/ccic_gridsat_202001010000.zarr'))
 # Load `cloud_prob_2d` into memory
 ds.cloud_prob_2d.load()
 # Do stuff with ds.cloud_prob_2d...
