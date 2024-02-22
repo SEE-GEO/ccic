@@ -89,6 +89,15 @@ parser.add_argument(
     choices=["cpcir", "gridsat"],
     help="input product used",
 )
+parser.add_argument(
+    "--tmpdir",
+    type=Path,
+    help=(
+        "if provided, use this temporary directory "
+        "to compress the files prior to moving the "
+        "files to the final directory"
+    )
+)
 
 args = parser.parse_args()
 
@@ -130,25 +139,21 @@ def wrapper(f: Path) -> None:
             fs_ssh.open(str(f)) if args.host else f, engine="h5netcdf"
         )
         dst_path = args.destination / f.name
-        if args.host:
-            # If working remotely,
-            # first create the file in local disk and then send it
-            # This should be faster
-            with tempfile.TemporaryDirectory() as tmpdir:
-                tmp_fpath = Path(tmpdir) / f.name
-                # Saving to netCDF with compression is what takes more time
-                ds.to_netcdf(
-                    tmp_fpath,
-                    encoding={
-                        var: {"zlib": True, "complevel": 9} for var in ds
-                    },
-                )
-                fs_ssh.put_file(str(tmp_fpath), str(dst_path))
-        else:
+        with tempfile.TemporaryDirectory(dir=args.tmpdir) as tmpdir:
+            # Saving to netCDF with compression is what takes more time
+            # Use a local directory (sshfs) or a (fast) temporary
+            # directory (can be) specified with --tmpdir
+            tmp_fpath = Path(tmpdir) / f.name
             ds.to_netcdf(
-                dst_path,
-                encoding={var: {"zlib": True, "complevel": 9} for var in ds},
+                tmp_fpath,
+                encoding={
+                    var: {"zlib": True, "complevel": 9} for var in ds
+                },
             )
+            if args.host:
+                fs_ssh.put_file(str(tmp_fpath), str(dst_path))
+            else:
+                tmp_fpath.rename(dst_path)
     except Exception as e:
         # Something should be wrong with the netCDF
         logging.warning(f"File {f.name} -- {str(e)}")
