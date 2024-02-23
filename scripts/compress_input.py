@@ -18,6 +18,7 @@ import datetime
 import logging
 import multiprocessing
 from pathlib import Path
+import shutil
 import tempfile
 
 # `h5netcdf`is the engine used to read files remotely,
@@ -153,7 +154,12 @@ def wrapper(f: Path) -> None:
             if args.host:
                 fs_ssh.put_file(str(tmp_fpath), str(dst_path))
             else:
-                tmp_fpath.rename(dst_path)
+                # tmp_fpath.rename(dst_path) can raise
+                # OSError: [Errno 18] Invalid cross-device link
+                # if the file systems are different
+                # (e.g. using /dev/shm as tmpdir)
+                shutil.move(tmp_fpath, dst_path)
+
     except Exception as e:
         # Something should be wrong with the netCDF
         logging.warning(f"File {f.name} -- {str(e)}")
