@@ -329,7 +329,6 @@ def download_files(download_queue, processing_queue, retrieval_settings):
         processing_queue.put((input_file, clean_up))
 
     processing_queue.put(None)
-    processing_queue.join()
 
 
 def _get_database_name(args) -> str:
