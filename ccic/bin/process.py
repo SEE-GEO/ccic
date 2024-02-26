@@ -78,8 +78,9 @@ def add_parser(subparsers):
         type=str,
         default=None,
         help=(
-            "Path to a local directory containing input files. If not given, "
-            "input files will be downloaded using pansat."
+            "Path to a local directory to store and search for input files. If not given, "
+            "input files are downloaded to a temporary directory and discarded after the "
+            "retrieval."
         ),
     )
     parser.add_argument(
@@ -260,7 +261,7 @@ def process_files(
                     input_file, results.time.data[0], retrieval_settings
                 )
                 logger.info("Finished processing file '%s'.", input_file.filename)
-                logger.info("Writing retrieval results to '%s'.", output_file)
+                logger.info("Writing retrieval results to '%s'.", output_path / output_file)
                 encodings = get_encodings(results.variables, retrieval_settings)
                 if retrieval_settings.output_format == OutputFormat["NETCDF"]:
                     results.to_netcdf(output_path / output_file, encoding=encodings)
@@ -382,6 +383,11 @@ def run(args):
 
     # Output path
     output = Path(args.output)
+    if not output.exists() or not output.is_dir():
+        LOGGER.error(
+            "The output path must point to an existing directory."
+        )
+        return 1
 
     input_path = args.input_path
     if input_path is not None:
@@ -582,5 +588,9 @@ def run(args):
             processing_processes = [
                 proc for proc in processing_processes if proc.is_alive()
             ]
+
+    processing_queue.get()
+    processing_queue.task_done()
+    processing_queue.join()
 
     return not any_failed
