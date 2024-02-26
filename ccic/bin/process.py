@@ -385,7 +385,8 @@ def run(args):
     output = Path(args.output)
     if not output.exists() or not output.is_dir():
         LOGGER.error(
-            "The output path must point to an existing directory."
+            "The given output path '%s' does not point to an existing directory.",
+            output
         )
         return 1
 
