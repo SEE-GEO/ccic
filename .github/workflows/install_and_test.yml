@@ -30,5 +30,6 @@ jobs:
           pip install -e .[complete]
           pip install git+https://github.com/simonpf/artssat.git
           pip install pytest
+          pip cache purge
           pytest test
           df -h /
