@@ -12,23 +12,23 @@ jobs:
       - name: Setup
         uses: conda-incubator/setup-miniconda@v3
         with:
-                miniforge-version: latest
-                miniforge-variant: mambaforge
-                channel-priority: strict
-                channels: conda-forge
-                show-channel-urls: true
-                use-only-tar-bz2: true
+          miniforge-version: latest
+          miniforge-variant: mambaforge
+          channel-priority: strict
+          channels: conda-forge
+          show-channel-urls: true
+          use-only-tar-bz2: true
       - name: Install and test
         shell: bash -l {0}
         run: |
-            df -h /
-            mamba env create --quiet --file ccic.yml
-            df -h /
-            conda clean --all --quiet --yes
-            df -h /
-            conda activate ccic
-            pip install -e .[complete]
-            pip install git+https://github.com/simonpf/artssat.git
-            pip install pytest
-            pytest test
-            df -h /
+          df -h /
+          mamba env create --quiet --file ccic.yml
+          df -h /
+          conda clean --all --quiet --yes
+          df -h /
+          conda activate ccic
+          pip install -e .[complete]
+          pip install git+https://github.com/simonpf/artssat.git
+          pip install pytest
+          pytest test
+          df -h /
