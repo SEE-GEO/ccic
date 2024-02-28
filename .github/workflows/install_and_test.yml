@@ -19,10 +19,15 @@ jobs:
                 show-channel-urls: true
                 use-only-tar-bz2: true
       - name: Install and test
-        shell: bash -l {0}
-        run: mamba env create --quiet --file ccic.yml &&
-             conda activate ccic &&
-             pip install -e .[complete] &&
-             pip install git+https://github.com/simonpf/artssat.git &&
-             pip install pytest &&
-             pytest test
+        shell: bash
+        run: |
+            df -h /
+            mamba env create --quiet --file ccic.yml
+            df -h /
+            conda clean --all --quiet --yes
+            conda activate ccic
+            pip install -e .[complete]
+            pip install git+https://github.com/simonpf/artssat.git
+            pip install pytest
+            pytest test
+            df -h /
