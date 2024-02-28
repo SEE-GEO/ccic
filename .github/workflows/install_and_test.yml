@@ -19,7 +19,7 @@ jobs:
                 show-channel-urls: true
                 use-only-tar-bz2: true
       - name: Install and test
-        shell: bash
+        shell: bash -l {0}
         run: |
             df -h /
             mamba env create --quiet --file ccic.yml
