@@ -222,6 +222,8 @@ def calculate_mean(current_month: datetime, status_bar: bool, precision: str) ->
     n_expected_files = n_days * (8 if args.product == 'gridsat' else 24)
     n_observed_files = len(files)
 
+    # This can fail for the first years of the data products
+    # A quick fix is to manually check the files used and use --ignore_missing_files
     if (n_observed_files != n_expected_files):
         if args.ignore_missing_files:
             logging.warning(f"Using {n_observed_files}/{n_expected_files}"
