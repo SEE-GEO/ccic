@@ -23,9 +23,9 @@ def find_files(year: int, month: int, source: Path, product: str) -> list[Path]:
     Find the files for year `year` and month `month` at a directory.
 
     Note: it is assumed the CCIC files are stored in the following directory
-        structure: {source}/{year}/
+        structure: {source}/{product}/{year}/
     """
-    path = source / str(year)
+    path = source / product / str(year)
     files = path.glob(f'ccic_{product}_{year}{month:02d}*.*')
     return sorted(list(files))
 
