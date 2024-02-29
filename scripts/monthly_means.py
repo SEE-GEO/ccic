@@ -203,7 +203,8 @@ def process_month(
     return ds
 
 
-def calculate_mean(current_month: datetime, status_bar: bool, precision: str) -> None:
+def calculate_mean(current_month: datetime, status_bar: bool,
+                   precision: str, compress: bool=True) -> None:
     """
     Helper function encapsulating all processing for calculating means for
     a given month.
@@ -213,6 +214,8 @@ def calculate_mean(current_month: datetime, status_bar: bool, precision: str) ->
             for which to calculate the averages.
         status_bar: Whether or not to display the progress for each month using
             a progress bar.
+        precision: precision to use (single or double) for accumulating values
+        compress: apply zlib maximum compression to the saved netCDF
     """
     year = current_month.year
     month = current_month.month
@@ -244,7 +247,10 @@ def calculate_mean(current_month: datetime, status_bar: bool, precision: str) ->
     fname_dst = f'ccic_{args.product}_{year}{month:02d}_monthlymean.nc'
     f_dst = args.destination / fname_dst
     logging.info(f'Writing {f_dst}')
-    ds.to_netcdf(f_dst)
+    ds.to_netcdf(
+        f_dst,
+        encoding={var: {'zlib': True, 'complevel': 9} for var in ds} if compress else None
+    )
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -299,6 +305,11 @@ if __name__ == '__main__':
         default="double",
         help="Whether to use double or single precision for accumulating data."
     )
+    parser.add_argument(
+        '--uncompressed',
+        action='store_true',
+        help="Do not apply zlib compression to the final netCDF"
+    )
 
     args = parser.parse_args()
 
@@ -321,7 +332,7 @@ if __name__ == '__main__':
 
     if n_processes == 1:
         while current_month <= month_end:
-            calculate_mean(current_month, True, precision)
+            calculate_mean(current_month, True, precision, not args.uncompressed)
             current_month += relativedelta(months=1)
         sys.exit(0)
 
@@ -329,7 +340,7 @@ if __name__ == '__main__':
     tasks = []
     months = []
     while current_month <= month_end:
-        tasks.append(pool.submit(calculate_mean, current_month, False, precision))
+        tasks.append(pool.submit(calculate_mean, current_month, False, precision, not args.uncompressed))
         months.append(current_month)
         current_month += relativedelta(months=1)
 
