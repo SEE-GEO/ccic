@@ -753,12 +753,13 @@ def process_input(mrnn, x, retrieval_settings=None, lock=None):
                         y_pred[key] = y_pred[key].cpu()
                     del y_pred
 
-        torch.cuda.synchronize()
-        mrnn.model.cpu()
-        mrnn.model = None
-        gc.collect()
-        torch.cuda.synchronize()
-        torch.cuda.empty_cache()
+        if device != "cpu":
+            torch.cuda.synchronize()
+            mrnn.model.cpu()
+            mrnn.model = None
+            gc.collect()
+            torch.cuda.synchronize()
+            torch.cuda.empty_cache()
 
     finally:
         if lock is not None:
