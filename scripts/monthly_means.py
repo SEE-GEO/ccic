@@ -231,6 +231,9 @@ def calculate_mean(current_month: datetime, status_bar: bool, precision: str) ->
         else:
             raise ValueError(f"Expected {n_expected_files} retrievals "
                                 f"but found {n_observed_files} retrievals")
+    if len(files) == 0:
+        logging.warning(f"No files to process for {year}-{month:02d}")
+        return
 
     logging.info(f"Processing {year}-{month:02d}")
     ds = process_month(files, args.product, status_bar=status_bar, precision=precision)
