@@ -20,10 +20,13 @@ import xarray as xr
 
 def find_files(year: int, month: int, source: Path, product: str) -> list[Path]:
     """
-    Find the files for year `year` and month `month`
-    at directory `source` for product `product`.
+    Find the files for year `year` and month `month` at a directory.
+
+    Note: it is assumed the CCIC files are stored in the following directory
+        structure: {source}/{year}/
     """
-    files = source.glob(f'ccic_{product}_{year}{month:02d}*.*')
+    path = source / str(year)
+    files = path.glob(f'ccic_{product}_{year}{month:02d}*.*')
     return sorted(list(files))
 
 
