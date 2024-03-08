@@ -331,17 +331,11 @@ if __name__ == '__main__':
             precision
         )
 
-    if n_processes == 1:
-        while current_month <= month_end:
-            calculate_mean(current_month, True, precision, args.compressed)
-            current_month += relativedelta(months=1)
-        sys.exit(0)
-
     pool = ProcessPoolExecutor(max_workers=n_processes)
     tasks = []
     months = []
     while current_month <= month_end:
-        tasks.append(pool.submit(calculate_mean, current_month, False, precision, args.compressed))
+        tasks.append(pool.submit(calculate_mean, current_month, False if n_processes > 1 else True, precision, args.compressed))
         months.append(current_month)
         current_month += relativedelta(months=1)
 
