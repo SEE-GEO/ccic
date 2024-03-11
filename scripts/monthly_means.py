@@ -223,7 +223,7 @@ def calculate_mean(
     current_month: datetime,
     status_bar: bool,
     precision: str,
-    compress: bool = True,
+    format: str,
 ) -> None:
     """
     Helper function encapsulating all processing for calculating means for
@@ -235,7 +235,7 @@ def calculate_mean(
         status_bar: Whether or not to display the progress for each month using
             a progress bar.
         precision: precision to use (single or double) for accumulating values
-        compress: apply zlib maximum compression to the saved netCDF
+        format: file format for the output file
     """
     year = current_month.year
     month = current_month.month
@@ -269,12 +269,19 @@ def calculate_mean(
         files, args.product, status_bar=status_bar, precision=precision
     )
 
-    fname_dst = f"ccic_{args.product}_{year}{month:02d}_monthlymean.zarr"
-    f_dst = args.destination / fname_dst
-    logging.info(f"Writing {f_dst}")
-    # TODO: Revise compression algorithm
-    encoding = {var: {"compressor": zarr.Blosc("lz4", clevel=9)} for var in ds}
-    ds.to_zarr(f_dst, encoding=encoding if compress else None)
+    if format == 'netcdf':
+        fname_dst = f"ccic_{args.product}_{year}{month:02d}_monthlymean.nc"
+        f_dst = args.destination / fname_dst
+        logging.info(f"Writing {f_dst}")
+        ds.to_netcdf(f_dst)
+    else:
+        fname_dst = f"ccic_{args.product}_{year}{month:02d}_monthlymean.zarr"
+        f_dst = args.destination / fname_dst
+        logging.info(f"Writing {f_dst}")
+        # Applying this encoding negligibly increases the write time and memorry but
+        # offers better compression ratio and read time and memory usage.
+        encoding = {var: {"compressor": zarr.Blosc("lz4", clevel=9)} for var in ds}
+        ds.to_zarr(f_dst, encoding=encoding)
 
 
 if __name__ == "__main__":
@@ -328,9 +335,11 @@ if __name__ == "__main__":
         help="Whether to use double or single precision for accumulating data.",
     )
     parser.add_argument(
-        "--compressed",
-        action="store_true",
-        help="Apply loseless compression to the output file.",
+        "--format",
+        type=str,
+        choices=['netcdf', 'zarr'],
+        default='netcdf',
+        help="File format for the output file.",
     )
 
     args = parser.parse_args()
@@ -362,7 +371,7 @@ if __name__ == "__main__":
                 current_month,
                 False if n_processes > 1 else True,
                 precision,
-                args.compressed,
+                args.format,
             )
         )
         months.append(current_month)
