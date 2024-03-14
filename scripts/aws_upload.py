@@ -20,6 +20,9 @@ $ aws s3 cp source_dir s3://bucket/ --recursive
 The xarray approach takes 1.5 min per file, the 'non-xarray'
 approach, where the CCIC file is existing in disk takes 0.5 min.
 
+What is time consuming is the .to_zarr step, even if all data
+is already loaded in memory.
+
 The reason why is the slower approach is taken is two-fold:
 
 - With the xarray approach, the CCIC file has to first be read.
@@ -31,9 +34,13 @@ The reason why is the slower approach is taken is two-fold:
 
   Technically it is possible to append with the 'non-xarray'
   approach, but here it is chosen the simplest solution.
+
+There is a caveat with the xarray approach, which is that it
+consumes much more memory as the data needs to be loaded.
 """
 
 import argparse
+import concurrent.futures
 from datetime import datetime
 import glob
 from pathlib import Path
@@ -95,15 +102,15 @@ parser.add_argument(
     help="Upload through this date. defaults to --date_start."
 )
 parser.add_argument(
-    '--dry-run',
+    '--dry_run',
     action='store_true',
     help="Execute a dry run of the script."
 )
 parser.add_argument(
-    '--n_uploads',
+    '--max_workers',
     default=1,
     type=int,
-    help='Number of concurrent uploads.'
+    help='Max workers for concurrent uploads.'
 )
 parser.add_argument(
     '--product',
@@ -137,4 +144,8 @@ files = sorted(
     ]
 )
 
-# TODO: Call each file with uploader using concurrency and a progressbar
+with tqdm.tqdm(ncols=40, total=len(files)) as pbar:
+    with concurrent.futures.ProcessPoolExecutor(max_workers=args.max_workers) as executor:
+        futures = {executor.submit(uploader, f, args): f for f in files}
+        for future in concurrent.futures.as_completed(futures):
+            pbar.update()
