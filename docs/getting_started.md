@@ -2,11 +2,7 @@
 
 ## Data access
 
-  Because of the large data volumes of the CCIC data record, we are currently
-  still searching for ways to distribute the data. In the mean time, one year of
-  CCIC results can be accessed [through
-  globus](https://app.globus.org/file-manager?origin_id=3e5cb4b1-25d1-4d3a-882b-8e06b631a92f&origin_path=%2F).
-
+The CCIC data record is available at the Registry of Open Data on AWS: https://registry.opendata.aws/ccic/.
 
 ## Reading CCIC data
 
@@ -53,10 +49,10 @@ import xarray as xr
 # Create a filesystem for S3
 s3 = s3fs.S3FileSystem(anon=True)
 # Lazy load a CCIC file
-ds = xr.open_zarr(s3.get_mapper('ccic/gridsat/2020/ccic_gridsat_202001010000.zarr'))
-# Load `cloud_prob_2d` into memory
-ds.cloud_prob_2d.load()
-# Do stuff with ds.cloud_prob_2d...
+ds = xr.open_zarr(s3.get_mapper('chalmerscloudiceclimatology/record/gridsat/2020/ccic_gridsat_202001010000.zarr'))
+# Load `tiwp` into memory
+ds.tiwp.load()
+# Do stuff with ds.tiwp...
 ```
 
 ## CCIC processing and development
