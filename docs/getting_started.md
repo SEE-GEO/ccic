@@ -40,7 +40,7 @@ can be executed without loading the full dataset, thus saves memory and network
 traffic, if accessed remotely. There are multiple guides online on how to work
 with xarray objects.
 
-The xarray guide [shows how to access Zarr files stored in cloud storage buckets](https://docs.xarray.dev/en/stable/user-guide/io.html#cloud-storage-buckets). For instance, we have tested that an equivalent case works with a public Amazon S3 bucket:
+With xarray [you can also access Zarr files stored in cloud storage buckets](https://docs.xarray.dev/en/stable/user-guide/io.html#cloud-storage-buckets). For instance, you can load data from the [CCIC S3 bucket](https://registry.opendata.aws/ccic) with:
 
 ```python
 import ccic
