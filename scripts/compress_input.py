@@ -1,11 +1,10 @@
 """
 This script is intended to compress input files
-using the zlib option with maximum compression
-when saving an xarray to a netCDF.
+using the BZ2 option with maximum compression
+when saving an xarray.Dataset to a zarr.
 
-Using this compression not only saves a great amount of
-disk space (can be about 25% per file) but also decreases
-the time required to read the input file (by about 10%).
+Using this compression was found to minimize the
+disk space with little cost at read time.
 
 The script is somewhat complicated, but it is designed
 to match the characteristics of the computer system on
@@ -29,6 +28,7 @@ from paramiko.config import SSHConfig
 from sshfs import SSHFileSystem
 import tqdm
 import xarray as xr
+import zarr
 
 
 def get_date_from_fname(fpath: Path, product: str) -> datetime.datetime:
@@ -139,20 +139,21 @@ def wrapper(f: Path) -> None:
         ds = xr.load_dataset(
             fs_ssh.open(str(f)) if args.host else f, engine="h5netcdf"
         )
+        f = Path(f.name).with_suffix(".zarr")
         dst_path = args.destination / f.name
         with tempfile.TemporaryDirectory(dir=args.tmpdir) as tmpdir:
-            # Saving to netCDF with compression is what takes more time
+            # Saving is what takes more time
             # Use a local directory (sshfs) or a (fast) temporary
             # directory (can be) specified with --tmpdir
             tmp_fpath = Path(tmpdir) / f.name
-            ds.to_netcdf(
+            ds.to_zarr(
                 tmp_fpath,
                 encoding={
-                    var: {"zlib": True, "complevel": 9} for var in ds
+                    var: {"compressor": zarr.BZ2(level=9)} for var in ds
                 },
             )
             if args.host:
-                fs_ssh.put_file(str(tmp_fpath), str(dst_path))
+                fs_ssh.put(str(tmp_fpath), str(dst_path), recursive=True)
             else:
                 # tmp_fpath.rename(dst_path) can raise
                 # OSError: [Errno 18] Invalid cross-device link
