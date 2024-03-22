@@ -18,6 +18,7 @@ from tqdm import tqdm
 import xarray as xr
 import zarr
 
+
 def get_encodings(format: str) -> dict:
     """
     This function prepares the encodings developed for the instantaneous files
@@ -25,50 +26,47 @@ def get_encodings(format: str) -> dict:
 
     Args:
         format: either `'zarr'` or `'netcdf'`
-    
+
     Returns:
         A dictionary `encodings` to be used with
         `.to_{zarr,netcdf}('filename', encoding=encodings)`
     """
-    
-    assert format in ['zarr', 'netcdf']
+
+    assert format in ["zarr", "netcdf"]
 
     # Extract the encodings from `ccic`, which use specific key names
-    variables = ['cloud_prob_2d', 'tiwp', 'p_tiwp', 'longitude', 'latitude']
-    if format == 'zarr':
+    variables = ["cloud_prob_2d", "tiwp", "p_tiwp", "longitude", "latitude"]
+    if format == "zarr":
         encodings_ccic = get_encodings_zarr(variables)
     else:
         encodings_ccic = get_encodings_netcdf(variables)
 
     # There is no support for integer > 16
-    if format == 'zarr':
+    if format == "zarr":
         int_encoding = {
             "compressor": encodings_ccic["longitude"]["compressor"],
-            "dtype": "int16"
+            "dtype": "int16",
         }
     else:
-        int_encoding = {
-            "dtype": "int16",
-            "zlib": True
-        }
-    
-    encodings_ccic['int'] = int_encoding
+        int_encoding = {"dtype": "int16", "zlib": True}
+
+    encodings_ccic["int"] = int_encoding
 
     mapping = {
-        'cloud_prob_2d': 'cloud_prob_2d',
-        'cloud_prob_2d_stratified': 'cloud_prob_2d',
-        'cloud_prob_2d_stratified_count': 'int',
-        'inpainted': 'cloud_prob_2d', # inpainted now is in range [0, 1]
-        'inpainted_stratified': 'cloud_prob_2d',
-        'inpainted_stratified_count': 'int',
-        'p_tiwp': 'p_tiwp',
-        'p_tiwp_stratified': 'p_tiwp',
-        'p_tiwp_stratified_count': 'int',
-        'tiwp': 'tiwp',
-        'tiwp_stratified': 'tiwp',
-        'tiwp_stratified_count': 'int',
-        'longitude': 'longitude',
-        'latitude': 'latitude'
+        "cloud_prob_2d": "cloud_prob_2d",
+        "cloud_prob_2d_stratified": "cloud_prob_2d",
+        "cloud_prob_2d_stratified_count": "int",
+        "inpainted": "cloud_prob_2d",  # inpainted now is in range [0, 1]
+        "inpainted_stratified": "cloud_prob_2d",
+        "inpainted_stratified_count": "int",
+        "p_tiwp": "p_tiwp",
+        "p_tiwp_stratified": "p_tiwp",
+        "p_tiwp_stratified_count": "int",
+        "tiwp": "tiwp",
+        "tiwp_stratified": "tiwp",
+        "tiwp_stratified_count": "int",
+        "longitude": "longitude",
+        "latitude": "latitude",
     }
 
     return {k: encodings_ccic[v] for k, v in mapping.items()}
@@ -324,7 +322,7 @@ def calculate_mean(
         files, args.product, status_bar=status_bar, precision=precision
     )
 
-    if format == 'netcdf':
+    if format == "netcdf":
         fname_dst = f"ccic_{args.product}_{year}{month:02d}_monthlymean.nc"
         f_dst = args.destination / fname_dst
         logging.info(f"Writing {f_dst}")
@@ -382,7 +380,7 @@ if __name__ == "__main__":
         help=(
             "The number of processes to use for parallel processing. "
             "If '1', files will be processes sequentially."
-        )
+        ),
     )
     parser.add_argument(
         "--precision",
@@ -393,8 +391,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--format",
         type=str,
-        choices=['netcdf', 'zarr'],
-        default='netcdf',
+        choices=["netcdf", "zarr"],
+        default="netcdf",
         help="File format for the output file.",
     )
 
