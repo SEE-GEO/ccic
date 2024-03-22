@@ -11,12 +11,67 @@ import sys
 from pathlib import Path
 import warnings
 
-import ccic  # Required
+from ccic.processing import get_encodings_zarr, get_encodings_netcdf
 from dateutil.relativedelta import relativedelta
 import numpy as np
 from tqdm import tqdm
 import xarray as xr
 import zarr
+
+def get_encodings(format: str) -> dict:
+    """
+    This function prepares the encodings developed for the instantaneous files
+    into a format suitable to be used with the monthly means.
+
+    Args:
+        format: either `'zarr'` or `'netcdf'`
+    
+    Returns:
+        A dictionary `encodings` to be used with
+        `.to_{zarr,netcdf}('filename', encoding=encodings)`
+    """
+    
+    assert format in ['zarr', 'netcdf']
+
+    # Extract the encodings from `ccic`, which use specific key names
+    variables = ['cloud_prob_2d', 'tiwp', 'p_tiwp', 'longitude', 'latitude']
+    if format == 'zarr':
+        encodings_ccic = get_encodings_zarr(variables)
+    else:
+        encodings_ccic = get_encodings_netcdf(variables)
+
+    # There is no support for integer > 16
+    if format == 'zarr':
+        int_encoding = {
+            "compressor": encodings_ccic["longitude"]["compressor"],
+            "dtype": "int16"
+        }
+    else:
+        int_encoding = {
+            "dtype": "int16",
+            "zlib": True
+        }
+    
+    encodings_ccic['int'] = int_encoding
+
+    mapping = {
+        'cloud_prob_2d': 'cloud_prob_2d',
+        'cloud_prob_2d_stratified': 'cloud_prob_2d',
+        'cloud_prob_2d_stratified_count': 'int',
+        'inpainted': 'cloud_prob_2d', # inpainted now is in range [0, 1]
+        'inpainted_stratified': 'cloud_prob_2d',
+        'inpainted_stratified_count': 'int',
+        'p_tiwp': 'p_tiwp',
+        'p_tiwp_stratified': 'p_tiwp',
+        'p_tiwp_stratified_count': 'int',
+        'tiwp': 'tiwp',
+        'tiwp_stratified': 'tiwp',
+        'tiwp_stratified_count': 'int',
+        'longitude': 'longitude',
+        'latitude': 'latitude'
+    }
+
+    return {k: encodings_ccic[v] for k, v in mapping.items()}
 
 
 def find_files(year: int, month: int, source: Path, product: str) -> list[Path]:
@@ -331,7 +386,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--precision",
         type=str,
-        default="double",
+        default="single",
         help="Whether to use double or single precision for accumulating data.",
     )
     parser.add_argument(
