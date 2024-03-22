@@ -1,7 +1,7 @@
 """
 This script is intended to compress input files
 using the BZ2 option with maximum compression
-when saving an xarray.Dataset to a zarr.
+when saving an xarray.Dataset to a Zarr.
 
 Using this compression was found to minimize the
 disk space with little cost at read time.
@@ -58,7 +58,7 @@ parser.add_argument(
     "--destination",
     required=True,
     type=Path,
-    help="path to the directory to place the compressed netCDF files",
+    help="path to the directory to place the Zarr files",
 )
 parser.add_argument(
     "--remove_source_files",
