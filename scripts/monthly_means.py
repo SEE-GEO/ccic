@@ -328,15 +328,16 @@ def calculate_mean(
         fname_dst = f"ccic_{args.product}_{year}{month:02d}_monthlymean.nc"
         f_dst = args.destination / fname_dst
         logging.info(f"Writing {f_dst}")
-        ds.to_netcdf(f_dst)
+        # Use the same encodings as in ccic instantaneous files
+        encodings = get_encodings(format)
+        ds.to_netcdf(f_dst, encoding=encodings)
     else:
         fname_dst = f"ccic_{args.product}_{year}{month:02d}_monthlymean.zarr"
         f_dst = args.destination / fname_dst
         logging.info(f"Writing {f_dst}")
-        # Applying this encoding negligibly increases the write time and memorry but
-        # offers better compression ratio and read time and memory usage.
-        encoding = {var: {"compressor": zarr.Blosc("lz4", clevel=9)} for var in ds}
-        ds.to_zarr(f_dst, encoding=encoding)
+        # Use the same encodings as in ccic instantaneous files
+        encodings = get_encodings(format)
+        ds.to_zarr(f_dst, encoding=encodings)
 
 
 if __name__ == "__main__":
