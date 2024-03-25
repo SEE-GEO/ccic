@@ -608,7 +608,7 @@ def resample_data(
     Resample cloudsat data and include in dataset.
 
     This function adds retrieval target variables from CloudSat
-    2CIce and 2BCLDCLASS files to a target dataset.
+    2CIce and (2BCLDCLASS-LIDAR or 2BCLDCLASS) files to a target dataset.
 
     Args:
         target_dataset: The ``xarray.Dataset`` to which the retrieval
@@ -617,8 +617,10 @@ def resample_data(
             target dataset.
         cloudsat_files: List of CloudSat files from which to add retrieval
             targets to the target dataset.
-        cloudsat_2bcldclass_file: Path to the CloudSat 2BCLDCLASS file from
-            which to read the 2CIce data.
+        start_time: Optional start time to limit the source profiles that
+            are loaded.
+        end_time: Optional end time to limit the source profiles that
+            are loaded.
 
     Return:
         The target_dataset or ``None`` if no matches can be found within
