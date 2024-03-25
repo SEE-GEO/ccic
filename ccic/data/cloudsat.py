@@ -572,10 +572,14 @@ class CloudSat2BCLDCLASSLIDAR(CloudsatFile):
         return xr.where(np.isnan(quality).all(dim='layers'), -1, a)
 
 
-def get_available_granules(date):
+def get_available_granules(date, legacy: bool=False):
     """
     Collects the names of available CloudSat files for a given day
     and groups them by the granule number.
+
+    Args:
+        date: date
+        legacy: if True, use 2B-CLDCLASS files, else 2B-CLDCLASS-LIDAR
 
     Returns:
         A list of CloudSat file objects.
