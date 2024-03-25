@@ -588,7 +588,10 @@ def get_available_granules(date, legacy: bool=False):
          the returned objects points to non-existing files.
     """
     cloudsat_files = []
-    cloudsat_classes = [CloudSat2CIce, CloudSat2BCLDCLASS]
+    cloudsat_classes = [
+        CloudSat2CIce,
+        CloudSat2BCLDCLASS if legacy else CloudSat2BCLDCLASSLIDAR
+    ]
     for cls in cloudsat_classes:
         cloudsat_files += [
             cls(filename) for filename in cls.get_available_files(date)
