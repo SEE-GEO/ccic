@@ -92,6 +92,7 @@ def process_cloudsat_files(
     cache,
     size=256,
     timedelta=15,
+    local_cpcir: dict={},
 ):
     """
     Match CloudSat product files for a given granule with CPCIR and
@@ -104,6 +105,7 @@ def process_cloudsat_files(
         size: The size of the match-up scenes to extract.
         timedelta: The maximum time difference to allow between CloudSat
             and geostationary observations.
+        local_cpcir: Local CPCIR files.
 
     Return:
         A list of match-up scenes.
@@ -133,11 +135,14 @@ def process_cloudsat_files(
     cloudsat_files = [cs_file.result() for cs_file in cloudsat_files]
 
     for filename in cpcir_files:
-        try:
-            cpcir_file = cache.get(CPCIR, filename).result()
-        except RuntimeError as err:
-            logger.error(err)
-            continue
+        if filename in local_cpcir:
+            cpcir_file = CPCIR(local_cpcir[filename])
+        else:
+            try:
+                cpcir_file = cache.get(CPCIR, filename).result()
+            except RuntimeError as err:
+                logger.error(err)
+                continue
 
         scenes += cpcir_file.get_matches(
             rng, cloudsat_files, size=size, timedelta=timedelta

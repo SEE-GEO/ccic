@@ -94,10 +94,24 @@ def add_parser(subparsers):
         help="The number of concurrent processes to use for data extraction.",
         default=4,
     )
+    parser.add_argument(
+        "--legacy",
+        action="store_true",
+        help="use 2B-CLDCLASS instead of 2B-CLDCLASS-LIDAR"
+    )
+    parser.add_argument(
+        "--local_cpcir",
+        type=Path,
+        help=(
+            "If provided, look for CPCIR files recursively in this directory "
+            "before attempting to download them."
+        )
+    )
     parser.set_defaults(func=run)
 
 
-def process_day(year, month, day, destination, size=256, timedelta=15, valid_input=0.2):
+def process_day(year, month, day, destination, size=256, timedelta=15, valid_input=0.2,
+                local_cpcir: dict={}, legacy: bool=False):
     """
     Extract collocations for a day.
 
@@ -111,9 +125,11 @@ def process_day(year, month, day, destination, size=256, timedelta=15, valid_inp
              observations and CloudSat.
         valid_input: A minimum fraction of valid inputs for a scene to be
             included in the training data.
+        local_cpcir: Local CPCIR files.
+        legacy: use 2B-CLDCLASS instead of 2B-CLDCLASS-LIDAR.
     """
     date = to_datetime64(datetime(year, month, day))
-    granules = get_available_granules(date)
+    granules = get_available_granules(date, legacy)
     LOGGER.info(
         "Found %s granules for %s-%s-%s.",
         len(granules),
@@ -132,7 +148,8 @@ def process_day(year, month, day, destination, size=256, timedelta=15, valid_inp
         try:
             cache = DownloadCache(n_threads=4)
             scenes = process_cloudsat_files(
-                cloudsat_files, cache, size=size, timedelta=timedelta
+                cloudsat_files, cache, size=size,
+                timedelta=timedelta, local_cpcir=local_cpcir
             )
             write_scenes(scenes, destination, valid_input=valid_input)
             LOGGER.info(
@@ -173,6 +190,8 @@ def run(args):
     size = args.scene_size
     timedelta = args.max_time_difference
     valid_input = args.min_valid_input
+    legacy = args.legacy
+    local_cpcir = {f.name: f for f in args.local_cpcir.rglob("merg_*_4km-pixel.nc4")}
 
     pool = ProcessPoolExecutor(max_workers=args.n_workers)
     tasks = [
@@ -185,6 +204,8 @@ def run(args):
             size=size,
             timedelta=timedelta,
             valid_input=valid_input,
+            legacy=legacy,
+            local_cpcir=local_cpcir
         )
         for day in days
     ]

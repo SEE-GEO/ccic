@@ -243,7 +243,7 @@ class CloudsatFile:
             + data.attrs["start_time"][0, 0].astype("timedelta64[s]")
             + data.time_since_start.data.astype("timedelta64[s]")
         )
-        data["time"] = (("rays"), time)
+        data["time"] = (("rays"), time.astype('datetime64[ns]'))
 
         time_mask = np.ones(data.time.size, dtype=bool)
         if start_time is not None:
@@ -372,7 +372,7 @@ class CloudSat2CIce(CloudsatFile):
         target_dataset["tiwp"].attrs["long_name"] = "Total ice water path"
         target_dataset["tiwp"].attrs["unit"] = "g m-3"
 
-        target_dataset["time_cloudsat"] = (("latitude", "longitude"), time_r)
+        target_dataset["time_cloudsat"] = (("latitude", "longitude"), time_r.astype('datetime64[ns]'))
 
 
 class CloudSat2BCLDCLASS(CloudsatFile):
@@ -489,7 +489,7 @@ class CloudSat2BCLDCLASSLIDAR(CloudsatFile):
         data = self.to_xarray_dataset(start_time=start_time, end_time=end_time)
         output_shape = resampler.target_area.shape
         labels = data.cloud_class.data[..., ::-1]
-        valid = data.cloud_class_flag.data[..., ::-1] > 0
+        valid = data.cloud_class.data[..., ::-1] >= 0
         labels[~valid] = -1
 
         cloud_mask = labels.max(axis=-1) > 0
