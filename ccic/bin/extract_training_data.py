@@ -115,11 +115,20 @@ def add_parser(subparsers):
             "before attempting to download them."
         )
     )
+    parser.add_argument(
+        "--local_gridsat",
+        type=Path,
+        help=(
+            "If provided, look for GridSat files recursively in this directory "
+            "before attempting to download them."
+        )
+    )
     parser.set_defaults(func=run)
 
 
 def process_day(year, month, day, destination, size=256, timedelta=15, valid_input=0.2,
-                local_cloudsat: dict={}, local_cpcir: dict={}, legacy: bool=False):
+                local_cloudsat: dict={}, local_cpcir: dict={}, local_gridsat: dict={},
+                legacy: bool=False):
     """
     Extract collocations for a day.
 
@@ -135,6 +144,7 @@ def process_day(year, month, day, destination, size=256, timedelta=15, valid_inp
             included in the training data.
         local_cloudsat: Local CloudSat files.
         local_cpcir: Local CPCIR files.
+        local_gridsat: Local GridSat files.
         legacy: use 2B-CLDCLASS instead of 2B-CLDCLASS-LIDAR.
     """
     date = to_datetime64(datetime(year, month, day))
@@ -159,7 +169,7 @@ def process_day(year, month, day, destination, size=256, timedelta=15, valid_inp
             scenes = process_cloudsat_files(
                 cloudsat_files, cache, size=size,
                 timedelta=timedelta, local_cloudsat=local_cloudsat,
-                local_cpcir=local_cpcir
+                local_cpcir=local_cpcir, local_gridsat=local_gridsat
             )
             write_scenes(scenes, destination, valid_input=valid_input)
             LOGGER.info(
@@ -203,6 +213,7 @@ def run(args):
     legacy = args.legacy
     local_cloudsat = {f.name: f for f in args.local_cloudsat.rglob("*hdf")}
     local_cpcir = {f.name: f for f in args.local_cpcir.rglob("merg_*_4km-pixel.nc4")}
+    local_gridsat = {f.name: f for f in args.local_gridsat.rglob("GRIDSAT-B1.*.v02r01.nc")}
 
     pool = ProcessPoolExecutor(max_workers=args.n_workers)
     tasks = [
@@ -217,7 +228,8 @@ def run(args):
             valid_input=valid_input,
             legacy=legacy,
             local_cloudsat=local_cloudsat,
-            local_cpcir=local_cpcir
+            local_cpcir=local_cpcir,
+            local_gridsat=local_gridsat
         )
         for day in days
     ]

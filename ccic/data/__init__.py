@@ -94,6 +94,7 @@ def process_cloudsat_files(
     timedelta=15,
     local_cloudsat: dict={},
     local_cpcir: dict={},
+    local_gridsat: dict={}
 ):
     """
     Match CloudSat product files for a given granule with CPCIR and
@@ -108,6 +109,7 @@ def process_cloudsat_files(
             and geostationary observations.
         local_cloudsat: Local CloudSat files.
         local_cpcir: Local CPCIR files.
+        local_gridsat: Local GridSat files.
 
     Return:
         A list of match-up scenes.
@@ -158,11 +160,14 @@ def process_cloudsat_files(
         )
 
     for filename in gridsat_files:
-        try:
-            gs_file = cache.get(GridSat, filename).result()
-        except RuntimeError as err:
-            logger.error(err)
-            continue
+        if filename in local_gridsat:
+            gs_file = GridSat(local_gridsat[filename])
+        else:
+            try:
+                gs_file = cache.get(GridSat, filename).result()
+            except RuntimeError as err:
+                logger.error(err)
+                continue
 
         scenes += gs_file.get_matches(
             rng, cloudsat_files, size=size, timedelta=timedelta
