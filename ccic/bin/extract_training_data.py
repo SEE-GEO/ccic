@@ -100,6 +100,14 @@ def add_parser(subparsers):
         help="use 2B-CLDCLASS instead of 2B-CLDCLASS-LIDAR"
     )
     parser.add_argument(
+        "--local_cloudsat",
+        type=Path,
+        help=(
+            "If provided, look for CloudSat files recursively in this directory "
+            "before attempting to download them."
+        )
+    )
+    parser.add_argument(
         "--local_cpcir",
         type=Path,
         help=(
@@ -111,7 +119,7 @@ def add_parser(subparsers):
 
 
 def process_day(year, month, day, destination, size=256, timedelta=15, valid_input=0.2,
-                local_cpcir: dict={}, legacy: bool=False):
+                local_cloudsat: dict={}, local_cpcir: dict={}, legacy: bool=False):
     """
     Extract collocations for a day.
 
@@ -125,6 +133,7 @@ def process_day(year, month, day, destination, size=256, timedelta=15, valid_inp
              observations and CloudSat.
         valid_input: A minimum fraction of valid inputs for a scene to be
             included in the training data.
+        local_cloudsat: Local CloudSat files.
         local_cpcir: Local CPCIR files.
         legacy: use 2B-CLDCLASS instead of 2B-CLDCLASS-LIDAR.
     """
@@ -149,7 +158,8 @@ def process_day(year, month, day, destination, size=256, timedelta=15, valid_inp
             cache = DownloadCache(n_threads=4)
             scenes = process_cloudsat_files(
                 cloudsat_files, cache, size=size,
-                timedelta=timedelta, local_cpcir=local_cpcir
+                timedelta=timedelta, local_cloudsat=local_cloudsat,
+                local_cpcir=local_cpcir
             )
             write_scenes(scenes, destination, valid_input=valid_input)
             LOGGER.info(
@@ -191,6 +201,7 @@ def run(args):
     timedelta = args.max_time_difference
     valid_input = args.min_valid_input
     legacy = args.legacy
+    local_cloudsat = {f.name: f for f in args.local_cloudsat.rglob("*hdf")}
     local_cpcir = {f.name: f for f in args.local_cpcir.rglob("merg_*_4km-pixel.nc4")}
 
     pool = ProcessPoolExecutor(max_workers=args.n_workers)
@@ -205,6 +216,7 @@ def run(args):
             timedelta=timedelta,
             valid_input=valid_input,
             legacy=legacy,
+            local_cloudsat=local_cloudsat,
             local_cpcir=local_cpcir
         )
         for day in days

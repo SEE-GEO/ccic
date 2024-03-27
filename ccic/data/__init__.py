@@ -92,6 +92,7 @@ def process_cloudsat_files(
     cache,
     size=256,
     timedelta=15,
+    local_cloudsat: dict={},
     local_cpcir: dict={},
 ):
     """
@@ -105,6 +106,7 @@ def process_cloudsat_files(
         size: The size of the match-up scenes to extract.
         timedelta: The maximum time difference to allow between CloudSat
             and geostationary observations.
+        local_cloudsat: Local CloudSat files.
         local_cpcir: Local CPCIR files.
 
     Return:
@@ -114,9 +116,13 @@ def process_cloudsat_files(
 
     seed = hash("".join([cs_file.filename.name for cs_file in cloudsat_files]))
     rng = np.random.default_rng(abs(seed))
-    cloudsat_files = [
-        cache.get(type(cs_file), cs_file.filename) for cs_file in cloudsat_files
-    ]
+    cloudsat_files = []
+    for cs_file in cloudsat_files:
+        product = type(cs_file)
+        if cs_file.filename.name in local_cloudsat:
+            cloudsat_files.append(product(local_cloudsat[cs_file.filename.name]))
+        else:
+            cloudsat_files.append(cache.get(product, cs_file.filename))
 
     data = cloudsat_files[0].result().to_xarray_dataset()
     d_t = np.array(timedelta * 60, dtype="timedelta64[s]")
