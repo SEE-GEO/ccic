@@ -118,15 +118,16 @@ def process_cloudsat_files(
 
     seed = hash("".join([cs_file.filename.name for cs_file in cloudsat_files]))
     rng = np.random.default_rng(abs(seed))
-    cloudsat_files = []
+    cloudsat_files_updated = []
     for cs_file in cloudsat_files:
         product = type(cs_file)
         if cs_file.filename.name in local_cloudsat:
-            cloudsat_files.append(product(local_cloudsat[cs_file.filename.name]))
+            cloudsat_files_updated.append(product(local_cloudsat[cs_file.filename.name]))
         else:
-            cloudsat_files.append(cache.get(product, cs_file.filename))
+            cloudsat_files_updated.append(cache.get(product, cs_file.filename).result())
+    cloudsat_files = cloudsat_files_updated
 
-    data = cloudsat_files[0].result().to_xarray_dataset()
+    data = cloudsat_files[0].to_xarray_dataset()
     d_t = np.array(timedelta * 60, dtype="timedelta64[s]")
     start_time = data.time.data[0] - d_t
     end_time = data.time.data[-1] + d_t
@@ -139,8 +140,6 @@ def process_cloudsat_files(
     gridsat_files = GridSat.provider.get_files_in_range(
         to_datetime(start_time), to_datetime(end_time), start_inclusive=True
     )
-
-    cloudsat_files = [cs_file.result() for cs_file in cloudsat_files]
 
     for filename in cpcir_files:
         if filename in local_cpcir:
