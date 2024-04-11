@@ -222,6 +222,7 @@ def write_scenes(
             "tiwp",
             "tiwp_fpavg",
             "tiwc",
+            "tiwc_fpavg",
             "cloud_mask",
             "cloud_class",
         ]
@@ -239,6 +240,7 @@ def write_scenes(
         encoding[f"latitude_{product}"] = {"dtype": "float32", "zlib": True}
         encoding[f"longitude_{product}"] = {"dtype": "float32", "zlib": True}
         encoding["tiwc"] = {"dtype": "float32", "zlib": True}
+        encoding["tiwc_fpavg"] = {"dtype": "float32", "zlib": True}
         encoding["tiwp"] = {"dtype": "float32", "zlib": True}
         encoding["tiwp_fpavg"] = {"dtype": "float32", "zlib": True}
         encoding["cloud_class"] = {"dtype": "int8", "zlib": True}
