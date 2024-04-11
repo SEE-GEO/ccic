@@ -121,7 +121,8 @@ def process_cloudsat_files(
     cloudsat_files_updated = []
     for cs_file in cloudsat_files:
         product = type(cs_file)
-        if cs_file.filename.name in local_cloudsat:
+        # First check that local_cloudsat is not empty
+        if local_cloudsat and cs_file.filename.name in local_cloudsat:
             cloudsat_files_updated.append(product(local_cloudsat[cs_file.filename.name]))
         else:
             cloudsat_files_updated.append(cache.get(product, cs_file.filename).result())
@@ -142,7 +143,7 @@ def process_cloudsat_files(
     )
 
     for filename in cpcir_files:
-        if filename in local_cpcir:
+        if local_cpcir and filename in local_cpcir:
             cpcir_file = CPCIR(local_cpcir[filename])
         else:
             try:
@@ -159,7 +160,7 @@ def process_cloudsat_files(
         )
 
     for filename in gridsat_files:
-        if filename in local_gridsat:
+        if local_gridsat and filename in local_gridsat:
             gs_file = GridSat(local_gridsat[filename])
         else:
             try:

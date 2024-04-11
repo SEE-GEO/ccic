@@ -204,16 +204,19 @@ def run(args):
 
     destination = Path(args.destination)
     if not destination.exists():
-        LOGGER.error("The 'destination' argmument must be an existing directory.")
+        LOGGER.error("The 'destination' argument must be an existing directory.")
         return 1
 
     size = args.scene_size
     timedelta = args.max_time_difference
     valid_input = args.min_valid_input
     legacy = args.legacy
-    local_cloudsat = {f.name: f for f in args.local_cloudsat.rglob("*hdf")}
-    local_cpcir = {f.name: f for f in args.local_cpcir.rglob("merg_*_4km-pixel.nc4")}
-    local_gridsat = {f.name: f for f in args.local_gridsat.rglob("GRIDSAT-B1.*.v02r01.nc")}
+    local_cloudsat = {f.name: f for f in args.local_cloudsat.rglob("*hdf")} \
+        if args.local_cloudsat else None
+    local_cpcir = {f.name: f for f in args.local_cpcir.rglob("merg_*_4km-pixel.nc4")} \
+        if args.local_cpcir else None
+    local_gridsat = {f.name: f for f in args.local_gridsat.rglob("GRIDSAT-B1.*.v02r01.nc")} \
+        if args.local_gridsat else None
 
     pool = ProcessPoolExecutor(max_workers=args.n_workers)
     tasks = [
