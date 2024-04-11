@@ -345,14 +345,19 @@ class CloudSat2CIce(CloudsatFile):
         iwc, height = subsample_iwc_and_height(iwc, height)
         surface_altitude = np.maximum(data.surface_elevation.data, 0.0)
 
-        # Pick random samples from iwc, height and surface altitude.
-        iwc = iwc[source_indices]
-        height = height[source_indices]
-        surface_altitude = surface_altitude[source_indices]
+        # Remap IWC
         iwc = remap_iwc(iwc, height, surface_altitude, ALTITUDE_LEVELS)
 
-        iwc_r = np.zeros(iwp_r.shape + (20,), dtype=np.float32) * np.nan
-        iwc_r.reshape(-1, 20)[target_indices] = iwc
+        # Resample IWC with average
+        iwc_r = np.apply_along_axis(
+            lambda x: resampler.get_average(x).compute(),
+            0,
+            iwc
+        )
+
+        # Pick random samples from iwc
+        iwc_r_rand = np.zeros(iwp_r.shape + (20,), dtype=np.float32) * np.nan
+        iwc_r_rand.reshape(-1, 20)[target_indices] = iwc[source_indices]
 
         target_dataset["altitude"] = (("altitude",), ALTITUDE_LEVELS)
         target_dataset["altitude"].attrs = {
@@ -360,17 +365,21 @@ class CloudSat2CIce(CloudsatFile):
             "positive": "up"
         }
 
-        target_dataset["tiwc"] = (("latitude", "longitude", "altitude"), iwc_r)
+        target_dataset["tiwc"] = (("latitude", "longitude", "altitude"), iwc_r_rand)
         target_dataset["tiwc"].attrs["long_name"] = "Total ice water content"
         target_dataset["tiwc"].attrs["unit"] = "g m-3"
 
+        target_dataset["tiwc_fpavg"] = (("latitude", "longitude", "altitude"), iwc_r)
+        target_dataset["tiwc_fpavg"].attrs["long_name"] = "Footprint-averaged total ice water content"
+        target_dataset["tiwc_fpavg"].attrs["unit"] = "g m-3"
+
         target_dataset["tiwp_fpavg"] = (("latitude", "longitude"), iwp_r)
         target_dataset["tiwp_fpavg"].attrs["long_name"] = "Footprint-averaged total ice water path"
-        target_dataset["tiwp_fpavg"].attrs["unit"] = "g m-3"
+        target_dataset["tiwp_fpavg"].attrs["unit"] = "kg m-2"
 
         target_dataset["tiwp"] = (("latitude", "longitude"), iwp_r_rand)
         target_dataset["tiwp"].attrs["long_name"] = "Total ice water path"
-        target_dataset["tiwp"].attrs["unit"] = "g m-3"
+        target_dataset["tiwp"].attrs["unit"] = "kg m-2"
 
         target_dataset["time_cloudsat"] = (("latitude", "longitude"), time_r.astype('datetime64[ns]'))
 
