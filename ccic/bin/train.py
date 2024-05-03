@@ -11,12 +11,50 @@ from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 import importlib
 import multiprocessing as mp
 from pathlib import Path
+import re
 import sys
 
 import numpy as np
+from quantnn.models.pytorch.lightning import QuantnnLightning
 
 
 LOGGER = logging.getLogger(__name__)
+
+def freeze(lm: QuantnnLightning, regex: list[str]) -> dict[str, bool]:
+    """
+    Free any parameter whose name matches a given regex.
+
+    Args:
+        lm: the model
+        regex: a list of regexes
+    
+    Returns:
+        A dictionary with parameter name a key and the original state as value
+    
+    Notes:
+        One can inspect how the parameters are named with
+        for name, _ in lm.model.named_parameters():
+            print(name)
+        
+        Relevant names are:
+            - stem.X
+            - encoder.X
+            - decoder.X
+            - heads.{tiwc,tiwp,tiwp_fpavg,cloud_mask,cloud_class}.X
+        where {·} indicate different possibilities and X any substring.
+    """
+    original_state = {
+        name: param.requires_grad
+        for name, param in lm.model.named_parameters()
+    }
+
+    pattern = '|'.join(regex)
+    freeze_parameters = [s for s in original_state.keys() if re.search(pattern, s)]
+    for name, param in lm.model.named_parameters():
+        if name in freeze_parameters:
+            param.requires_grad = False
+
+    return lm, original_state
 
 
 def add_parser(subparsers):
@@ -117,6 +155,13 @@ def add_parser(subparsers):
         type=str,
         default=None,
         help="Name to use for logging.",
+    )
+    parser.add_argument(
+        "--freeze",
+        metavar="freeze",
+        type=str,
+        nargs="+",
+        help="Freeze all parameters matching this list of regexes"
     )
     parser.set_defaults(func=run)
 
@@ -241,6 +286,9 @@ def run(args):
     lm.optimizer = optimizer
     lm.scheduler = scheduler
 
+    if args.freeze:
+        lm, original_grad_state = freeze(lm, args.freeze)
+
     trainer = pl.Trainer(
         max_epochs=args.n_epochs,
         accelerator=args.accelerator,
@@ -254,5 +302,9 @@ def run(args):
     trainer.fit(
         model=lm, train_dataloaders=training_loader, val_dataloaders=validation_loader
     )
+
+    if args.freeze:
+        for name, param in lm.model.named_parameters():
+            param.requires_grad = original_grad_state[param]
 
     mrnn.save(model_path)
