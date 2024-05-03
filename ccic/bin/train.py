@@ -305,6 +305,6 @@ def run(args):
 
     if args.freeze:
         for name, param in lm.model.named_parameters():
-            param.requires_grad = original_grad_state[param]
+            param.requires_grad = original_grad_state[name]
 
     mrnn.save(model_path)
