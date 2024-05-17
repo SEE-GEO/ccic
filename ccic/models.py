@@ -47,7 +47,7 @@ class CCICModel(nn.Module):
         self.n_quantiles = n_quantiles
         n_channels_in = 3 if self.all_channels else 1
 
-        block_factory = blocks.ConvNextBlockFactory()
+        block_factory = blocks.ConvNeXtBlockFactory()
         norm_factory = block_factory.layer_norm
 
         self.stem = nn.Conv2d(n_channels_in, features, 3, padding=1)
@@ -135,8 +135,7 @@ class CCICModel(nn.Module):
         output = {}
         y = self.stem(x)
 
-        version = getattr(self, "version", 0.0)
-        y = [y] + self.encoder(y, return_skips=True)
+        y = self.encoder(y, return_skips=True)
 
         if return_encodings:
             output["encodings"] = y[-1]
