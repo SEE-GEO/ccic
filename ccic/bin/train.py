@@ -292,7 +292,7 @@ def run(args):
     trainer = pl.Trainer(
         max_epochs=args.n_epochs,
         accelerator=args.accelerator,
-        precision=args.precision,
+        precision='bf16-mixed' if args.precision == 16 else args.precision,
         logger=lm.tensorboard,
         callbacks=[LearningRateMonitor()],
         strategy="ddp",
