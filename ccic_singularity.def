@@ -13,6 +13,7 @@ From: ccic_conda.sif
 
 %post
     /opt/conda/envs/ccic/bin/python3 -m pip install --no-cache-dir /pansat
+    /opt/conda/envs/ccic/bin/python3 -m pip install --no-cache-dir torch==1.13.1+cu116 torchvision==0.14.1+cu116 --extra-index-url https://download.pytorch.org/whl/cu116
     /opt/conda/envs/ccic/bin/python3 -m pip install --no-cache-dir /ccic[complete]
     /opt/conda/envs/ccic/bin/python3 -m pip install notebook tensorboard
 
