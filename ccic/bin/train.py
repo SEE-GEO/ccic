@@ -296,7 +296,7 @@ def run(args):
         logger=lm.tensorboard,
         callbacks=[LearningRateMonitor()],
         strategy="ddp",
-        replace_sampler_ddp=True,
+        use_distributed_sampler=True,
         enable_checkpointing=False,
     )
     trainer.fit(
