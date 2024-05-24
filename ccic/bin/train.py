@@ -163,6 +163,13 @@ def add_parser(subparsers):
         nargs="+",
         help="Freeze all parameters matching this list of regexes"
     )
+    parser.add_argument(
+        "--workers",
+        metavar="workers",
+        type=int,
+        default=8,
+        help="Number of workers to use in the DataLoaders"
+    )
     parser.set_defaults(func=run)
 
 
@@ -201,7 +208,7 @@ def run(args):
     training_loader = DataLoader(
         training_data,
         batch_size=args.batch_size,
-        num_workers=16,
+        num_workers=args.workers,
         worker_init_fn=training_data.seed,
         shuffle=True,
         pin_memory=True,
@@ -221,7 +228,7 @@ def run(args):
         validation_loader = DataLoader(
             validation_data,
             batch_size=4 * args.batch_size,
-            num_workers=8,
+            num_workers=args.workers,
             worker_init_fn=validation_data.seed,
             shuffle=False,
             pin_memory=True,
