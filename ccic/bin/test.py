@@ -81,6 +81,13 @@ def add_parser(subparsers):
         default=__name__,
         help="Name to use for logging.",
     )
+    parser.add_argument(
+        "--workers",
+        metavar="workers",
+        type=int,
+        default=8,
+        help="Number of workers to use in the DataLoaders."
+    )
     parser.set_defaults(func=run)
 
 
@@ -365,7 +372,7 @@ def run(args):
     test_loader = DataLoader(
         test_data,
         batch_size=args.batch_size,
-        num_workers=8,
+        num_workers=args.workers,
         shuffle=False,
         pin_memory=True
     )
