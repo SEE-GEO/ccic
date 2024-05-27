@@ -32,7 +32,7 @@ def ccic():
     )
     warnings.filterwarnings("ignore", category=RuntimeWarning)
 
-    description = "ccic: The Chalmers cloud-ice climatology"
+    description = "ccic: The Chalmers Cloud Ice Climatology"
 
     parser = argparse.ArgumentParser(prog="ccic", description=description)
 
