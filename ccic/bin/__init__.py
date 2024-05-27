@@ -40,6 +40,7 @@ def ccic():
     train.add_parser(subparsers)
     process.add_parser(subparsers)
     extract_training_data.add_parser(subparsers)
+    test.add_parser(subparsers)
     run_radar_only_retrieval.add_parser(subparsers)
 
     if len(sys.argv) == 1:
