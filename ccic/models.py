@@ -138,7 +138,7 @@ class CCICModel(nn.Module):
         y = self.encoder(y, return_skips=True)
 
         if return_encodings:
-            output["encodings"] = y[-1]
+            output["encodings"] = y[max(y)]
         y = self.decoder(y)
 
         output["tiwp"] = self.heads["tiwp"](y)
