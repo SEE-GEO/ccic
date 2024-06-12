@@ -170,6 +170,22 @@ def add_parser(subparsers):
         default=8,
         help="Number of workers to use in the DataLoaders"
     )
+    parser.add_argument(
+        "--optim_scheduler_checkpoint_in",
+        type=Path,
+        help=(
+            "Checkpoint to load for the optimizer and "
+            "scheduler state dictionaries"
+        )
+    )
+    parser.add_argument(
+        "--optim_scheduler_checkpoint_out",
+        type=Path,
+        help=(
+            "Checkpoint to save for the optimizer and "
+            "scheduler state dictionaries"
+        )
+    )
     parser.set_defaults(func=run)
 
 
@@ -180,6 +196,7 @@ def run(args):
     Args:
         args: The namespace object provided by the top-level parser.
     """
+    import torch
     from torch.optim import AdamW
     from torch.optim.lr_scheduler import CosineAnnealingWarmRestarts
     import pytorch_lightning as pl
@@ -290,6 +307,13 @@ def run(args):
     lm = mrnn.lightning(mask=-100, metrics=metrics, name=args.name)
     optimizer = AdamW(model.parameters(), lr=args.lr)
     scheduler = CosineAnnealingWarmRestarts(optimizer, args.n_epochs)
+
+    if args.optim_scheduler_checkpoint_in:
+        if args.optim_scheduler_checkpoint_in.is_file():
+            state_dict = torch.load(args.optim_scheduler_checkpoint_in)
+            optimizer.load_state_dict(state_dict['optimizer'])
+            scheduler.load_state_dict(state_dict['scheduler'])
+
     lm.optimizer = optimizer
     lm.scheduler = scheduler
 
@@ -315,3 +339,15 @@ def run(args):
             param.requires_grad = original_grad_state[name]
 
     mrnn.save(model_path)
+
+    if args.optim_scheduler_checkpoint_out:
+        args.optim_scheduler_checkpoint_out.parents[0].mkdir(
+            parents=True,
+            exist_ok=True
+        )
+        torch.save(
+            {
+                'optimizer': optimizer.state_dict(),
+                'scheduler': scheduler.state_dict()
+            },
+        )
