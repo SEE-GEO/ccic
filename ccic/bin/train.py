@@ -181,7 +181,7 @@ def run(args):
         args: The namespace object provided by the top-level parser.
     """
     from torch.optim import AdamW
-    from torch.optim.lr_scheduler import CosineAnnealingLR
+    from torch.optim.lr_scheduler import CosineAnnealingWarmRestarts
     import pytorch_lightning as pl
     from pytorch_lightning.callbacks import LearningRateMonitor
     from quantnn.mrnn import MRNN, Classification, Quantiles
@@ -289,7 +289,7 @@ def run(args):
     ]
     lm = mrnn.lightning(mask=-100, metrics=metrics, name=args.name)
     optimizer = AdamW(model.parameters(), lr=args.lr)
-    scheduler = CosineAnnealingLR(optimizer, T_max=args.n_epochs)
+    scheduler = CosineAnnealingWarmRestarts(optimizer, args.n_epochs)
     lm.optimizer = optimizer
     lm.scheduler = scheduler
 
