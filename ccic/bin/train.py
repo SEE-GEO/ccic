@@ -171,18 +171,10 @@ def add_parser(subparsers):
         help="Number of workers to use in the DataLoaders"
     )
     parser.add_argument(
-        "--optim_scheduler_checkpoint_in",
+        "--optim_scheduler_checkpoint",
         type=Path,
         help=(
-            "Checkpoint to load for the optimizer and "
-            "scheduler state dictionaries"
-        )
-    )
-    parser.add_argument(
-        "--optim_scheduler_checkpoint_out",
-        type=Path,
-        help=(
-            "Checkpoint to save for the optimizer and "
+            "Checkpoint for the optimizer and "
             "scheduler state dictionaries"
         )
     )
@@ -308,9 +300,9 @@ def run(args):
     optimizer = AdamW(model.parameters(), lr=args.lr)
     scheduler = CosineAnnealingWarmRestarts(optimizer, args.n_epochs)
 
-    if args.optim_scheduler_checkpoint_in:
-        if args.optim_scheduler_checkpoint_in.is_file():
-            state_dict = torch.load(args.optim_scheduler_checkpoint_in)
+    if args.optim_scheduler_checkpoint:
+        if args.optim_scheduler_checkpoint.is_file():
+            state_dict = torch.load(args.optim_scheduler_checkpoint)
             optimizer.load_state_dict(state_dict['optimizer'])
             scheduler.load_state_dict(state_dict['scheduler'])
 
@@ -340,8 +332,8 @@ def run(args):
 
     mrnn.save(model_path)
 
-    if args.optim_scheduler_checkpoint_out:
-        args.optim_scheduler_checkpoint_out.parents[0].mkdir(
+    if args.optim_scheduler_checkpoint:
+        args.optim_scheduler_checkpoint.parents[0].mkdir(
             parents=True,
             exist_ok=True
         )
@@ -350,4 +342,5 @@ def run(args):
                 'optimizer': optimizer.state_dict(),
                 'scheduler': scheduler.state_dict()
             },
+            args.optim_scheduler_checkpoint
         )
