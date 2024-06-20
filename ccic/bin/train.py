@@ -122,6 +122,12 @@ def add_parser(subparsers):
         help="The batch size to use during training.",
     )
     parser.add_argument(
+        "--batch_size_val",
+        metavar="N",
+        type=int,
+        help="The batch size to use during validation.",
+    )
+    parser.add_argument(
         "--lr",
         metavar="lr",
         type=int,
@@ -236,7 +242,8 @@ def run(args):
         validation_data = CCICDataset(validation_data)
         validation_loader = DataLoader(
             validation_data,
-            batch_size=4 * args.batch_size,
+            batch_size=args.batch_size_val \
+                if args.batch_size_val else 4 * args.batch_size,
             num_workers=args.workers,
             worker_init_fn=validation_data.seed,
             shuffle=False,
