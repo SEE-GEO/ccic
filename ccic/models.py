@@ -12,7 +12,7 @@ from quantnn.models.pytorch.fully_connected import MLP
 import quantnn.models.pytorch.torchvision as blocks
 
 
-SCALAR_VARIABLES = ["tiwp", "tiwp_favg", "cloud_mask"]
+SCALAR_VARIABLES = ["tiwp", "tiwp_fpavg", "cloud_mask"]
 PROFILE_VARIABLES = ["tiwc", "cloud_class"]
 
 
@@ -30,7 +30,8 @@ class CCICModel(nn.Module):
             features,
             n_quantiles,
             n_blocks=2,
-            all_channels=False
+            all_channels=False,
+            outputs: list[str]=None
     ):
         """
         Args:
@@ -40,6 +41,7 @@ class CCICModel(nn.Module):
             n_blocks: The number of blocks in each stage.
             all_channels: If set to 'True' the network will expect three input
                  channels, which are available only for the Gridsat dataset.
+            outputs: if not None, consider only these outputs
         """
         super().__init__()
         self.all_channels = all_channels
@@ -77,11 +79,22 @@ class CCICModel(nn.Module):
                 norm_factory=norm_factory,
         )
 
-        self.heads["tiwc"] = head_factory(20 * self.n_quantiles // 4)
-        self.heads["tiwp"] = head_factory(self.n_quantiles)
-        self.heads["tiwp_fpavg"] = head_factory(self.n_quantiles)
-        self.heads["cloud_mask"] = head_factory(1)
-        self.heads["cloud_class"] = head_factory(20 * 9)
+        self.outputs = outputs or (SCALAR_VARIABLES + PROFILE_VARIABLES)
+
+        head_config = {
+            "tiwc": 20 * self.n_quantiles // 4,
+            "tiwp": self.n_quantiles,
+            "tiwp_fpavg": self.n_quantiles,
+            "cloud_mask": 1,
+            "cloud_class": 20 * 9
+        }
+
+        # Sanity check
+        assert len(set(self.outputs) - set(head_config)) == 0
+
+        for oname in self.outputs:
+            self.heads[oname] = head_factory(head_config[oname])
+        
         self.version = 0.1
 
     def forward_w_feature_maps(self, x):
@@ -103,19 +116,21 @@ class CCICModel(nn.Module):
         y = self.decoder.forward_w_intermediate(activations)
         activations += y
         y = y[-1]
-
-        output["tiwp"] = self.heads["tiwp"](y)
-        output["tiwp_fpavg"] = self.heads["tiwp_fpavg"](y)
-        output["cloud_mask"] = self.heads["cloud_mask"](y)
-
         shape = y.shape
-        profile_shape = [shape[0], self.n_quantiles // 4, 20, shape[-2], shape[-1]]
-        head = self.heads["tiwc"]
-        output["tiwc"] = head(y).reshape(profile_shape)
 
-        profile_shape = [shape[0], 9, 20, shape[-2], shape[-1]]
-        head = self.heads["cloud_class"]
-        output["cloud_class"] = head(y).reshape(profile_shape)
+        for oname in ["tiwp", "tiwp_fpavg", "cloud_mask"]:
+            if oname in self.outputs:
+                output[oname] = self.heads[oname](y)
+
+        if "tiwc" in self.outputs:
+            profile_shape = [shape[0], self.n_quantiles // 4, 20, shape[-2], shape[-1]]
+            head = self.heads["tiwc"]
+            output["tiwc"] = head(y).reshape(profile_shape)
+
+        if "cloud_class" in self.outputs:
+            profile_shape = [shape[0], 9, 20, shape[-2], shape[-1]]
+            head = self.heads["cloud_class"]
+            output["cloud_class"] = head(y).reshape(profile_shape)
 
         return output, activations
 
@@ -140,18 +155,20 @@ class CCICModel(nn.Module):
         if return_encodings:
             output["encodings"] = y[max(y)]
         y = self.decoder(y)
-
-        output["tiwp"] = self.heads["tiwp"](y)
-        output["tiwp_fpavg"] = self.heads["tiwp_fpavg"](y)
-        output["cloud_mask"] = self.heads["cloud_mask"](y)
-
         shape = y.shape
-        profile_shape = [shape[0], self.n_quantiles // 4, 20, shape[-2], shape[-1]]
-        head = self.heads["tiwc"]
-        output["tiwc"] = head(y).reshape(profile_shape)
 
-        profile_shape = [shape[0], 9, 20, shape[-2], shape[-1]]
-        head = self.heads["cloud_class"]
-        output["cloud_class"] = head(y).reshape(profile_shape)
+        for oname in SCALAR_VARIABLES:
+            if oname in self.outputs:
+                output[oname] = self.heads[oname](y)
+
+        if "tiwc" in self.outputs:
+            profile_shape = [shape[0], self.n_quantiles // 4, 20, shape[-2], shape[-1]]
+            head = self.heads["tiwc"]
+            output["tiwc"] = head(y).reshape(profile_shape)
+
+        if "cloud_class" in self.outputs:
+            profile_shape = [shape[0], 9, 20, shape[-2], shape[-1]]
+            head = self.heads["cloud_class"]
+            output["cloud_class"] = head(y).reshape(profile_shape)
 
         return output
