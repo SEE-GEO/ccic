@@ -700,11 +700,12 @@ def process_input(mrnn, x, retrieval_settings=None, lock=None):
                     else:
                         slices = None
 
-                    if precision == 16:
-                        with torch.autocast(device_type=device):
+                    with torch.no_grad():
+                        if precision == 16:
+                            with torch.autocast(device_type=device):
+                                y_pred = mrnn.predict(x_t)
+                        else:
                             y_pred = mrnn.predict(x_t)
-                    else:
-                        y_pred = mrnn.predict(x_t)
 
                     # Remove padding if has been applied.
                     if slices is not None:
