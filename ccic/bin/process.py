@@ -310,6 +310,7 @@ def download_files(download_queue, processing_queue, retrieval_settings):
     while True:
         input_file = download_queue.get()
         if input_file is None:
+            download_queue.task_done()
             break
 
         log = ProcessingLog(
@@ -328,6 +329,7 @@ def download_files(download_queue, processing_queue, retrieval_settings):
                 # Something went wrong when opening the file
                 continue
         processing_queue.put((input_file, clean_up))
+        download_queue.task_done()
 
     processing_queue.put(None)
 
