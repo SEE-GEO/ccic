@@ -554,7 +554,7 @@ def run(args):
     # and processing processes.
     manager = Manager()
     download_queue = manager.Queue()
-    processing_queue = manager.Queue(4)
+    processing_queue = manager.Queue(n_processes)
     device_lock = manager.Lock()
 
     args = (download_queue, processing_queue, retrieval_settings)
