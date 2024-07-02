@@ -206,7 +206,7 @@ def add_parser(subparsers):
 
 
 def process_files(
-    processing_queue, model, retrieval_settings, output_path, device_lock
+    processing_queue, model, retrieval_settings, output_path, device_semaphore
 ):
     """
     Take a file from the queue, process it and write the output to
@@ -217,6 +217,7 @@ def process_files(
         model: The neural network model to run the retrieval with.
         retrieval_settings: RetrievalSettings object specifying the retrieval
             settings.
+        device_semaphore: A semaphore to limit device access.
     """
     from quantnn.mrnn import MRNN
     from ccic.processing import (
@@ -254,7 +255,7 @@ def process_files(
                     mrnn,
                     input_file,
                     retrieval_settings=retrieval_settings,
-                    lock=device_lock,
+                    semaphore=device_semaphore,
                 )
                 output_file = get_output_filename(
                     input_file, results.time.data[0], retrieval_settings
@@ -558,11 +559,11 @@ def run(args):
     manager = Manager()
     download_queue = manager.Queue()
     processing_queue = manager.Queue(2 * n_processes)
-    device_lock = manager.Lock()
+    device_semaphore = manager.Semaphore(n_processes)
 
     args = (download_queue, processing_queue, retrieval_settings, n_processes)
     download_thread = Thread(target=download_files, args=args)
-    args = (processing_queue, model, retrieval_settings, output, device_lock)
+    args = (processing_queue, model, retrieval_settings, output, device_semaphore)
     processing_processes = [
         Process(target=process_files, args=args) for _ in range(n_processes)
     ]
