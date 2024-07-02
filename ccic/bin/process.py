@@ -592,7 +592,7 @@ def run(args):
                         " non-zero exit code. This indicates that the process "
                         " was killed. Potentially due to memory issues."
                     )
-                any_failed = True
+                    any_failed = True
             
                 # Remove the process from the list
                 processing_processes.remove(processing_process)
