@@ -238,7 +238,6 @@ def process_files(
         args = processing_queue.get()
         if args is None:
             processing_queue.task_done()
-            processing_queue.put(None)
             break
         input_file, clean_up = args
 
@@ -289,7 +288,8 @@ def process_files(
                 processing_queue.task_done()
 
 
-def download_files(download_queue, processing_queue, retrieval_settings):
+def download_files(download_queue, processing_queue,
+                   retrieval_settings, n_processes):
     """
     This function implements a thread target that handles the download
     of the input function. The function waits for RemoteFile objects to
@@ -301,7 +301,9 @@ def download_files(download_queue, processing_queue, retrieval_settings):
             download.
         processing_queue: A queue object on which the downloaded files
             will be put.
-
+        retrieval_settings: RetrievalSettings object specifying the retrieval
+            settings.
+        n_processes: number of processes consuming from the processing_queue
     """
     from ccic.processing import RemoteFile, ProcessingLog
 
@@ -331,7 +333,8 @@ def download_files(download_queue, processing_queue, retrieval_settings):
         processing_queue.put((input_file, clean_up))
         download_queue.task_done()
 
-    processing_queue.put(None)
+    for _ in range(n_processes):
+        processing_queue.put(None)
 
 
 def _get_database_name(args) -> str:
@@ -557,11 +560,11 @@ def run(args):
     processing_queue = manager.Queue(n_processes)
     device_lock = manager.Lock()
 
-    args = (download_queue, processing_queue, retrieval_settings)
+    args = (download_queue, processing_queue, retrieval_settings, n_processes)
     download_thread = Thread(target=download_files, args=args)
     args = (processing_queue, model, retrieval_settings, output, device_lock)
     processing_processes = [
-        Process(target=process_files, args=args) for i in range(n_processes)
+        Process(target=process_files, args=args) for _ in range(n_processes)
     ]
 
     # Submit a download task for each file.
@@ -579,7 +582,9 @@ def run(args):
         running = [proc for proc in running if proc.is_alive()]
         if len(running) == 0:
             break
-        for processing_process in processing_processes:
+
+        # list() for safe iteration
+        for processing_process in list(processing_processes):
             if not processing_process.is_alive():
                 if processing_process.exitcode != 0:
                     LOGGER.warning(
@@ -588,12 +593,11 @@ def run(args):
                         " was killed. Potentially due to memory issues."
                     )
                 any_failed = True
-            processing_processes = [
-                proc for proc in processing_processes if proc.is_alive()
-            ]
+            
+                # Remove the process from the list
+                processing_processes.remove(processing_process)
+                processing_process.join()
 
-    processing_queue.get()
-    processing_queue.task_done()
     processing_queue.join()
 
     return not any_failed
