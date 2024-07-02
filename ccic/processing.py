@@ -617,7 +617,7 @@ def get_invalid_mask(x_in):
     return ~np.stack(masks)
 
 
-def process_input(mrnn, x, retrieval_settings=None, lock=None):
+def process_input(mrnn, x, retrieval_settings=None, semaphore=None):
     """
     Process given retrieval input using tiling.
 
@@ -626,8 +626,7 @@ def process_input(mrnn, x, retrieval_settings=None, lock=None):
         x: A 'torch.Tensor' containing the retrieval input.
         retrieval_settings: A RetrievalSettings object defining the settings
             for the retrieval
-        lock: Optional multiprocessing.Lock to synchronize device
-            access.
+        semaphore: Optional multiprocessing.Semaphore to limit device access.
 
     Return:
         An 'xarray.Dataset' containing the results of the retrieval.
@@ -664,8 +663,8 @@ def process_input(mrnn, x, retrieval_settings=None, lock=None):
     device = retrieval_settings.device
     precision = retrieval_settings.precision
 
-    if lock is not None:
-        lock.acquire()
+    if semaphore is not None:
+        semaphore.acquire()
 
     try:
         mrnn.model.to(device)
@@ -763,8 +762,8 @@ def process_input(mrnn, x, retrieval_settings=None, lock=None):
             torch.cuda.empty_cache()
 
     finally:
-        if lock is not None:
-            lock.release()
+        if semaphore is not None:
+            semaphore.release()
 
     LOGGER.info(f"Assembling results.")
     results = xr.Dataset()
@@ -824,7 +823,7 @@ def process_input(mrnn, x, retrieval_settings=None, lock=None):
     return results
 
 
-def process_input_file(mrnn, input_file, retrieval_settings=None, lock=None):
+def process_input_file(mrnn, input_file, retrieval_settings=None, semaphore=None):
     """
     Processes an input file and returns the retrieval result together with
     meta data.
@@ -834,7 +833,7 @@ def process_input_file(mrnn, input_file, retrieval_settings=None, lock=None):
         input_file: The file containing the input data.
         retrieval_settings: A RetrievalSettings object specifying the settings for
             the retrieval.
-        lock: Optional multiprocessing.Lock to synchronize device access.
+        sempahore: Optional multiprocessing.Semaphore to limit device access.
 
     Return:
         A 'xarray.Dataset' containing the retrival results.
@@ -846,7 +845,7 @@ def process_input_file(mrnn, input_file, retrieval_settings=None, lock=None):
     LOGGER.info(f"Loading retrieval input from file {input_file.filename}.")
     retrieval_input = input_file.get_retrieval_input(roi=roi)
     results = process_input(
-        mrnn, retrieval_input, retrieval_settings=retrieval_settings, lock=lock
+        mrnn, retrieval_input, retrieval_settings=retrieval_settings, semaphore=semaphore
     )
 
     # Copy values of dimension
