@@ -450,10 +450,6 @@ def run(args):
     if database_path is not None:
         database_path = Path(database_path)
         if database_path.is_dir() and database_path.exists():
-            command_hash = hash(
-                f"{args.model}{args.input_type}{args.start_time}{args.end_time}"
-                f"{args.roi}"
-            )
             database_name = _get_database_name(args)
             database_path = database_path / database_name
         elif not database_path.parent.exists():
