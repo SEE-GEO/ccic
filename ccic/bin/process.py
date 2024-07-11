@@ -328,11 +328,12 @@ def download_files(download_queue, processing_queue,
                     input_file.filename
                 )
                 continue
+            finally:
+                download_queue.task_done()
             if input_file is None:
                 # Something went wrong when opening the file
                 continue
         processing_queue.put((input_file, clean_up))
-        download_queue.task_done()
 
     for _ in range(n_processes):
         processing_queue.put(None)
