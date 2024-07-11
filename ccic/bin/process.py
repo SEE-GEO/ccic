@@ -552,49 +552,49 @@ def run(args):
 
     # Use managed queue to pass files between download threads
     # and processing processes.
-    manager = Manager()
-    download_queue = manager.Queue()
-    processing_queue = manager.Queue(2 * n_processes)
-    device_semaphore = manager.Semaphore(n_processes)
+    with Manager() as manager:
+        download_queue = manager.Queue()
+        processing_queue = manager.Queue(2 * n_processes)
+        device_semaphore = manager.Semaphore(n_processes)
 
-    args = (download_queue, processing_queue, retrieval_settings, n_processes)
-    download_thread = Thread(target=download_files, args=args)
-    args = (processing_queue, model, retrieval_settings, output, device_semaphore)
-    processing_processes = [
-        Process(target=process_files, args=args) for _ in range(n_processes)
-    ]
+        args = (download_queue, processing_queue, retrieval_settings, n_processes)
+        download_thread = Thread(target=download_files, args=args)
+        args = (processing_queue, model, retrieval_settings, output, device_semaphore)
+        processing_processes = [
+            Process(target=process_files, args=args) for _ in range(n_processes)
+        ]
 
-    # Submit a download task for each file.
-    for input_file in input_files:
-        download_queue.put(input_file)
-    download_queue.put(None)
+        # Submit a download task for each file.
+        for input_file in input_files:
+            download_queue.put(input_file)
+        download_queue.put(None)
 
-    download_thread.start()
-    [proc.start() for proc in processing_processes]
+        download_thread.start()
+        [proc.start() for proc in processing_processes]
 
-    running = [download_thread] + processing_processes
+        running = [download_thread] + processing_processes
 
-    any_failed = False
-    while True:
-        running = [proc for proc in running if proc.is_alive()]
-        if len(running) == 0:
-            break
+        any_failed = False
+        while True:
+            running = [proc for proc in running if proc.is_alive()]
+            if len(running) == 0:
+                break
 
-        # list() for safe iteration
-        for processing_process in list(processing_processes):
-            if not processing_process.is_alive():
-                if processing_process.exitcode != 0:
-                    LOGGER.warning(
-                        "One of the processing processes terminated with a "
-                        " non-zero exit code. This indicates that the process "
-                        " was killed. Potentially due to memory issues."
-                    )
-                    any_failed = True
-            
-                # Remove the process from the list
-                processing_processes.remove(processing_process)
-                processing_process.join()
+            # list() for safe iteration
+            for processing_process in list(processing_processes):
+                if not processing_process.is_alive():
+                    if processing_process.exitcode != 0:
+                        LOGGER.warning(
+                            "One of the processing processes terminated with a "
+                            " non-zero exit code. This indicates that the process "
+                            " was killed. Potentially due to memory issues."
+                        )
+                        any_failed = True
+                
+                    # Remove the process from the list
+                    processing_processes.remove(processing_process)
+                    processing_process.join()
 
-    processing_queue.join()
+        processing_queue.join()
 
     return not any_failed
