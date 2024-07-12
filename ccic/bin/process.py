@@ -343,6 +343,9 @@ def download_files(download_queue, processing_queue,
                 continue
         processing_queue.put((input_file, clean_up))
 
+    for _ in range(n_processes):
+        processing_queue.put(None)
+
 
 def _get_database_name(args) -> str:
     """Determine database name based on arguments."""
