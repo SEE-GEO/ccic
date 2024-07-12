@@ -10,6 +10,7 @@ import hashlib
 import logging
 from multiprocessing import Manager, Process, Lock
 from pathlib import Path
+from queue import Empty
 import shutil
 import subprocess
 from tempfile import TemporaryDirectory
@@ -206,7 +207,8 @@ def add_parser(subparsers):
 
 
 def process_files(
-    processing_queue, model, retrieval_settings, output_path, device_semaphore
+    processing_queue, model, retrieval_settings, output_path,
+    device_semaphore, timeout=300
 ):
     """
     Take a file from the queue, process it and write the output to
@@ -218,6 +220,7 @@ def process_files(
         retrieval_settings: RetrievalSettings object specifying the retrieval
             settings.
         device_semaphore: A semaphore to limit device access.
+        timeout: Seconds to wait to try to get an item from the queue.
     """
     from quantnn.mrnn import MRNN
     from ccic.processing import (
@@ -236,8 +239,11 @@ def process_files(
     mrnn.model.eval()
 
     while True:
-        args = processing_queue.get()
-        if args is None:
+        try:
+            args = processing_queue.get(timeout=timeout)
+        except Empty:
+            break
+        if not isinstance(args, tuple):
             processing_queue.task_done()
             break
         input_file, clean_up = args
@@ -246,6 +252,8 @@ def process_files(
             retrieval_settings.database_path, Path(input_file.filename).name
         )
 
+        # On exit of context manager, can experience
+        # sqlite3.OperationalError: unable to open database file
         with log.log(logger):
             try:
                 logger.info(
@@ -334,9 +342,6 @@ def download_files(download_queue, processing_queue,
                 # Something went wrong when opening the file
                 continue
         processing_queue.put((input_file, clean_up))
-
-    for _ in range(n_processes):
-        processing_queue.put(None)
 
 
 def _get_database_name(args) -> str:
@@ -595,7 +600,5 @@ def run(args):
                     # Remove the process from the list
                     processing_processes.remove(processing_process)
                     processing_process.join()
-
-        processing_queue.join()
 
     return not any_failed
