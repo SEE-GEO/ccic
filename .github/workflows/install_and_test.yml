@@ -22,14 +22,12 @@ jobs:
         shell: bash -l {0}
         run: |
           df -h /
-          mamba env create --quiet --file ccic.yml
+          mamba env create --quiet --file ccic_cpu.yml
           df -h /
           conda clean --all --quiet --yes
           df -h /
           conda activate ccic
           pip install -e .[complete]
-          pip install pyarts==2.4.0
-          pip install git+https://github.com/simonpf/artssat.git
           pip install pytest
           pip cache purge
           pytest test
