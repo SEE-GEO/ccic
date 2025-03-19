@@ -5,7 +5,9 @@ climate record of ice-particle concentrations in the atmosphere. CCIC results
 are available at high spatial and temporal resolution (0.07° / 3 h from 1983,
 0.036° / 30 min from 2000) and thus ideally suited for evaluating
 high-resolution weather and climate models or studying individual weather
-systems.
+systems. Furthemore, CCIC estimates are the most accurate compared to
+CloudSat/CALIPSO-based reference estimates, in terms of global mean values,
+long-term trends and spatial variability {cite:p}`pfreundschuh_2025_ccic`.
 
 
 ## Example results
