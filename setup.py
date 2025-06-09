@@ -50,7 +50,7 @@ setup(
     author="Simon Pfreundschuh",
     author_email="simon.pfreundschuh@chalmers.se",
     install_requires=[
-        "zarr",
+        "zarr>=3.0",
         "netCDF4",
         "dask",
         "beautifulsoup4",
