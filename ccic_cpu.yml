@@ -5,8 +5,8 @@ channels:
   - nodefaults
 dependencies:
   - python==3.11
-  - pytorch==2.0
-  - torchvision
+  - pytorch==2.0.1
+  - torchvision==0.15.1
   - cpuonly
   - satpy
   - xarray

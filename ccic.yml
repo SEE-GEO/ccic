@@ -6,9 +6,9 @@ channels:
   - nodefaults
 dependencies:
   - python==3.11
-  - pytorch==2.0
-  - torchvision
-  - pytorch-cuda=11.6
+  - pytorch==2.0.1
+  - torchvision==0.15.1
+  - pytorch-cuda=11.8
   - satpy
   - xarray
   - cartopy
