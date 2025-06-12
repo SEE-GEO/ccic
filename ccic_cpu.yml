@@ -6,7 +6,7 @@ channels:
 dependencies:
   - python==3.11
   - pytorch==1.13.1
-  - torchvision==0.14.1
+  - torchvision
   - torchaudio==0.13.1
   - cpuonly
   - satpy
