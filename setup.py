@@ -77,7 +77,7 @@ setup(
         ]
     },
     packages=find_packages(),
-    python_requires=">=3.8",
+    python_requires=">=3.11",
     project_urls={
         "Source": "https://github.com/see-geo/ccic/",
     },

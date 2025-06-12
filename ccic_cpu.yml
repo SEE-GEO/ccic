@@ -2,9 +2,9 @@ name: ccic
 channels:
   - pytorch
   - conda-forge
-  - defaults
+  - nodefaults
 dependencies:
-  - python=3.10
+  - python==3.11
   - pytorch==1.13.1
   - torchvision==0.14.1
   - torchaudio==0.13.1

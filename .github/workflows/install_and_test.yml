@@ -14,7 +14,7 @@ jobs:
         with:
           miniforge-version: latest
           channel-priority: strict
-          channels: conda-forge
+          channels: conda-forge nodefaults
           show-channel-urls: true
           use-only-tar-bz2: true
       - name: Install and test
