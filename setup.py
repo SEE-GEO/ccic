@@ -63,7 +63,7 @@ setup(
             "numpy",
             "quantnn>=0.0.5",
             "torch==1.13.1",
-            "torchvision==0.14.1",
+            "torchvision",
             "pytorch-lightning",
             "pyresample",
             "h5py",
