@@ -62,7 +62,7 @@ setup(
             "metpy",
             "numpy",
             "quantnn>=0.0.5",
-            "torch==1.13.1",
+            "torch==2.0.0",
             "torchvision",
             "pytorch-lightning",
             "pyresample",

@@ -6,7 +6,7 @@ channels:
   - nodefaults
 dependencies:
   - python==3.11
-  - pytorch==1.13.1
+  - pytorch==2.0
   - torchvision
   - pytorch-cuda=11.6
   - satpy
