@@ -18,7 +18,7 @@ from typing import List, Optional
 from numcodecs import Blosc
 import numpy as np
 from pansat.time import to_datetime
-from scipy.ndimage.morphology import binary_closing
+from scipy.ndimage import binary_closing
 import torch
 from torch import nn
 import xarray as xr
