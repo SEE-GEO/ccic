@@ -43,16 +43,14 @@ with xarray objects.
 With xarray [you can also access Zarr files stored in cloud storage buckets](https://docs.xarray.dev/en/stable/user-guide/io.html#cloud-storage-buckets). For instance, you can load data from the [CCIC S3 bucket](https://registry.opendata.aws/ccic) with:
 
 ```python
-import s3fs
+import ccic
 import xarray as xr
-import zarr
-# Create a filesystem for S3
-s3 = s3fs.S3FileSystem(anon=True)
-# Lazy load a CCIC file
-aws_file_path = "chalmerscloudiceclimatology/record/gridsat/2021/ccic_gridsat_202101010000.zarr"
-store = zarr.storage.FsspecStore(s3, path=aws_file_path)
-ds = xr.open_zarr(store, consolidated=True)
 
+ds = xr.open_zarr(
+    's3://chalmerscloudiceclimatology/record/gridsat/2021/ccic_gridsat_202101010000.zarr',
+    storage_options={"anon": True},
+    consolidated=True
+)
 # Load `tiwp` into memory
 ds.tiwp.load()
 # Do stuff with ds.tiwp...
