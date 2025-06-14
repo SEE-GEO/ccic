@@ -51,10 +51,7 @@ setup(
     author_email="simon.pfreundschuh@chalmers.se",
     install_requires=[
         "zarr",
-        "netCDF4",
         "dask",
-        "beautifulsoup4",
-        "lxml",
         "xarray",
     ],
     extras_require={

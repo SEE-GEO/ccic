@@ -3,15 +3,18 @@ channels:
   - pytorch
   - nvidia
   - conda-forge
-  - defaults
+  - nodefaults
 dependencies:
   - python=3.10
   - pytorch==1.13.1
   - torchvision==0.14.1
   - pytorch-cuda=11.6
+  - mkl<2024.1
   - satpy
   - xarray
   - cartopy
   - pyhdf
   - scipy
   - pyresample
+  - dask
+  - zarr<3

@@ -15,13 +15,13 @@ from pathlib import Path
 import sqlite3
 from typing import List, Optional
 
+from numcodecs import Blosc
 import numpy as np
 from pansat.time import to_datetime
-from scipy.ndimage.morphology import binary_closing
+from scipy.ndimage import binary_closing
 import torch
 from torch import nn
 import xarray as xr
-import zarr
 
 from ccic import __version__
 from ccic.tiler import Tiler, calculate_padding
@@ -981,7 +981,7 @@ def get_encodings_zarr(variable_names):
     Get variable encoding dict for storing the results for selected
     target variables in zarr format.
     """
-    compressor = zarr.Blosc(cname="lz4", clevel=9, shuffle=2)
+    compressor = Blosc(cname="lz4", clevel=9, shuffle=2)
     filters_iwp = [LogBins(1e-3, 1e2)]
     filters_iwc = [LogBins(1e-4, 1e2)]
     all_encodings = {
