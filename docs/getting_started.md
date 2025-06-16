@@ -44,12 +44,13 @@ With xarray [you can also access Zarr files stored in cloud storage buckets](htt
 
 ```python
 import ccic
-import s3fs
 import xarray as xr
-# Create a filesystem for S3
-s3 = s3fs.S3FileSystem(anon=True)
-# Lazy load a CCIC file
-ds = xr.open_zarr(s3.get_mapper('chalmerscloudiceclimatology/record/gridsat/2020/ccic_gridsat_202001010000.zarr'))
+
+ds = xr.open_zarr(
+    's3://chalmerscloudiceclimatology/record/gridsat/2021/ccic_gridsat_202101010000.zarr',
+    storage_options={"anon": True},
+    consolidated=True
+)
 # Load `tiwp` into memory
 ds.tiwp.load()
 # Do stuff with ds.tiwp...

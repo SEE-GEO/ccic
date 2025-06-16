@@ -50,9 +50,10 @@ setup(
     author="Simon Pfreundschuh",
     author_email="simon.pfreundschuh@chalmers.se",
     install_requires=[
-        "zarr",
         "dask",
+        "s3fs",
         "xarray",
+        "zarr",
     ],
     extras_require={
         "complete": [
