@@ -17,6 +17,7 @@ from typing import List, Optional
 
 import numpy as np
 from pansat.time import to_datetime
+import requests
 from scipy.ndimage.morphology import binary_closing
 import torch
 from torch import nn
@@ -189,7 +190,23 @@ def get_input_files(
     if end_time is None:
         end_time = start_time
 
-    files = input_cls.get_available_files(start_time=start_time, end_time=end_time)
+    try:
+        files = input_cls.get_available_files(start_time=start_time, end_time=end_time)
+    except requests.exceptions.RequestException as e:
+        print(f"Error while using {input_cls}: {e}")
+        files = []
+
+    if path:
+        files += [
+            e.name
+            for e in input_cls.find_files(
+                path,
+                start_time=start_time,
+                end_time=end_time
+            )
+        ]
+        files = sorted(list(set(files)))
+
     return [
         RemoteFile(
             input_cls,
