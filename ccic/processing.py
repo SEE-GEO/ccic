@@ -247,6 +247,36 @@ def determine_cloud_class(class_probs, threshold=0.638, axis=1):
     types[cloud_mask] = prob_types[cloud_mask]
     return types
 
+def determine_raw_cloud_class(class_probs, axis=1, no_cloud_included: bool=False):
+    """
+    Determines cloud classes from a tensor of cloud-type probabilities.
+
+    The diagnosed cloud type will be the one that is most likely.
+
+
+    Args:
+        class_probs: A torch tensor containing cloud-type probabilities.
+
+    Return:
+        A tensor containing the class indices of the most likely cloud
+        type.
+    """
+    shape = list(class_probs.shape)
+    del shape[axis]
+    types = np.zeros(shape, dtype='int8')
+
+    # detect invalid voxels
+    invalid_indxs = np.any(class_probs < 0, axis=axis)
+    types = np.argmax(class_probs, axis=axis).astype('int8')
+
+    # no cloud is class 0, so shift all classes by 1 if needed
+    types = types if no_cloud_included else types + 1
+
+    if invalid_indxs.any():
+        types[invalid_indxs] = -1
+
+    return types
+
 
 def determine_column_cloud_class(cloud_classes):
     """
@@ -817,7 +847,9 @@ def process_input(mrnn, x, retrieval_settings=None, semaphore=None):
 
     dims = ("time", "latitude", "longitude", "altitude")
     if len(cloud_type) > 0:
-        cloud_type = determine_cloud_class(tiler.assemble(cloud_type))
+        # cloud_type = determine_cloud_class(tiler.assemble(cloud_type))
+        # The raw cloud class doesn't resolve ties
+        cloud_type = determine_raw_cloud_class(tiler.assemble(cloud_type))
         cloud_type = np.transpose(cloud_type, [0, 2, 3, 1])
         results["cloud_type"] = (dims, cloud_type)
 
@@ -976,11 +1008,17 @@ def add_static_cf_attributes(retrieval_settings, dataset):
 
     if "cloud_type" in dataset:
         dataset["cloud_type"].attrs["units"] = "1"
-        dataset["cloud_type"].attrs["long_name"] = "Most likely cloud type"
+        dataset["cloud_type"].attrs["long_name"] = "Most likely cloud type, excluding no cloud"
         dataset["cloud_type"].attrs["flag_values"] = "0, 1, 2, 3, 4, 5, 6, 7, 8"
         dataset["cloud_type"].attrs[
             "flag_meanings"
         ] = "No cloud, Cirrus, Altostratus, Altocumulus, Stratus, Stratocumulus, Cumulus, Nimbostratus, Deep convection"
+        dataset["cloud_type"].attrs["comment"] = (
+            "Cloud type determined from the most likely cloud type "
+            "excluding no cloud. If the cloud type probabilities are "
+            "invalid, the cloud type is set to -1 or NaN."
+        )
+        dataset["cloud_type"].attrs["ancillary_variables"] = "cloud_prob_3d"
 
     if "inpainted" in dataset:
         dataset["inpainted"].attrs["units"] = "1"
