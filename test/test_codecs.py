@@ -1,9 +1,9 @@
 """
 Test custom codec for compressing IWP data.
 """
+from numcodecs import Blosc
 import numpy as np
 import xarray as xr
-import zarr
 
 from ccic.codecs import LogBins
 
@@ -43,7 +43,7 @@ def test_save_dataset(tmpdir):
     })
 
     filters = [LogBins(1e-4, 1e2)]
-    compressor = zarr.Blosc(cname="zstd", clevel=3, shuffle=2)
+    compressor = Blosc(cname="zstd", clevel=3, shuffle=2)
 
     encodings = {
         "iwp": {

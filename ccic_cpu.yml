@@ -1,20 +1,19 @@
 name: ccic
 channels:
   - pytorch
-  - nvidia
   - conda-forge
   - nodefaults
 dependencies:
   - python=3.10
   - pytorch==1.13.1
   - torchvision==0.14.1
-  - pytorch-cuda=11.6
   - mkl<2024.1
+  - cpuonly
   - satpy
   - xarray
+  - dask
   - cartopy
   - pyhdf
   - scipy
   - pyresample
-  - dask
   - zarr<3

@@ -50,12 +50,10 @@ setup(
     author="Simon Pfreundschuh",
     author_email="simon.pfreundschuh@chalmers.se",
     install_requires=[
-        "zarr",
-        "netCDF4",
         "dask",
-        "beautifulsoup4",
-        "lxml",
+        "s3fs",
         "xarray",
+        "zarr",
     ],
     extras_require={
         "complete": [
