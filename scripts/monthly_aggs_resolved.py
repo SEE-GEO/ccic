@@ -17,7 +17,6 @@ from flox.xarray import xarray_reduce
 import numpy as np
 import pandas as pd
 from upath import UPath
-import s3fs
 import xarray as xr
 
 from scripts.monthly_means import find_files
