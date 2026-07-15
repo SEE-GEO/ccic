@@ -2,7 +2,7 @@
 
 ## Data access
 
-The CCIC data record is available at the Registry of Open Data on AWS, at https://registry.opendata.aws/ccic/. Alternatively, at https://clouds-and-precip.group/datasets/ccic/.
+The CCIC data record is available at the Registry of Open Data on AWS, at https://registry.opendata.aws/ccic/. Alternatively, at http://data.clouds-and-precip.group/ccic.
 
 ## Reading CCIC data
 

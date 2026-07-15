@@ -17,7 +17,7 @@ long-term trends and spatial variability {cite:p}`pfreundschuh_2025_ccic`.
 The animation below shows the evolution of TIWP retrieved from the most recent available satellite observations.
 
 <div style="width:100%;height:100%;overflow:hidden;"> 
-  <video src="https://rain.atmos.colostate.edu/gprof_nn/ccic/tiwp.mp4" controls="controls" style="width:80%;" title="TIWP evolution for January 2020">
+  <video src="https://rain.atmos.colostate.edu/ipwgml/ccic/tiwp.mp4" controls="controls" style="width:80%;" title="TIWP evolution of most recent CPCIR-based CCIC data.">
   </video>
 </div>
 
