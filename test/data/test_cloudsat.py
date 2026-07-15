@@ -13,6 +13,7 @@ from ccic.data.cpcir import CPCIR, CPCIR_GRID
 from ccic.data.cloudsat import (
     CloudSat2CIce,
     CloudSat2BCLDCLASS,
+    CloudSat2BCLDCLASSLIDAR,
     get_sample_indices,
     remap_iwc,
     subsample_iwc_and_height,
@@ -40,7 +41,12 @@ NEEDS_PANSAT_PW = pytest.mark.skipif(
 
 CS_2CICE_FILE = "2008032011612_09374_CS_2C-ICE_GRANULE_P1_R05_E02_F00.hdf"
 CS_2BCLDCLASS_FILE = "2008032011612_09374_CS_2B-CLDCLASS_GRANULE_P1_R05_E02_F00.hdf"
+CS_2BCLDCLASSLIDAR_FILE = "2008032011612_09374_CS_2B-CLDCLASS-LIDAR_GRANULE_P1_R05_E02_F00.hdf"
 CPCIR_FILE = "merg_2008020101_4km-pixel.nc4"
+CS_2B_PRODUCT_FILE = {
+    CloudSat2BCLDCLASS: CS_2BCLDCLASS_FILE,
+    CloudSat2BCLDCLASSLIDAR: CS_2BCLDCLASSLIDAR_FILE
+}
 
 
 @NEEDS_PANSAT_PW
@@ -52,6 +58,8 @@ def test_available_files():
     assert len(available_files) > 10
     available_files = CloudSat2BCLDCLASS.get_available_files("2008-02-01T00:00:00")
     assert len(available_files) > 10
+    available_files = CloudSat2BCLDCLASSLIDAR.get_available_files("2008-02-01T00:00:00")
+    assert len(available_files) > 10
 
 
 @NEEDS_PANSAT_PW
@@ -59,9 +67,21 @@ def test_available_granules():
     """
     Test extraction of available granules is consistent with available files.
     """
-    available_files = CloudSat2CIce.get_available_files("2008-02-01T00:00:00")
-    available_files = CloudSat2BCLDCLASS.get_available_files("2008-02-01T00:00:00")
-    available_granules = get_available_granules("2008-02-01T00:00:00")
+    available_files_2cice = set(
+        [f.split("_")[1] for f in CloudSat2CIce.get_available_files("2008-02-01T00:00:00")]
+    )
+    available_files_2bcldclass = set(
+        [f.split("_")[1] for f in CloudSat2BCLDCLASS.get_available_files("2008-02-01T00:00:00")]
+    )
+    available_files = available_files_2cice & available_files_2bcldclass
+    available_granules = get_available_granules("2008-02-01T00:00:00", legacy=True)
+    assert len(available_granules) == len(available_files)
+
+    available_files_2bcldclasslidar = set(
+        [f.split("_")[1] for f in CloudSat2BCLDCLASSLIDAR.get_available_files("2008-02-01T00:00:00")]
+    )
+    available_files = available_files_2cice & available_files_2bcldclasslidar
+    available_granules = get_available_granules("2008-02-01T00:00:00", legacy=False)
     assert len(available_granules) == len(available_files)
 
 
@@ -74,6 +94,9 @@ def test_granule_parsing():
     assert cs_file.granule == 9374
 
     cs_file = CloudSat2BCLDCLASS(CS_2BCLDCLASS_FILE)
+    assert cs_file.granule == 9374
+
+    cs_file = CloudSat2BCLDCLASSLIDAR(CS_2BCLDCLASSLIDAR_FILE)
     assert cs_file.granule == 9374
 
 
@@ -107,22 +130,24 @@ def test_remap_cloud_classes():
     Test downsampling of cloud labels by ensuring that all returned labels
     are valid.
     """
-    cs_data = CloudSat2BCLDCLASS(
-        TEST_DATA / CS_2BCLDCLASS_FILE
-    ).to_xarray_dataset()
 
-    labels = cs_data.cloud_class.data
-    height = cs_data.height
-    surface_altitude = cs_data.surface_elevation.data
-    target_altitudes = (np.arange(20) + 0.5) * 1e3
+    for product, file in CS_2B_PRODUCT_FILE.items():
+        cs_data = product(
+            TEST_DATA / file
+        ).to_xarray_dataset()
 
-    labels = remap_cloud_classes(
-        labels,
-        height,
-        surface_altitude,
-        target_altitudes
-    )
-    assert ((labels <= 8) * (labels >= 0)).all()
+        labels = cs_data.cloud_class.data
+        height = cs_data.height
+        surface_altitude = cs_data.surface_elevation.data
+        target_altitudes = (np.arange(20) + 0.5) * 1e3
+
+        labels = remap_cloud_classes(
+            labels,
+            height,
+            surface_altitude,
+            target_altitudes
+        )
+        assert ((labels <= 8) * (labels >= 0)).all()
 
 
 @NEEDS_TEST_DATA
@@ -195,38 +220,39 @@ def test_resampling_cpcir():
         TEST_DATA / CS_2CICE_FILE
     ).to_xarray_dataset()
 
-    cloudsat_files = [
-        CloudSat2CIce(TEST_DATA / CS_2CICE_FILE),
-        CloudSat2BCLDCLASS(TEST_DATA / CS_2BCLDCLASS_FILE),
-    ]
+    for product, file in CS_2B_PRODUCT_FILE.items():
+        cloudsat_files = [
+            CloudSat2CIce(TEST_DATA / CS_2CICE_FILE),
+            product(TEST_DATA / file),
+        ]
 
-    resample_data(
-        cpc_data,
-        CPCIR_GRID,
-        cloudsat_files
-    )
+        resample_data(
+            cpc_data,
+            CPCIR_GRID,
+            cloudsat_files
+        )
 
-    # Make sure collocations are found.
-    iwp_r = cpc_data.tiwp_fpavg.data
-    valid = np.isfinite(iwp_r)
-    assert np.any(valid)
+        # Make sure collocations are found.
+        iwp_r = cpc_data.tiwp_fpavg.data
+        valid = np.isfinite(iwp_r)
+        assert np.any(valid)
 
-    # Make sure average and random resampling map to the same
-    # locations.
-    iwp_rand_r = cpc_data.tiwp.data
-    valid_rand = np.isfinite(iwp_rand_r)
-    assert (valid == valid_rand).all()
+        # Make sure average and random resampling map to the same
+        # locations.
+        iwp_rand_r = cpc_data.tiwp.data
+        valid_rand = np.isfinite(iwp_rand_r)
+        assert (valid == valid_rand).all()
 
-    iwp = cs_2cice_data.iwp.data
-    assert (iwp_r[valid] < iwp.max()).all()
-    iwc = cs_2cice_data.iwc.data
-    iwc_r = cpc_data.tiwc.data
-    valid = np.isfinite(iwc_r)
-    assert (iwc_r[valid] < iwc.max()).all()
+        iwp = cs_2cice_data.iwp.data
+        assert (iwp_r[valid] < iwp.max()).all()
+        iwc = cs_2cice_data.iwc.data
+        iwc_r = cpc_data.tiwc.data
+        valid = np.isfinite(iwc_r)
+        assert (iwc_r[valid] < iwc.max()).all()
 
-    # Make sure that no cloud classes are consistent with
-    # cloud mask.
-    cm_r = cpc_data.cloud_mask.data
-    clear = cm_r == 0
-    cloud_classes = cpc_data.cloud_class.data
-    assert cloud_classes[clear].max() == 0
+        # Make sure that no cloud classes are consistent with
+        # cloud mask.
+        cm_r = cpc_data.cloud_mask.data
+        clear = cm_r == 0
+        cloud_classes = cpc_data.cloud_class.data
+        assert cloud_classes[clear].max() == 0

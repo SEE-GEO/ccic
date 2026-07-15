@@ -107,8 +107,6 @@ The CCIC climate data record provides estimates of the total ice water path (TIW
   - Input pixel was NaN; the retrieval can be a numeric value (inpainted) 
 ```
 
-**Note**: `cloud_prob_2d` will be published on a second upload phase.
-
 These variables are gridded on the coordinates from the table below, where the spatial grid and the time resolution are constant for each input product.
 
 

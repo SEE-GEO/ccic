@@ -11,12 +11,50 @@ from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 import importlib
 import multiprocessing as mp
 from pathlib import Path
+import re
 import sys
 
 import numpy as np
+from quantnn.models.pytorch.lightning import QuantnnLightning
 
 
 LOGGER = logging.getLogger(__name__)
+
+def freeze(lm: QuantnnLightning, regex: list[str]) -> dict[str, bool]:
+    """
+    Free any parameter whose name matches a given regex.
+
+    Args:
+        lm: the model
+        regex: a list of regexes
+    
+    Returns:
+        A dictionary with parameter name a key and the original state as value
+    
+    Notes:
+        One can inspect how the parameters are named with
+        for name, _ in lm.model.named_parameters():
+            print(name)
+        
+        Relevant names are:
+            - stem.X
+            - encoder.X
+            - decoder.X
+            - heads.{tiwc,tiwp,tiwp_fpavg,cloud_mask,cloud_class}.X
+        where {·} indicate different possibilities and X any substring.
+    """
+    original_state = {
+        name: param.requires_grad
+        for name, param in lm.model.named_parameters()
+    }
+
+    pattern = '|'.join(regex)
+    freeze_parameters = [s for s in original_state.keys() if re.search(pattern, s)]
+    for name, param in lm.model.named_parameters():
+        if name in freeze_parameters:
+            param.requires_grad = False
+
+    return lm, original_state
 
 
 def add_parser(subparsers):
@@ -84,6 +122,12 @@ def add_parser(subparsers):
         help="The batch size to use during training.",
     )
     parser.add_argument(
+        "--batch_size_val",
+        metavar="N",
+        type=int,
+        help="The batch size to use during validation.",
+    )
+    parser.add_argument(
         "--lr",
         metavar="lr",
         type=int,
@@ -118,6 +162,28 @@ def add_parser(subparsers):
         default=None,
         help="Name to use for logging.",
     )
+    parser.add_argument(
+        "--freeze",
+        metavar="freeze",
+        type=str,
+        nargs="+",
+        help="Freeze all parameters matching this list of regexes"
+    )
+    parser.add_argument(
+        "--workers",
+        metavar="workers",
+        type=int,
+        default=8,
+        help="Number of workers to use in the DataLoaders"
+    )
+    parser.add_argument(
+        "--optim_scheduler_checkpoint",
+        type=Path,
+        help=(
+            "Checkpoint for the optimizer and "
+            "scheduler state dictionaries"
+        )
+    )
     parser.set_defaults(func=run)
 
 
@@ -128,8 +194,9 @@ def run(args):
     Args:
         args: The namespace object provided by the top-level parser.
     """
+    import torch
     from torch.optim import AdamW
-    from torch.optim.lr_scheduler import CosineAnnealingLR
+    from torch.optim.lr_scheduler import CosineAnnealingWarmRestarts
     import pytorch_lightning as pl
     from pytorch_lightning.callbacks import LearningRateMonitor
     from quantnn.mrnn import MRNN, Classification, Quantiles
@@ -156,7 +223,7 @@ def run(args):
     training_loader = DataLoader(
         training_data,
         batch_size=args.batch_size,
-        num_workers=16,
+        num_workers=args.workers,
         worker_init_fn=training_data.seed,
         shuffle=True,
         pin_memory=True,
@@ -175,8 +242,9 @@ def run(args):
         validation_data = CCICDataset(validation_data)
         validation_loader = DataLoader(
             validation_data,
-            batch_size=4 * args.batch_size,
-            num_workers=8,
+            batch_size=args.batch_size_val \
+                if args.batch_size_val else 4 * args.batch_size,
+            num_workers=args.workers,
             worker_init_fn=validation_data.seed,
             shuffle=False,
             pin_memory=True,
@@ -237,22 +305,49 @@ def run(args):
     ]
     lm = mrnn.lightning(mask=-100, metrics=metrics, name=args.name)
     optimizer = AdamW(model.parameters(), lr=args.lr)
-    scheduler = CosineAnnealingLR(optimizer, T_max=args.n_epochs)
+    scheduler = CosineAnnealingWarmRestarts(optimizer, args.n_epochs)
+
+    if args.optim_scheduler_checkpoint:
+        if args.optim_scheduler_checkpoint.is_file():
+            state_dict = torch.load(args.optim_scheduler_checkpoint)
+            optimizer.load_state_dict(state_dict['optimizer'])
+            scheduler.load_state_dict(state_dict['scheduler'])
+
     lm.optimizer = optimizer
     lm.scheduler = scheduler
+
+    if args.freeze:
+        lm, original_grad_state = freeze(lm, args.freeze)
 
     trainer = pl.Trainer(
         max_epochs=args.n_epochs,
         accelerator=args.accelerator,
-        precision=args.precision,
+        precision='bf16-mixed' if args.precision == 16 else args.precision,
         logger=lm.tensorboard,
         callbacks=[LearningRateMonitor()],
         strategy="ddp",
-        replace_sampler_ddp=True,
+        use_distributed_sampler=True,
         enable_checkpointing=False,
     )
     trainer.fit(
         model=lm, train_dataloaders=training_loader, val_dataloaders=validation_loader
     )
 
+    if args.freeze:
+        for name, param in lm.model.named_parameters():
+            param.requires_grad = original_grad_state[name]
+
     mrnn.save(model_path)
+
+    if args.optim_scheduler_checkpoint:
+        args.optim_scheduler_checkpoint.parents[0].mkdir(
+            parents=True,
+            exist_ok=True
+        )
+        torch.save(
+            {
+                'optimizer': optimizer.state_dict(),
+                'scheduler': scheduler.state_dict()
+            },
+            args.optim_scheduler_checkpoint
+        )

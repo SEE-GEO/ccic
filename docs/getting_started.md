@@ -2,7 +2,7 @@
 
 ## Data access
 
-The CCIC data record is available at the Registry of Open Data on AWS: https://registry.opendata.aws/ccic/.
+The CCIC data record is available at the Registry of Open Data on AWS, at https://registry.opendata.aws/ccic/. Alternatively, at https://clouds-and-precip.group/datasets/ccic/.
 
 ## Reading CCIC data
 
@@ -70,7 +70,7 @@ pip install ccic[complete]
 
 In order to run CCIC retrievals, you will first need to download the retrieval
  model from
- [Zenodo](https://zenodo.org/record/8277983/files/ccic.pckl?download=1).
+ [Zenodo](https://zenodo.org/records/19234406/files/ccic.pckl?download=1).
  
 #### Processing GridSat B1 input
 
@@ -109,6 +109,10 @@ ccic process ccic.pckl gridsat results 2020-01-01T00:00:00 2020-01-02T00:00:00 -
 ```
 
 To avoid having to enter your pansat password every time when you want to run a retrieval, you can set the ``PANSAT_PASSWORD`` environment variable to your password.
+
+#### Offline processing
+
+From experience, the data sources for GridSat and CPCIR may become temporarily unreliable. It is recommended to first download the data locally (other tools than ccic can be used, e.g., [earthaccess](https://earthaccess.readthedocs.io/)), and then indicate the location of the data with the `--input_path` option.
 
 ### Reproducing validation retrievals
 

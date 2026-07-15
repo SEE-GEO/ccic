@@ -2,9 +2,9 @@ Bootstrap: localimage
 From: ccic_conda.sif
 
 %files
-    ../pansat /pansat
-    ../ccic /ccic
-    ../../.config/pansat/identities.json /pansat/identities.json
+    pansat /pansat
+    ccic /ccic
+    identities.json /pansat/identities.json
 
 %environment
     export PATH="/opt/conda/bin:$PATH"
@@ -13,9 +13,9 @@ From: ccic_conda.sif
 
 %post
     /opt/conda/envs/ccic/bin/python3 -m pip install --no-cache-dir /pansat
-    /opt/conda/envs/ccic/bin/python3 -m pip install quantnn
+    /opt/conda/envs/ccic/bin/python3 -m pip install --no-cache-dir torch==1.13.1+cu116 torchvision==0.14.1+cu116 --extra-index-url https://download.pytorch.org/whl/cu116
     /opt/conda/envs/ccic/bin/python3 -m pip install --no-cache-dir /ccic[complete]
-    /opt/conda/envs/ccic/bin/python3 -m pip install notebook tensorboard
+    /opt/conda/envs/ccic/bin/python3 -m pip install --no-cache-dir notebook tensorboard
 
     echo ". /singularity_shell_init.sh" >> $SINGULARITY_ENVIRONMENT
     echo "micromamba activate ccic" >> $SINGULARITY_ENVIRONMENT

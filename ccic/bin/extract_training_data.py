@@ -94,10 +94,41 @@ def add_parser(subparsers):
         help="The number of concurrent processes to use for data extraction.",
         default=4,
     )
+    parser.add_argument(
+        "--legacy",
+        action="store_true",
+        help="use 2B-CLDCLASS instead of 2B-CLDCLASS-LIDAR"
+    )
+    parser.add_argument(
+        "--local_cloudsat",
+        type=Path,
+        help=(
+            "If provided, look for CloudSat files recursively in this directory "
+            "before attempting to download them."
+        )
+    )
+    parser.add_argument(
+        "--local_cpcir",
+        type=Path,
+        help=(
+            "If provided, look for CPCIR files recursively in this directory "
+            "before attempting to download them."
+        )
+    )
+    parser.add_argument(
+        "--local_gridsat",
+        type=Path,
+        help=(
+            "If provided, look for GridSat files recursively in this directory "
+            "before attempting to download them."
+        )
+    )
     parser.set_defaults(func=run)
 
 
-def process_day(year, month, day, destination, size=256, timedelta=15, valid_input=0.2):
+def process_day(year, month, day, destination, size=256, timedelta=15, valid_input=0.2,
+                local_cloudsat: dict={}, local_cpcir: dict={}, local_gridsat: dict={},
+                legacy: bool=False):
     """
     Extract collocations for a day.
 
@@ -111,9 +142,13 @@ def process_day(year, month, day, destination, size=256, timedelta=15, valid_inp
              observations and CloudSat.
         valid_input: A minimum fraction of valid inputs for a scene to be
             included in the training data.
+        local_cloudsat: Local CloudSat files.
+        local_cpcir: Local CPCIR files.
+        local_gridsat: Local GridSat files.
+        legacy: use 2B-CLDCLASS instead of 2B-CLDCLASS-LIDAR.
     """
     date = to_datetime64(datetime(year, month, day))
-    granules = get_available_granules(date)
+    granules = get_available_granules(date, legacy)
     LOGGER.info(
         "Found %s granules for %s-%s-%s.",
         len(granules),
@@ -132,7 +167,9 @@ def process_day(year, month, day, destination, size=256, timedelta=15, valid_inp
         try:
             cache = DownloadCache(n_threads=4)
             scenes = process_cloudsat_files(
-                cloudsat_files, cache, size=size, timedelta=timedelta
+                cloudsat_files, cache, size=size,
+                timedelta=timedelta, local_cloudsat=local_cloudsat,
+                local_cpcir=local_cpcir, local_gridsat=local_gridsat
             )
             write_scenes(scenes, destination, valid_input=valid_input)
             LOGGER.info(
@@ -167,12 +204,19 @@ def run(args):
 
     destination = Path(args.destination)
     if not destination.exists():
-        LOGGER.error("The 'destination' argmument must be an existing directory.")
+        LOGGER.error("The 'destination' argument must be an existing directory.")
         return 1
 
     size = args.scene_size
     timedelta = args.max_time_difference
     valid_input = args.min_valid_input
+    legacy = args.legacy
+    local_cloudsat = {f.name: f for f in args.local_cloudsat.rglob("*hdf")} \
+        if args.local_cloudsat else None
+    local_cpcir = {f.name: f for f in args.local_cpcir.rglob("merg_*_4km-pixel.nc4")} \
+        if args.local_cpcir else None
+    local_gridsat = {f.name: f for f in args.local_gridsat.rglob("GRIDSAT-B1.*.v02r01.nc")} \
+        if args.local_gridsat else None
 
     pool = ProcessPoolExecutor(max_workers=args.n_workers)
     tasks = [
@@ -185,6 +229,10 @@ def run(args):
             size=size,
             timedelta=timedelta,
             valid_input=valid_input,
+            legacy=legacy,
+            local_cloudsat=local_cloudsat,
+            local_cpcir=local_cpcir,
+            local_gridsat=local_gridsat
         )
         for day in days
     ]

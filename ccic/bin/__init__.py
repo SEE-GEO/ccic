@@ -32,7 +32,7 @@ def ccic():
     )
     warnings.filterwarnings("ignore", category=RuntimeWarning)
 
-    description = "ccic: The Chalmers cloud-ice climatology"
+    description = "ccic: The Chalmers Cloud Ice Climatology"
 
     parser = argparse.ArgumentParser(prog="ccic", description=description)
 
@@ -40,6 +40,7 @@ def ccic():
     train.add_parser(subparsers)
     process.add_parser(subparsers)
     extract_training_data.add_parser(subparsers)
+    test.add_parser(subparsers)
     run_radar_only_retrieval.add_parser(subparsers)
 
     if len(sys.argv) == 1:

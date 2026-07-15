@@ -18,7 +18,8 @@ from typing import List, Optional
 from numcodecs import Blosc
 import numpy as np
 from pansat.time import to_datetime
-from scipy.ndimage import binary_closing
+import requests
+from scipy.ndimage.morphology import binary_closing
 import torch
 from torch import nn
 import xarray as xr
@@ -189,7 +190,23 @@ def get_input_files(
     if end_time is None:
         end_time = start_time
 
-    files = input_cls.get_available_files(start_time=start_time, end_time=end_time)
+    try:
+        files = input_cls.get_available_files(start_time=start_time, end_time=end_time)
+    except requests.exceptions.RequestException as e:
+        print(f"Error while using {input_cls}: {e}")
+        files = []
+
+    if path:
+        files += [
+            e.name
+            for e in input_cls.find_files(
+                path,
+                start_time=start_time,
+                end_time=end_time
+            )
+        ]
+        files = sorted(list(set(files)))
+
     return [
         RemoteFile(
             input_cls,
@@ -228,6 +245,36 @@ def determine_cloud_class(class_probs, threshold=0.638, axis=1):
     inds[axis] = slice(1, None)
     prob_types = np.argmax(class_probs[tuple(inds)], axis=axis).astype("uint8") + 1
     types[cloud_mask] = prob_types[cloud_mask]
+    return types
+
+def determine_raw_cloud_class(class_probs, axis=1, no_cloud_included: bool=False):
+    """
+    Determines cloud classes from a tensor of cloud-type probabilities.
+
+    The diagnosed cloud type will be the one that is most likely.
+
+
+    Args:
+        class_probs: A torch tensor containing cloud-type probabilities.
+
+    Return:
+        A tensor containing the class indices of the most likely cloud
+        type.
+    """
+    shape = list(class_probs.shape)
+    del shape[axis]
+    types = np.zeros(shape, dtype='int8')
+
+    # detect invalid voxels
+    invalid_indxs = np.any(class_probs < 0, axis=axis)
+    types = np.argmax(class_probs, axis=axis).astype('int8')
+
+    # no cloud is class 0, so shift all classes by 1 if needed
+    types = types if no_cloud_included else types + 1
+
+    if invalid_indxs.any():
+        types[invalid_indxs] = -1
+
     return types
 
 
@@ -617,7 +664,7 @@ def get_invalid_mask(x_in):
     return ~np.stack(masks)
 
 
-def process_input(mrnn, x, retrieval_settings=None, lock=None):
+def process_input(mrnn, x, retrieval_settings=None, semaphore=None):
     """
     Process given retrieval input using tiling.
 
@@ -626,8 +673,7 @@ def process_input(mrnn, x, retrieval_settings=None, lock=None):
         x: A 'torch.Tensor' containing the retrieval input.
         retrieval_settings: A RetrievalSettings object defining the settings
             for the retrieval
-        lock: Optional multiprocessing.Lock to synchronize device
-            access.
+        semaphore: Optional multiprocessing.Semaphore to limit device access.
 
     Return:
         An 'xarray.Dataset' containing the results of the retrieval.
@@ -664,8 +710,8 @@ def process_input(mrnn, x, retrieval_settings=None, lock=None):
     device = retrieval_settings.device
     precision = retrieval_settings.precision
 
-    if lock is not None:
-        lock.acquire()
+    if semaphore is not None:
+        semaphore.acquire()
 
     try:
         mrnn.model.to(device)
@@ -700,11 +746,12 @@ def process_input(mrnn, x, retrieval_settings=None, lock=None):
                     else:
                         slices = None
 
-                    if precision == 16:
-                        with torch.autocast(device_type=device):
+                    with torch.no_grad():
+                        if precision == 16:
+                            with torch.autocast(device_type=device):
+                                y_pred = mrnn.predict(x_t)
+                        else:
                             y_pred = mrnn.predict(x_t)
-                    else:
-                        y_pred = mrnn.predict(x_t)
 
                     # Remove padding if has been applied.
                     if slices is not None:
@@ -762,8 +809,8 @@ def process_input(mrnn, x, retrieval_settings=None, lock=None):
             torch.cuda.empty_cache()
 
     finally:
-        if lock is not None:
-            lock.release()
+        if semaphore is not None:
+            semaphore.release()
 
     LOGGER.info(f"Assembling results.")
     results = xr.Dataset()
@@ -800,7 +847,9 @@ def process_input(mrnn, x, retrieval_settings=None, lock=None):
 
     dims = ("time", "latitude", "longitude", "altitude")
     if len(cloud_type) > 0:
-        cloud_type = determine_cloud_class(tiler.assemble(cloud_type))
+        # cloud_type = determine_cloud_class(tiler.assemble(cloud_type))
+        # The raw cloud class doesn't resolve ties
+        cloud_type = determine_raw_cloud_class(tiler.assemble(cloud_type))
         cloud_type = np.transpose(cloud_type, [0, 2, 3, 1])
         results["cloud_type"] = (dims, cloud_type)
 
@@ -823,7 +872,7 @@ def process_input(mrnn, x, retrieval_settings=None, lock=None):
     return results
 
 
-def process_input_file(mrnn, input_file, retrieval_settings=None, lock=None):
+def process_input_file(mrnn, input_file, retrieval_settings=None, semaphore=None):
     """
     Processes an input file and returns the retrieval result together with
     meta data.
@@ -833,7 +882,7 @@ def process_input_file(mrnn, input_file, retrieval_settings=None, lock=None):
         input_file: The file containing the input data.
         retrieval_settings: A RetrievalSettings object specifying the settings for
             the retrieval.
-        lock: Optional multiprocessing.Lock to synchronize device access.
+        sempahore: Optional multiprocessing.Semaphore to limit device access.
 
     Return:
         A 'xarray.Dataset' containing the retrival results.
@@ -845,7 +894,7 @@ def process_input_file(mrnn, input_file, retrieval_settings=None, lock=None):
     LOGGER.info(f"Loading retrieval input from file {input_file.filename}.")
     retrieval_input = input_file.get_retrieval_input(roi=roi)
     results = process_input(
-        mrnn, retrieval_input, retrieval_settings=retrieval_settings, lock=lock
+        mrnn, retrieval_input, retrieval_settings=retrieval_settings, semaphore=semaphore
     )
 
     # Copy values of dimension
@@ -959,11 +1008,17 @@ def add_static_cf_attributes(retrieval_settings, dataset):
 
     if "cloud_type" in dataset:
         dataset["cloud_type"].attrs["units"] = "1"
-        dataset["cloud_type"].attrs["long_name"] = "Most likely cloud type"
+        dataset["cloud_type"].attrs["long_name"] = "Most likely cloud type, excluding no cloud"
         dataset["cloud_type"].attrs["flag_values"] = "0, 1, 2, 3, 4, 5, 6, 7, 8"
         dataset["cloud_type"].attrs[
             "flag_meanings"
         ] = "No cloud, Cirrus, Altostratus, Altocumulus, Stratus, Stratocumulus, Cumulus, Nimbostratus, Deep convection"
+        dataset["cloud_type"].attrs["comment"] = (
+            "Cloud type determined from the most likely cloud type "
+            "excluding no cloud. If the cloud type probabilities are "
+            "invalid, the cloud type is set to -1 or NaN."
+        )
+        dataset["cloud_type"].attrs["ancillary_variables"] = "cloud_prob_3d"
 
     if "inpainted" in dataset:
         dataset["inpainted"].attrs["units"] = "1"

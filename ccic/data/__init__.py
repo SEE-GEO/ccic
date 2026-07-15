@@ -92,6 +92,9 @@ def process_cloudsat_files(
     cache,
     size=256,
     timedelta=15,
+    local_cloudsat: dict={},
+    local_cpcir: dict={},
+    local_gridsat: dict={}
 ):
     """
     Match CloudSat product files for a given granule with CPCIR and
@@ -104,6 +107,9 @@ def process_cloudsat_files(
         size: The size of the match-up scenes to extract.
         timedelta: The maximum time difference to allow between CloudSat
             and geostationary observations.
+        local_cloudsat: Local CloudSat files.
+        local_cpcir: Local CPCIR files.
+        local_gridsat: Local GridSat files.
 
     Return:
         A list of match-up scenes.
@@ -112,11 +118,17 @@ def process_cloudsat_files(
 
     seed = hash("".join([cs_file.filename.name for cs_file in cloudsat_files]))
     rng = np.random.default_rng(abs(seed))
-    cloudsat_files = [
-        cache.get(type(cs_file), cs_file.filename) for cs_file in cloudsat_files
-    ]
+    cloudsat_files_updated = []
+    for cs_file in cloudsat_files:
+        product = type(cs_file)
+        # First check that local_cloudsat is not empty
+        if local_cloudsat and cs_file.filename.name in local_cloudsat:
+            cloudsat_files_updated.append(product(local_cloudsat[cs_file.filename.name]))
+        else:
+            cloudsat_files_updated.append(cache.get(product, cs_file.filename).result())
+    cloudsat_files = cloudsat_files_updated
 
-    data = cloudsat_files[0].result().to_xarray_dataset()
+    data = cloudsat_files[0].to_xarray_dataset()
     d_t = np.array(timedelta * 60, dtype="timedelta64[s]")
     start_time = data.time.data[0] - d_t
     end_time = data.time.data[-1] + d_t
@@ -130,14 +142,15 @@ def process_cloudsat_files(
         to_datetime(start_time), to_datetime(end_time), start_inclusive=True
     )
 
-    cloudsat_files = [cs_file.result() for cs_file in cloudsat_files]
-
     for filename in cpcir_files:
-        try:
-            cpcir_file = cache.get(CPCIR, filename).result()
-        except RuntimeError as err:
-            logger.error(err)
-            continue
+        if local_cpcir and filename in local_cpcir:
+            cpcir_file = CPCIR(local_cpcir[filename])
+        else:
+            try:
+                cpcir_file = cache.get(CPCIR, filename).result()
+            except RuntimeError as err:
+                logger.error(err)
+                continue
 
         scenes += cpcir_file.get_matches(
             rng, cloudsat_files, size=size, timedelta=timedelta
@@ -147,11 +160,14 @@ def process_cloudsat_files(
         )
 
     for filename in gridsat_files:
-        try:
-            gs_file = cache.get(GridSat, filename).result()
-        except RuntimeError as err:
-            logger.error(err)
-            continue
+        if local_gridsat and filename in local_gridsat:
+            gs_file = GridSat(local_gridsat[filename])
+        else:
+            try:
+                gs_file = cache.get(GridSat, filename).result()
+            except RuntimeError as err:
+                logger.error(err)
+                continue
 
         scenes += gs_file.get_matches(
             rng, cloudsat_files, size=size, timedelta=timedelta
@@ -206,6 +222,7 @@ def write_scenes(
             "tiwp",
             "tiwp_fpavg",
             "tiwc",
+            "tiwc_fpavg",
             "cloud_mask",
             "cloud_class",
         ]
@@ -223,6 +240,7 @@ def write_scenes(
         encoding[f"latitude_{product}"] = {"dtype": "float32", "zlib": True}
         encoding[f"longitude_{product}"] = {"dtype": "float32", "zlib": True}
         encoding["tiwc"] = {"dtype": "float32", "zlib": True}
+        encoding["tiwc_fpavg"] = {"dtype": "float32", "zlib": True}
         encoding["tiwp"] = {"dtype": "float32", "zlib": True}
         encoding["tiwp_fpavg"] = {"dtype": "float32", "zlib": True}
         encoding["cloud_class"] = {"dtype": "int8", "zlib": True}

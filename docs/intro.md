@@ -43,7 +43,7 @@ Iso surfaces of total ice water content (TIWP) in Typhon Nanmadol on 19 Septembe
 
 The TIWP quantifies the amount of ice particles in clouds. Ice particles are formed in clouds that are high or thick enough to reach temperatures where cloud droplets freeze. High TIWP values occur in thick clouds typically produced by storms. Estimates of TIWP are therefore useful to study the cloud processes involved in the formation of these storms. Moreover, since ice particle reflect and absorb radiation, the distribution of TIWP playes an important role in regulating the Earth's radiative energy balance.
 
-CCIC's TIWP estimates have been thoroughly validated and shown to be consistent with in-situ air-borne and ground-based cloud-radar measurements {cite:p}`amell_2023_ccic`. CCIC is the only thoroughly validated, high-resolution TIWP data record with temporally and spatially continuous coverage.
+CCIC's TIWP estimates have been thoroughly validated and shown to be consistent with in-situ air-borne and ground-based cloud-radar measurements {cite:p}`amell_2024_ccic`. CCIC is the only thoroughly validated, high-resolution TIWP data record with temporally and spatially continuous coverage.
 
 In addition, CCIC can provide other cloud-related variables, such as the 3D distribution of ice-particle concentrations in the atmosphere (the total ice water content, TIWC), two-dimensional and three-dimensional cloud probabilities, and three-dimensional cloud classification. Due to storage limitations, these products are not currently distributed with the CCIC data record. However, users can access these estimates by running their retrievals locally using the ``ccic`` Python package.
 
@@ -60,6 +60,8 @@ Example applications of CCIC can be found in the {doc}`applications` chapter.
 
 ## Citing CCIC
 
-If you are using CCIC for research or other purposes, please cite the following publication:
+If you are using CCIC for research or other purposes, please cite the following works:
 
-Amell, A., Pfreundschuh, S., and Eriksson, P.: The Chalmers Cloud Ice Climatology: Retrieval implementation and validation, EGUsphere [preprint], https://doi.org/10.5194/egusphere-2023-1953, 2023.
+- Amell, A., Pfreundschuh, S., and Eriksson, P.: Fine-tuning a machine-learned 3D cloud climatology reveals aspects of cloud cover trends, ESS Open Archive [preprint], [https://doi.org/10.22541/essoar.15001993/v1](https://doi.org/10.22541/essoar.15001993/v1), 2026.
+
+- Amell, A., Pfreundschuh, S., and Eriksson, P.: The Chalmers Cloud Ice Climatology: Retrieval implementation and validation, Atmos. Meas. Tech., 17, 4337–4368 [https://doi.org/10.5194/amt-17-4337-2024](https://doi.org/10.5194/amt-17-4337-2024), 2024.

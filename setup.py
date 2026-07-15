@@ -59,7 +59,7 @@ setup(
         "complete": [
             "metpy",
             "numpy",
-            "quantnn>=0.0.5",
+            "quantnn",
             "torch==1.13.1",
             "torchvision==0.14.1",
             "pytorch-lightning",

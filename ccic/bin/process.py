@@ -10,6 +10,7 @@ import hashlib
 import logging
 from multiprocessing import Manager, Process, Lock
 from pathlib import Path
+from queue import Empty
 import shutil
 import subprocess
 from tempfile import TemporaryDirectory
@@ -206,7 +207,8 @@ def add_parser(subparsers):
 
 
 def process_files(
-    processing_queue, model, retrieval_settings, output_path, device_lock
+    processing_queue, model, retrieval_settings, output_path,
+    device_semaphore, timeout=300
 ):
     """
     Take a file from the queue, process it and write the output to
@@ -217,6 +219,8 @@ def process_files(
         model: The neural network model to run the retrieval with.
         retrieval_settings: RetrievalSettings object specifying the retrieval
             settings.
+        device_semaphore: A semaphore to limit device access.
+        timeout: Seconds to wait to try to get an item from the queue.
     """
     from quantnn.mrnn import MRNN
     from ccic.processing import (
@@ -235,10 +239,12 @@ def process_files(
     mrnn.model.eval()
 
     while True:
-        args = processing_queue.get()
-        if args is None:
+        try:
+            args = processing_queue.get(timeout=timeout)
+        except Empty:
+            break
+        if not isinstance(args, tuple):
             processing_queue.task_done()
-            processing_queue.put(None)
             break
         input_file, clean_up = args
 
@@ -246,6 +252,8 @@ def process_files(
             retrieval_settings.database_path, Path(input_file.filename).name
         )
 
+        # On exit of context manager, can experience
+        # sqlite3.OperationalError: unable to open database file
         with log.log(logger):
             try:
                 logger.info(
@@ -255,7 +263,7 @@ def process_files(
                     mrnn,
                     input_file,
                     retrieval_settings=retrieval_settings,
-                    lock=device_lock,
+                    semaphore=device_semaphore,
                 )
                 output_file = get_output_filename(
                     input_file, results.time.data[0], retrieval_settings
@@ -289,7 +297,8 @@ def process_files(
                 processing_queue.task_done()
 
 
-def download_files(download_queue, processing_queue, retrieval_settings):
+def download_files(download_queue, processing_queue,
+                   retrieval_settings, n_processes):
     """
     This function implements a thread target that handles the download
     of the input function. The function waits for RemoteFile objects to
@@ -301,7 +310,9 @@ def download_files(download_queue, processing_queue, retrieval_settings):
             download.
         processing_queue: A queue object on which the downloaded files
             will be put.
-
+        retrieval_settings: RetrievalSettings object specifying the retrieval
+            settings.
+        n_processes: number of processes consuming from the processing_queue
     """
     from ccic.processing import RemoteFile, ProcessingLog
 
@@ -310,6 +321,7 @@ def download_files(download_queue, processing_queue, retrieval_settings):
     while True:
         input_file = download_queue.get()
         if input_file is None:
+            download_queue.task_done()
             break
 
         log = ProcessingLog(
@@ -324,12 +336,15 @@ def download_files(download_queue, processing_queue, retrieval_settings):
                     input_file.filename
                 )
                 continue
+            finally:
+                download_queue.task_done()
             if input_file is None:
                 # Something went wrong when opening the file
                 continue
         processing_queue.put((input_file, clean_up))
 
-    processing_queue.put(None)
+    for _ in range(n_processes):
+        processing_queue.put(None)
 
 
 def _get_database_name(args) -> str:
@@ -444,10 +459,6 @@ def run(args):
     if database_path is not None:
         database_path = Path(database_path)
         if database_path.is_dir() and database_path.exists():
-            command_hash = hash(
-                f"{args.model}{args.input_type}{args.start_time}{args.end_time}"
-                f"{args.roi}"
-            )
             database_name = _get_database_name(args)
             database_path = database_path / database_name
         elif not database_path.parent.exists():
@@ -550,48 +561,47 @@ def run(args):
 
     # Use managed queue to pass files between download threads
     # and processing processes.
-    manager = Manager()
-    download_queue = manager.Queue()
-    processing_queue = manager.Queue(4)
-    device_lock = manager.Lock()
+    with Manager() as manager:
+        download_queue = manager.Queue()
+        processing_queue = manager.Queue(2 * n_processes)
+        device_semaphore = manager.Semaphore(n_processes)
 
-    args = (download_queue, processing_queue, retrieval_settings)
-    download_thread = Thread(target=download_files, args=args)
-    args = (processing_queue, model, retrieval_settings, output, device_lock)
-    processing_processes = [
-        Process(target=process_files, args=args) for i in range(n_processes)
-    ]
+        args = (download_queue, processing_queue, retrieval_settings, n_processes)
+        download_thread = Thread(target=download_files, args=args)
+        args = (processing_queue, model, retrieval_settings, output, device_semaphore)
+        processing_processes = [
+            Process(target=process_files, args=args) for _ in range(n_processes)
+        ]
 
-    # Submit a download task for each file.
-    for input_file in input_files:
-        download_queue.put(input_file)
-    download_queue.put(None)
+        # Submit a download task for each file.
+        for input_file in input_files:
+            download_queue.put(input_file)
+        download_queue.put(None)
 
-    download_thread.start()
-    [proc.start() for proc in processing_processes]
+        download_thread.start()
+        [proc.start() for proc in processing_processes]
 
-    running = [download_thread] + processing_processes
+        running = [download_thread] + processing_processes
 
-    any_failed = False
-    while True:
-        running = [proc for proc in running if proc.is_alive()]
-        if len(running) == 0:
-            break
-        for processing_process in processing_processes:
-            if not processing_process.is_alive():
-                if processing_process.exitcode != 0:
-                    LOGGER.warning(
-                        "One of the processing processes terminated with a "
-                        " non-zero exit code. This indicates that the process "
-                        " was killed. Potentially due to memory issues."
-                    )
-                any_failed = True
-            processing_processes = [
-                proc for proc in processing_processes if proc.is_alive()
-            ]
+        any_failed = False
+        while True:
+            running = [proc for proc in running if proc.is_alive()]
+            if len(running) == 0:
+                break
 
-    processing_queue.get()
-    processing_queue.task_done()
-    processing_queue.join()
+            # list() for safe iteration
+            for processing_process in list(processing_processes):
+                if not processing_process.is_alive():
+                    if processing_process.exitcode != 0:
+                        LOGGER.warning(
+                            "One of the processing processes terminated with a "
+                            " non-zero exit code. This indicates that the process "
+                            " was killed. Potentially due to memory issues."
+                        )
+                        any_failed = True
+                
+                    # Remove the process from the list
+                    processing_processes.remove(processing_process)
+                    processing_process.join()
 
     return not any_failed

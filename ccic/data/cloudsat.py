@@ -11,15 +11,17 @@ import warnings
 import dask.array as da
 import numpy as np
 from pansat.download.providers.cloudsat_dpc import CloudSatDPCProvider
-from pansat.products.satellite.cloud_sat import l2c_ice, l2b_cldclass
+from pansat.products.satellite.cloud_sat import l2c_ice, l2b_cldclass, l2b_cldclass_lidar
 from pansat.time import to_datetime, to_datetime64
 from pyresample.bucket import BucketResampler
 from scipy.signal import convolve
 from scipy.interpolate import interp1d
+import xarray as xr
 
 
 PROVIDER_2CICE = CloudSatDPCProvider(l2c_ice)
 PROVIDER_2BCLDCLASS = CloudSatDPCProvider(l2b_cldclass)
+PROVIDER_2BCLDCLASSLIDAR = CloudSatDPCProvider(l2b_cldclass_lidar)
 ALTITUDE_LEVELS = (np.arange(0, 20) + 0.5) * 1e3
 
 CLOUD_CLASSES = [
@@ -241,7 +243,7 @@ class CloudsatFile:
             + data.attrs["start_time"][0, 0].astype("timedelta64[s]")
             + data.time_since_start.data.astype("timedelta64[s]")
         )
-        data["time"] = (("rays"), time)
+        data["time"] = (("rays"), time.astype('datetime64[ns]'))
 
         time_mask = np.ones(data.time.size, dtype=bool)
         if start_time is not None:
@@ -343,14 +345,19 @@ class CloudSat2CIce(CloudsatFile):
         iwc, height = subsample_iwc_and_height(iwc, height)
         surface_altitude = np.maximum(data.surface_elevation.data, 0.0)
 
-        # Pick random samples from iwc, height and surface altitude.
-        iwc = iwc[source_indices]
-        height = height[source_indices]
-        surface_altitude = surface_altitude[source_indices]
+        # Remap IWC
         iwc = remap_iwc(iwc, height, surface_altitude, ALTITUDE_LEVELS)
 
-        iwc_r = np.zeros(iwp_r.shape + (20,), dtype=np.float32) * np.nan
-        iwc_r.reshape(-1, 20)[target_indices] = iwc
+        # Resample IWC with average
+        iwc_r = np.apply_along_axis(
+            lambda x: resampler.get_average(x).compute(),
+            0,
+            iwc
+        )
+
+        # Pick random samples from iwc
+        iwc_r_rand = np.zeros(iwp_r.shape + (20,), dtype=np.float32) * np.nan
+        iwc_r_rand.reshape(-1, 20)[target_indices] = iwc[source_indices]
 
         target_dataset["altitude"] = (("altitude",), ALTITUDE_LEVELS)
         target_dataset["altitude"].attrs = {
@@ -358,19 +365,23 @@ class CloudSat2CIce(CloudsatFile):
             "positive": "up"
         }
 
-        target_dataset["tiwc"] = (("latitude", "longitude", "altitude"), iwc_r)
+        target_dataset["tiwc"] = (("latitude", "longitude", "altitude"), iwc_r_rand)
         target_dataset["tiwc"].attrs["long_name"] = "Total ice water content"
         target_dataset["tiwc"].attrs["unit"] = "g m-3"
 
+        target_dataset["tiwc_fpavg"] = (("latitude", "longitude", "altitude"), iwc_r)
+        target_dataset["tiwc_fpavg"].attrs["long_name"] = "Footprint-averaged total ice water content"
+        target_dataset["tiwc_fpavg"].attrs["unit"] = "g m-3"
+
         target_dataset["tiwp_fpavg"] = (("latitude", "longitude"), iwp_r)
         target_dataset["tiwp_fpavg"].attrs["long_name"] = "Footprint-averaged total ice water path"
-        target_dataset["tiwp_fpavg"].attrs["unit"] = "g m-3"
+        target_dataset["tiwp_fpavg"].attrs["unit"] = "kg m-2"
 
         target_dataset["tiwp"] = (("latitude", "longitude"), iwp_r_rand)
         target_dataset["tiwp"].attrs["long_name"] = "Total ice water path"
-        target_dataset["tiwp"].attrs["unit"] = "g m-3"
+        target_dataset["tiwp"].attrs["unit"] = "kg m-2"
 
-        target_dataset["time_cloudsat"] = (("latitude", "longitude"), time_r)
+        target_dataset["time_cloudsat"] = (("latitude", "longitude"), time_r.astype('datetime64[ns]'))
 
 
 class CloudSat2BCLDCLASS(CloudsatFile):
@@ -449,11 +460,135 @@ class CloudSat2BCLDCLASS(CloudsatFile):
             "_FillValue": -1,
         }
 
+class CloudSat2BCLDCLASSLIDAR(CloudsatFile):
+    """
+    Interface class to read CloudSat 2B-CLDCLASS-LIDAR files.
+    """
 
-def get_available_granules(date):
+    provider = PROVIDER_2BCLDCLASSLIDAR
+    product = l2b_cldclass_lidar
+
+    def add_retrieval_targets(
+        self,
+        target_dataset,
+        resampler,
+        target_indices,
+        source_indices,
+        start_time=None,
+        end_time=None,
+    ):
+        """
+        Add retrieval targets from the CloudSat2BCldClassLidar file (source) to
+        a target dataset (target).
+
+        Args:
+            target_dataset: The ``xarray.Dataset`` to add the resampled
+                retrieval targets to.
+            resampler: The ``pyresample.BucketResampler`` to use for
+                resampling.
+            target_indices: Indices of the flattened target grids for
+                probabilistic resampling of profiles.
+            source_indices: Corresponding indices of the 2CIce data for
+                the probabilistic resampling of profiles.
+            start_time: Optional start time to limit the source profiles that
+                are resampled.
+            end_time: Optional end time to limit the source profiles that
+                are resampled.
+        """
+        data = self.to_xarray_dataset(start_time=start_time, end_time=end_time)
+        output_shape = resampler.target_area.shape
+        labels = data.cloud_class.data[..., ::-1]
+        valid = data.cloud_class.data[..., ::-1] >= 0
+        labels[~valid] = -1
+
+        cloud_mask = labels.max(axis=-1) > 0
+        cloud_mask[np.any(~valid, -1)] = -1
+
+        height = data.height.data[..., ::-1]
+        surface_altitude = data.surface_elevation.data
+        labels = remap_cloud_classes(labels, height, surface_altitude, ALTITUDE_LEVELS)
+
+        cloud_mask_r = -1 *  np.ones(output_shape, dtype=np.int8)
+        cloud_mask_r.ravel()[target_indices] = cloud_mask[source_indices]
+        labels_r = -1 * np.ones(output_shape + (20,), dtype=np.int8)
+        labels_r.reshape(-1, 20)[target_indices] = labels[source_indices]
+
+        target_dataset["altitude"] = (("altitude",), ALTITUDE_LEVELS)
+        target_dataset["altitude"].attrs = {
+            "units": "meters",
+            "positive": "up"
+        }
+
+        target_dataset["cloud_mask"] = (("latitude", "longitude"), cloud_mask_r)
+        target_dataset["cloud_mask"].attrs = {
+            "long_name": "Cloud presence in atmospheric column",
+            "flag_values": "0, 1",
+            "flag_meaning": "no cloud, cloud present",
+            "_FillValue": -1
+        }
+        target_dataset["cloud_class"] = (("latitude", "longitude", "altitude"), labels_r)
+        target_dataset["cloud_class"].attrs = {
+            "long_name": "3D cloud classificiation",
+            "flag_values": "0, 1, 2, 3, 4, 5, 6, 7, 8",
+            "flag_meanings": ("no cloud, cirrus, altostratus, altocumulus, "
+                              "stratus, stratocumulus, cumulus, nimbostratuc, "
+                              "deep convection"),
+            "_FillValue": -1,
+        }
+
+    def to_xarray_dataset(self, start_time=None, end_time=None):
+        data = super().to_xarray_dataset(start_time=start_time, end_time=end_time)
+        data = data.rename({"cloud_class": "cloud_class_layer"})
+        data["cloud_class"] = (
+            ("rays", "bins"),
+            self.layers_to_bins(data, "cloud_class_layer").data
+        )
+        return data
+
+    def layers_to_bins(self, ds: xr.Dataset, var: str, fill_value=0) -> xr.DataArray:
+        """
+        Expand layer data to height bins.
+
+        Args:
+            ds: The ``xarray.Dataset`` returned by .to_xarray_dataset
+            var: Variable name to expand
+            fill_value: Fill value to use where there is no information
+        
+        Returns an xarray.DataArray with the levels expanded.
+        """
+        a = xr.full_like(ds.height, fill_value, dtype=ds[var].dtype)
+        a.attrs = {}
+
+        # Values given in km, transform to m
+        start = 1e3 * xr.where(
+            ds.cloud_layer_base == -99,
+            np.nan,
+            ds.cloud_layer_base
+        )
+        end = 1e3 * xr.where(
+            ds.cloud_layer_top == -99,
+            np.nan,
+            ds.cloud_layer_top
+        )
+        
+        for l in ds.layers:
+            condition = (start.sel(layers=l) <= ds.height) & \
+                (ds.height <= end.sel(layers=l))
+            a = xr.where(condition, ds[var].sel(layers=l), a)
+
+        # `quality` describes the classification quality
+        quality = xr.where(ds.cloud_type_quality == -99, np.nan, 1) 
+        return xr.where(np.isnan(quality).all(dim='layers'), -1, a)
+
+
+def get_available_granules(date, legacy: bool=False):
     """
     Collects the names of available CloudSat files for a given day
     and groups them by the granule number.
+
+    Args:
+        date: date
+        legacy: if True, use 2B-CLDCLASS files, else 2B-CLDCLASS-LIDAR
 
     Returns:
         A list of CloudSat file objects.
@@ -462,7 +597,10 @@ def get_available_granules(date):
          the returned objects points to non-existing files.
     """
     cloudsat_files = []
-    cloudsat_classes = [CloudSat2CIce, CloudSat2BCLDCLASS]
+    cloudsat_classes = [
+        CloudSat2CIce,
+        CloudSat2BCLDCLASS if legacy else CloudSat2BCLDCLASSLIDAR
+    ]
     for cls in cloudsat_classes:
         cloudsat_files += [
             cls(filename) for filename in cls.get_available_files(date)
@@ -486,7 +624,7 @@ def resample_data(
     Resample cloudsat data and include in dataset.
 
     This function adds retrieval target variables from CloudSat
-    2CIce and 2BCLDCLASS files to a target dataset.
+    2CIce and (2BCLDCLASS-LIDAR or 2BCLDCLASS) files to a target dataset.
 
     Args:
         target_dataset: The ``xarray.Dataset`` to which the retrieval
@@ -495,8 +633,10 @@ def resample_data(
             target dataset.
         cloudsat_files: List of CloudSat files from which to add retrieval
             targets to the target dataset.
-        cloudsat_2bcldclass_file: Path to the CloudSat 2BCLDCLASS file from
-            which to read the 2CIce data.
+        start_time: Optional start time to limit the source profiles that
+            are loaded.
+        end_time: Optional end time to limit the source profiles that
+            are loaded.
 
     Return:
         The target_dataset or ``None`` if no matches can be found within
