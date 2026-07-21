@@ -8,10 +8,13 @@ import argparse
 import calendar
 from contextlib import nullcontext
 import datetime
+import json
+import os
 from pathlib import Path
 
 import ccic
 import dask
+from dask_jobqueue import SLURMCluster
 from dask.distributed import Client
 from flox.xarray import xarray_reduce
 import numpy as np
@@ -19,7 +22,20 @@ import pandas as pd
 from upath import UPath
 import xarray as xr
 
-from scripts.monthly_means import find_files
+try:
+    from scripts.monthly_means import find_files
+except ModuleNotFoundError:
+    # pansat may not be installed, so we define the function here
+    def find_files(year: int, month: int, source: Path, product: str) -> list[Path]:
+        """
+        Find the files for year `year` and month `month` at a directory.
+
+        Note: it is assumed the CCIC files are stored in the following directory
+            structure: {source}/{product}/{year}/
+        """
+        path = source / product / str(year)
+        files = path.glob(f"ccic_{product}_{year}{month:02d}*.*")
+        return sorted(list(files))
 
 DATASET_LEVEL_ATTRS = {
     "description": (
@@ -61,11 +77,29 @@ VAR_LEVEL_ATTRS = {
         "description": "Sum of non-NaN cosine-latitude-weighted TIWP values in each bin. To compute the mean cosine-latitude-weighted TIWP in each bin, divide this variable by `weighted_tiwp_count`.",
         "units": "kg m-2"
     },
-    "weighted_tiwp_count": {
+    "weights_tiwp_nansum": {
         "description": "Sum of the cosine-latitude-weights for each non-NaN TIWP in each bin. To compute the mean cosine-latitude-weighted TIWP in each bin, divide `weighted_tiwp_nansum` by this variable.",
         "units": "1"
     }
 }
+
+def build_cluster(config: dict) -> SLURMCluster:
+    cfg = config['cluster']
+    cores = cfg['cores']
+    account = cfg.get('account') or os.environ['SLURM_JOB_ACCOUNT']
+
+    cluster = SLURMCluster(
+        cores=cores,
+        processes=1,
+        memory=f"{cores * cfg['memory_per_core_gib']}GiB",
+        account=account,
+        job_name=cfg.get('job_name', 'ccic-dask-worker'),
+        walltime=cfg.get('walltime', '04:00:00'),
+        log_directory=cfg.get('log_directory', './logs'),
+        worker_extra_args=cfg.get('worker_extra_args', []),
+    )
+    cluster.adapt(**config.get('adapt', {}))
+    return cluster
 
 def process_month(args: argparse.Namespace, year_month: datetime.datetime):
     print(f"Processing data for {year_month.strftime('%Y-%m')} with product {args.product}...")
@@ -76,7 +110,7 @@ def process_month(args: argparse.Namespace, year_month: datetime.datetime):
     # Remove files that are the same, but with different source paths
     # Sort S3Path objects to the end of the list so that any file is overwritten by S3 files if they exist
     files.sort(key=lambda p: 1 if 'S3Path' in str(type(p)) else 0)
-    files = list({Path(f).name: f for f in files}.values())
+    files = list({UPath(f).name: f for f in files}.values())
 
     # Check that there is the expected number of files
     _, n_days = calendar.monthrange(year_month.year, year_month.month)
@@ -99,7 +133,8 @@ def process_month(args: argparse.Namespace, year_month: datetime.datetime):
     )
 
     # Rechunk to avoid too many small chunks
-    ds = ds.chunk({'time': -1})
+    # 1 chunk per day
+    ds = ds.chunk({'time': 48 if args.product == "cpcir" else 8})
 
     # Drop variables that are not considered for now
     for var in ['p_tiwp', 'tiwp_ci', 'cloud_prob_2d', 'ci_bounds', 'inpainted']:
@@ -115,6 +150,9 @@ def process_month(args: argparse.Namespace, year_month: datetime.datetime):
 
     # 'Floor' everything to the first day of the month for the monthly means
     ds['time'] = ds['time'] - (ds.time.dt.day - 1) * np.timedelta64(1, 'D')
+
+    if args.persist:
+        ds = ds.persist()
 
     groupers = {
         'tiwp': {
@@ -146,8 +184,7 @@ def process_month(args: argparse.Namespace, year_month: datetime.datetime):
 
 
     weights = np.cos(np.deg2rad(ds.latitude))
-    weights = weights.broadcast_like(ds.tiwp).where(ds.tiwp.notnull())
-    valid_weights = weights.where(ds.tiwp.notnull())
+    valid_weights = weights.where(ds.tiwp.notnull(), 0)
 
     with dask.config.set({"array.slicing.split_large_chunks": False}):
         # Using flox here as we're also binning by TIWP, which is a variable
@@ -164,7 +201,7 @@ def process_month(args: argparse.Namespace, year_month: datetime.datetime):
                 method='map-reduce',
             ).rename(key)
             for key, values in zip(
-                ['tiwp_nansum', 'tiwp_count', 'weighted_tiwp_nansum', 'weighted_tiwp_count'],
+                ['tiwp_nansum', 'tiwp_count', 'weighted_tiwp_nansum', 'weights_tiwp_nansum'],
                 [ds.tiwp, ds.tiwp, ds.tiwp * weights, valid_weights]
             )
         }
@@ -174,8 +211,8 @@ def process_month(args: argparse.Namespace, year_month: datetime.datetime):
 
     # Consistency in data types
     ds_combined['tiwp_count'] = ds_combined['tiwp_count'].astype('int32')
-    ds_combined['weighted_tiwp_count'] = ds_combined['weighted_tiwp_count'].astype('int32')
-    
+    ds_combined['weights_tiwp_nansum'] = ds_combined['weights_tiwp_nansum'].astype('float32')
+
     # The bins are `object` dtypes, as they are numpy arrays of Interval objects.
     # Convert to pandas IntervalIndex for consistency
     for var in ['tiwp_bins', 'latitude_bins', 'longitude_bins']:
@@ -198,7 +235,7 @@ def process_month(args: argparse.Namespace, year_month: datetime.datetime):
     ds_combined.to_netcdf(
         args.destination / f"ccic_{args.product}_{year_month.strftime('%Y%m')}_monthlymean_resolved.nc",
     )
-    
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -262,6 +299,17 @@ if __name__ == "__main__":
             "If not specified, will use the default scheduler."
         )
     )
+    parser.add_argument(
+        '--persist',
+        action='store_true',
+        help=(
+            "Persist the dataset in memory after loading. "
+            "This can speed up processing if the dataset fits in memory."
+        )
+    )
+    parser.add_argument(
+        '--cluster_config',
+    )
 
     args = parser.parse_args()
 
@@ -274,9 +322,15 @@ if __name__ == "__main__":
     current_month = datetime.datetime.strptime(args.month, "%Y%m")
     month_end = datetime.datetime.strptime(args.month_end, "%Y%m")
 
-    ctx = Client(args.scheduler) if args.scheduler else nullcontext()
+    if args.cluster_config:
+        with open(args.cluster_config) as handle:
+            cluster_config = json.load(handle)
+        
+        cluster = build_cluster(cluster_config)
+        print(f"Cluster dashboard available at: {cluster.dashboard_link}")
+        args.scheduler = cluster.scheduler_address
 
-    with ctx:
+    with Client(args.scheduler) if args.scheduler else nullcontext():
         for year_month in pd.date_range(current_month, month_end, freq="MS"):
             print(f"Processing {year_month.strftime('%Y-%m')}...")
             process_month(
