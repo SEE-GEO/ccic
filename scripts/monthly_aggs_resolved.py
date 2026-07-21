@@ -2,6 +2,21 @@
 This script computes the monthly means from the existing CCIC data record.
 
 But we coarsen the grid and bin the data to keep PDFs.
+
+Note:
+
+If you use a LocalCluster, you need to instruct dask to preload ccic, e.g.
+
+```
+import dask
+from dask.distributed import LocalCluster
+
+dask.config.set({"distributed.worker.preload": ["ccic"]})
+
+cluster = LocalCluster(
+    memory_limit=f'{48 // 4}GiB',
+)
+```
 """
 
 import argparse
@@ -34,8 +49,15 @@ except ModuleNotFoundError:
             structure: {source}/{product}/{year}/
         """
         path = source / product / str(year)
-        files = path.glob(f"ccic_{product}_{year}{month:02d}*.*")
-        return sorted(list(files))
+        date_range = pd.date_range(
+            pd.Timestamp(f'{year}-{month:02d}'), 
+            pd.Timestamp(f'{year}-{month:02d}') + pd.DateOffset(months=1),
+            freq='h' if product == 'cpcir' else '3h',
+            inclusive='left'
+        )
+        files = [path / f"ccic_{product}_{t.strftime('%Y%m%d%H%M')}.zarr" for t in date_range]
+        files = [f for f in files if f.exists()]
+        return sorted(files)
 
 DATASET_LEVEL_ATTRS = {
     "description": (
@@ -96,7 +118,7 @@ def build_cluster(config: dict) -> SLURMCluster:
         job_name=cfg.get('job_name', 'ccic-dask-worker'),
         walltime=cfg.get('walltime', '04:00:00'),
         log_directory=cfg.get('log_directory', './logs'),
-        worker_extra_args=cfg.get('worker_extra_args', []),
+        worker_extra_args=cfg.get('worker_extra_args', ["--preload", "ccic"]),
     )
     cluster.adapt(**config.get('adapt', {}))
     return cluster
@@ -248,7 +270,12 @@ if __name__ == "__main__":
         "--source",
         nargs='+',
         required=True,
-        help="directory of the CCIC data record",
+        help=(
+            "Directory of the CCIC data record. "
+            "Can be a local directory (e.g., /path/to/data or local:///path/to/record/), "
+            "an S3 bucket (e.g., s3://chalmerscloudiceclimatology/record/), "
+            "or the https server (e.g., https://data.clouds-and-precip.group/ccic/record/)."
+        )
     )
     parser.add_argument(
         "--destination",
