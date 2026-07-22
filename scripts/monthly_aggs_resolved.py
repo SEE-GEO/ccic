@@ -255,7 +255,7 @@ def process_month(args: argparse.Namespace, year_month: datetime.datetime):
     # into memory and then write to disk
     ds_combined = ds_combined.compute()
     ds_combined.to_netcdf(
-        args.destination / f"ccic_{args.product}_{year_month.strftime('%Y%m')}_monthlymean_resolved.nc",
+        args.destination / f"ccic_{args.product}_{year_month.strftime('%Y%m')}_monthly_aggs_resolved.nc",
     )
 
 if __name__ == "__main__":
