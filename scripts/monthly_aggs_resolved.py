@@ -151,7 +151,8 @@ def process_month(args: argparse.Namespace, year_month: datetime.datetime):
         combine='nested',
         concat_dim='time',
         parallel=True,
-        engine='zarr'
+        engine='zarr',
+        drop_variables=['altitude']
     )
 
     # Rechunk to avoid too many small chunks
