@@ -21,4 +21,4 @@ The CCIC retrieval, its implementation, and validation results are presented in
 
 A fine-tuning of the retrieval of cloud probabilities is described in
 
-> Amell, A., Pfreundschuh, S., and Eriksson, P.: Fine-tuning a machine-learned 3D cloud climatology reveals aspects of cloud cover trends, ESS Open Archive [preprint], [https://doi.org/10.22541/essoar.15001993/v1](https://doi.org/10.22541/essoar.15001993/v1), 2026.
+> Amell, A., Pfreundschuh, S., and Eriksson, P.: Fine-tuning a machine-learned 3D cloud climatology reveals aspects of cloud cover trends, Geophysical Research Letters, 53, e2026GL123369 [https://doi.org/10.1029/2026GL123369](https://doi.org/10.1029/2026GL123369), 2026.
