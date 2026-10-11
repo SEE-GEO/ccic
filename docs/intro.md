@@ -62,6 +62,6 @@ Example applications of CCIC can be found in the {doc}`applications` chapter.
 
 If you are using CCIC for research or other purposes, please cite the following works:
 
-- Amell, A., Pfreundschuh, S., and Eriksson, P.: Fine-tuning a machine-learned 3D cloud climatology reveals aspects of cloud cover trends, ESS Open Archive [preprint], [https://doi.org/10.22541/essoar.15001993/v1](https://doi.org/10.22541/essoar.15001993/v1), 2026.
+- Amell, A., Pfreundschuh, S., and Eriksson, P.: Fine-tuning a machine-learned 3D cloud climatology reveals aspects of cloud cover trends, Geophysical Research Letters, 53, e2026GL123369 [https://doi.org/10.1029/2026GL123369](https://doi.org/10.1029/2026GL123369), 2026.
 
 - Amell, A., Pfreundschuh, S., and Eriksson, P.: The Chalmers Cloud Ice Climatology: Retrieval implementation and validation, Atmos. Meas. Tech., 17, 4337–4368 [https://doi.org/10.5194/amt-17-4337-2024](https://doi.org/10.5194/amt-17-4337-2024), 2024.
